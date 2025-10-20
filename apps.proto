@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service AppService {
+  rpc UpsertApp(UpsertAppRequest) returns (App);
+  rpc GetApp(GetAppRequest) returns (App);
+  rpc UpdateApp(UpdateAppRequest) returns (App);
+  rpc DeleteApp(DeleteAppRequest) returns (DeleteAppResponse);
+  rpc ListApps(ListAppsRequest) returns (ListAppsResponse);
+}
+
+message App {
+  string id = 1;
+  int32 organization_id = 2;
+  string name = 3;
+  string details = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message UpsertAppRequest {
+  string id = 1;
+  int32 organization_id = 2;
+  optional string name = 3;
+  optional string details = 4;
+}
+
+message GetAppRequest {
+  string id = 1;
+  int32 organization_id = 2;
+}
+
+message UpdateAppRequest {
+  string id = 1;
+  int32 organization_id = 2;
+  optional string name = 3;
+  optional string details = 4;
+}
+
+message DeleteAppRequest {
+  string id = 1;
+  int32 organization_id = 2;
+}
+
+message DeleteAppResponse {
+  bool success = 1;
+}
+
+message ListAppsRequest {
+  int32 organization_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+  optional string filter = 4;  // Filter by name or details
+}
+
+message ListAppsResponse {
+  repeated App apps = 1;
+  string next_page_token = 2;
+}

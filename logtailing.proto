@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+// This file provides log tailing functionality for the WendyCloud dashboard.
+// It uses the standard OpenTelemetry Protocol (OTLP) format for log responses.
+//
+// For consumers: Use the standard OTLP data model (ResourceLogs, ScopeLogs, LogRecord).
+//
+// See: https://opentelemetry.io/docs/specs/otlp/
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+import "opentelemetry/proto/logs/v1/logs.proto";
+
+// Log tailing service using standard OTLP format.
+//
+// Authentication:
+// - TailLogEntries: Firebase JWT token (for dashboard access)
+//
+// The standard OTLP format provides:
+// - ResourceLogs: Contains resource attributes (org_id, asset_id, app_id as resource attributes)
+// - ScopeLogs: Groups logs by instrumentation scope
+// - LogRecord: Individual log entries with timestamps, severity, body, attributes, and trace context
+service LogTailingService {
+  // Server-stream logs for a given organization/asset/app combination.
+  // Implemented by polling Cloud Logging's entries.list and emitting batches.
+  // Intended for gRPC-web consumption from the dashboard.
+  rpc TailLogEntries(TailLogEntriesRequest) returns (stream TailLogEntriesResponse);
+}
+
+// Request to tail logs for a specific app on an asset (dashboard only).
+message TailLogEntriesRequest {
+  int32 organization_id = 1;
+  int32 asset_id = 2;
+  string app_id = 3;
+
+  // Optional start time for the tail window; defaults to 'now - 2m'.
+  optional google.protobuf.Timestamp start_time = 4;
+
+  // Server polling interval in seconds; defaults to 2.
+  optional int32 poll_interval_seconds = 5;
+
+  // Max entries per batch; defaults to 100.
+  optional int32 page_size = 6;
+
+  // Optional deployment filter; when set, only entries matching this deployment_id are returned.
+  optional int32 deployment_id = 7;
+}
+
+message TailLogEntriesResponse {
+  // Logs returned in standard OTLP format.
+  repeated opentelemetry.proto.logs.v1.ResourceLogs resource_logs = 1;
+
+  // Watermark timestamp up to which the server attempted to read.
+  google.protobuf.Timestamp read_through = 2;
+}
