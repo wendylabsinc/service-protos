@@ -34,6 +34,7 @@ message Organization {
   optional string domain = 4;
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp updated_at = 6;
+  optional string user_id = 7;
 }
 
 message OrganizationMember {
