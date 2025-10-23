@@ -162,9 +162,12 @@ message AssetApp {
   optional Running reported_state = 6;
   optional google.protobuf.Timestamp reported_at = 7;
   optional int32 reported_restart_count = 8;
+  // Convenience: most recent deployment that targeted this app release in the org
+  optional int32 deployment_id = 9;
+  optional string deployment_details = 10;
+  optional google.protobuf.Timestamp deployment_created_at = 11;
 }
 
 message ListAssetAppsResponse {
   repeated AssetApp asset_apps = 1;
 }
-
