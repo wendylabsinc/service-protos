@@ -13,26 +13,6 @@ service MapService {
   rpc DeleteMap(DeleteMapRequest) returns (DeleteMapResponse);
   rpc ListMaps(ListMapsRequest) returns (stream ListMapsResponse);
 
-  // MapLayer CRUD
-  rpc CreateMapLayer(CreateMapLayerRequest) returns (MapLayer);
-  rpc GetMapLayer(GetMapLayerRequest) returns (MapLayer);
-  rpc UpdateMapLayer(UpdateMapLayerRequest) returns (MapLayer);
-  rpc DeleteMapLayer(DeleteMapLayerRequest) returns (DeleteMapLayerResponse);
-  rpc ListMapLayers(ListMapLayersRequest) returns (stream ListMapLayersResponse);
-
-  // MapLayerVolume CRUD
-  rpc CreateMapLayerVolume(CreateMapLayerVolumeRequest) returns (MapLayerVolume);
-  rpc GetMapLayerVolume(GetMapLayerVolumeRequest) returns (MapLayerVolume);
-  rpc UpdateMapLayerVolume(UpdateMapLayerVolumeRequest) returns (MapLayerVolume);
-  rpc DeleteMapLayerVolume(DeleteMapLayerVolumeRequest) returns (DeleteMapLayerVolumeResponse);
-  rpc ListMapLayerVolumes(ListMapLayerVolumesRequest) returns (stream ListMapLayerVolumesResponse);
-
-  // Spatial queries
-  rpc CheckPointInLayer(CheckPointInLayerRequest) returns (CheckPointInLayerResponse);
-  rpc CheckPointInVolume(CheckPointInVolumeRequest) returns (CheckPointInVolumeResponse);
-  rpc FindLayersContainingPoint(FindLayersContainingPointRequest) returns (FindLayersContainingPointResponse);
-  rpc FindVolumesContainingPoint(FindVolumesContainingPointRequest) returns (FindVolumesContainingPointResponse);
-
   // Real-time subscriptions
   rpc SubscribeToMapEvents(SubscribeToMapEventsRequest) returns (stream MapEvent);
 }
@@ -52,38 +32,6 @@ message Map {
   google.protobuf.Timestamp updated_at = 11;
 }
 
-// MapLayer message
-message MapLayer {
-  int32 id = 1;
-  int32 map_id = 2;
-  string name = 3;
-  string description = 4;
-  string layer_type = 5;
-  string color = 6;
-  double opacity = 7;
-  google.protobuf.Struct config = 8;
-  int32 display_order = 9;
-  bool is_visible = 10;
-  google.protobuf.Timestamp created_at = 11;
-  google.protobuf.Timestamp updated_at = 12;
-}
-
-// MapLayerVolume message
-message MapLayerVolume {
-  int32 id = 1;
-  int32 map_layer_id = 2;
-  string name = 3;
-  string description = 4;
-  // WKT representation of the POLYHEDRALSURFACEZ geometry
-  string geometry_wkt = 5;
-  optional string color = 6;
-  optional double opacity = 7;
-  google.protobuf.Struct config = 8;
-  int32 display_order = 9;
-  google.protobuf.Timestamp created_at = 10;
-  google.protobuf.Timestamp updated_at = 11;
-}
-
 // Map CRUD requests/responses
 message CreateMapRequest {
   int32 organization_id = 1;
@@ -94,8 +42,6 @@ message CreateMapRequest {
   optional double default_altitude = 6;
   optional double default_zoom = 7;
   optional google.protobuf.Struct config = 8;
-  // If true, creates a default layer automatically
-  bool create_default_layer = 9;
 }
 
 message GetMapRequest {
@@ -133,171 +79,11 @@ message ListMapsResponse {
   int32 total = 2;
 }
 
-// MapLayer CRUD requests/responses
-message CreateMapLayerRequest {
-  int32 map_id = 1;
-  string name = 2;
-  optional string description = 3;
-  optional string layer_type = 4;
-  optional string color = 5;
-  optional double opacity = 6;
-  optional google.protobuf.Struct config = 7;
-  optional int32 display_order = 8;
-  optional bool is_visible = 9;
-}
-
-message GetMapLayerRequest {
-  int32 id = 1;
-}
-
-message UpdateMapLayerRequest {
-  int32 id = 1;
-  optional string name = 2;
-  optional string description = 3;
-  optional string layer_type = 4;
-  optional string color = 5;
-  optional double opacity = 6;
-  optional google.protobuf.Struct config = 7;
-  optional int32 display_order = 8;
-  optional bool is_visible = 9;
-}
-
-message DeleteMapLayerRequest {
-  int32 id = 1;
-}
-
-message DeleteMapLayerResponse {
-  bool success = 1;
-}
-
-message ListMapLayersRequest {
-  int32 map_id = 1;
-  optional int32 offset = 2;
-  optional int32 limit = 3;
-}
-
-message ListMapLayersResponse {
-  MapLayer layer = 1;
-  int32 total = 2;
-}
-
-// MapLayerVolume CRUD requests/responses
-message CreateMapLayerVolumeRequest {
-  int32 map_layer_id = 1;
-  string name = 2;
-  optional string description = 3;
-  // WKT representation of the POLYHEDRALSURFACEZ geometry
-  optional string geometry_wkt = 4;
-  optional string color = 5;
-  optional double opacity = 6;
-  optional google.protobuf.Struct config = 7;
-  optional int32 display_order = 8;
-}
-
-message GetMapLayerVolumeRequest {
-  int32 id = 1;
-}
-
-message UpdateMapLayerVolumeRequest {
-  int32 id = 1;
-  optional string name = 2;
-  optional string description = 3;
-  optional string geometry_wkt = 4;
-  optional string color = 5;
-  optional double opacity = 6;
-  optional google.protobuf.Struct config = 7;
-  optional int32 display_order = 8;
-}
-
-message DeleteMapLayerVolumeRequest {
-  int32 id = 1;
-}
-
-message DeleteMapLayerVolumeResponse {
-  bool success = 1;
-}
-
-message ListMapLayerVolumesRequest {
-  int32 map_layer_id = 1;
-  optional int32 offset = 2;
-  optional int32 limit = 3;
-}
-
-message ListMapLayerVolumesResponse {
-  MapLayerVolume volume = 1;
-  int32 total = 2;
-}
-
-// Spatial query requests/responses
-message CheckPointInLayerRequest {
-  int32 layer_id = 1;
-  double latitude = 2;
-  double longitude = 3;
-  double altitude = 4;
-}
-
-message CheckPointInLayerResponse {
-  bool is_inside = 1;
-}
-
-message CheckPointInVolumeRequest {
-  int32 volume_id = 1;
-  double latitude = 2;
-  double longitude = 3;
-  double altitude = 4;
-}
-
-message CheckPointInVolumeResponse {
-  bool is_inside = 1;
-}
-
-message FindLayersContainingPointRequest {
-  int32 organization_id = 1;
-  double latitude = 2;
-  double longitude = 3;
-  double altitude = 4;
-}
-
-message LayerMatch {
-  int32 layer_id = 1;
-  string layer_name = 2;
-  int32 map_id = 3;
-  string map_name = 4;
-  int32 volume_id = 5;
-  string volume_name = 6;
-}
-
-message FindLayersContainingPointResponse {
-  repeated LayerMatch matches = 1;
-}
-
-message FindVolumesContainingPointRequest {
-  int32 map_id = 1;
-  double latitude = 2;
-  double longitude = 3;
-  double altitude = 4;
-}
-
-message VolumeMatch {
-  int32 volume_id = 1;
-  string volume_name = 2;
-  int32 layer_id = 3;
-  string layer_name = 4;
-}
-
-message FindVolumesContainingPointResponse {
-  repeated VolumeMatch matches = 1;
-}
-
 // Real-time event subscription
 enum MapEventType {
   MAP_EVENT_TYPE_UNSPECIFIED = 0;
-  MAP_EVENT_TYPE_LAYER_CREATED = 1;
-  MAP_EVENT_TYPE_LAYER_UPDATED = 2;
-  MAP_EVENT_TYPE_LAYER_DELETED = 3;
-  MAP_EVENT_TYPE_VOLUME_CREATED = 4;
-  MAP_EVENT_TYPE_VOLUME_UPDATED = 5;
-  MAP_EVENT_TYPE_VOLUME_DELETED = 6;
+  MAP_EVENT_TYPE_MAP_UPDATED = 1;
+  MAP_EVENT_TYPE_MAP_DELETED = 2;
 }
 
 message SubscribeToMapEventsRequest {
@@ -307,11 +93,9 @@ message SubscribeToMapEventsRequest {
 message MapEvent {
   MapEventType event_type = 1;
   int32 map_id = 2;
-  // For layer events
-  optional MapLayer layer = 3;
-  // For volume events
-  optional MapLayerVolume volume = 4;
-  // ID of deleted entity (when layer/volume is not included)
-  optional int32 deleted_id = 5;
-  google.protobuf.Timestamp timestamp = 6;
+  // For map update events
+  optional Map map = 3;
+  // ID of deleted entity
+  optional int32 deleted_id = 4;
+  google.protobuf.Timestamp timestamp = 5;
 }
