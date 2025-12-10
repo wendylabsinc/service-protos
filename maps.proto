@@ -30,6 +30,7 @@ message Map {
   google.protobuf.Struct config = 9;
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;
+  optional string map_style = 12;
 }
 
 // Map CRUD requests/responses
@@ -42,6 +43,7 @@ message CreateMapRequest {
   optional double default_altitude = 6;
   optional double default_zoom = 7;
   optional google.protobuf.Struct config = 8;
+  optional string map_style = 9;
 }
 
 message GetMapRequest {
@@ -57,6 +59,7 @@ message UpdateMapRequest {
   optional double default_altitude = 6;
   optional double default_zoom = 7;
   optional google.protobuf.Struct config = 8;
+  optional string map_style = 9;
 }
 
 message DeleteMapRequest {
