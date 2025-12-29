@@ -16,6 +16,7 @@ service OrganizationService {
   rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (OrganizationMember);
   rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
   rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  rpc TransferOwnership(TransferOwnershipRequest) returns (TransferOwnershipResponse);
 }
 
 enum OrganizationRole {
@@ -129,4 +130,14 @@ message AddMemberResult {
 
 message AddMembersByEmailsResponse {
   repeated AddMemberResult results = 1;
+}
+
+message TransferOwnershipRequest {
+  int32 organization_id = 1;
+  string new_owner_user_id = 2;
+}
+
+message TransferOwnershipResponse {
+  OrganizationMember new_owner = 1;
+  OrganizationMember previous_owner = 2;
 }
