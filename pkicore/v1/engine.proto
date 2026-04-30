@@ -1,0 +1,284 @@
+// proto/pkicore/v1/engine.proto
+syntax = "proto3";
+package pkicore.v1;
+option go_package = "github.com/wendylabsinc/cloud/services/internal/pkicore;pkicore";
+import "pkicore/v1/types.proto";
+
+service CAEngine {
+  rpc IssueCertificate(IssueCertificateRequest)   returns (IssueCertificateResponse);
+  rpc RevokeCertificate(RevokeCertificateRequest) returns (RevokeCertificateResponse);
+  rpc ListCertificates(ListCertificatesRequest)   returns (ListCertificatesResponse);
+  rpc GetCRL(GetCRLRequest)                       returns (GetCRLResponse);
+  rpc GetOCSP(GetOCSPRequest)                     returns (GetOCSPResponse);
+  rpc CreateCustomerCA(CreateCustomerCARequest)   returns (CreateCustomerCAResponse);
+  rpc RotateCA(RotateCARequest)                   returns (RotateCAResponse);
+  rpc RevokeCA(RevokeCARequest)                   returns (RevokeCAResponse);
+  rpc GetCAChain(GetCAChainRequest)               returns (GetCAChainResponse);
+  rpc GetAuditLog(GetAuditLogRequest)             returns (stream AuditLogEntry);
+  rpc GetCACerts(GetCACertsRequest)                          returns (GetCACertsResponse);
+  rpc GenerateKeyAndIssueCert(GenerateKeyAndIssueCertRequest) returns (GenerateKeyAndIssueCertResponse);
+  rpc VerifyEABSignature(VerifyEABSignatureRequest) returns (VerifyEABSignatureResponse);
+  rpc GetCertificate(GetCertificateRequest)         returns (GetCertificateResponse);
+
+  // Admin API RPCs (Plan 16a)
+  rpc SetTenantPolicy(SetTenantPolicyRequest)           returns (SetTenantPolicyResponse);
+  rpc GetTenantPolicy(GetTenantPolicyRequest)           returns (GetTenantPolicyResponse);
+  rpc ListCAs(ListCAsRequest)                           returns (ListCAsResponse);
+  rpc OffboardTenant(OffboardTenantRequest)             returns (OffboardTenantResponse);
+  rpc CreateEABKey(CreateEABKeyRequest)                 returns (CreateEABKeyResponse);
+  rpc ListEABKeys(ListEABKeysRequest)                   returns (ListEABKeysResponse);
+  rpc RevokeEABKey(RevokeEABKeyRequest)                 returns (RevokeEABKeyResponse);
+  rpc CreateEnrollmentToken(CreateEnrollmentTokenRequest) returns (CreateEnrollmentTokenResponse);
+  rpc ListEnrollmentTokens(ListEnrollmentTokensRequest)   returns (ListEnrollmentTokensResponse);
+  rpc RevokeEnrollmentToken(RevokeEnrollmentTokenRequest) returns (RevokeEnrollmentTokenResponse);
+  rpc IssueOperatorCert(IssueOperatorCertRequest)       returns (IssueOperatorCertResponse);
+}
+
+message IssueCertificateRequest {
+  string      ca_id             = 1;
+  bytes       csr               = 2; // DER PKCS#10
+  string      profile           = 3;
+  AuthContext auth              = 4;
+  repeated Extension extra_extensions = 5;
+}
+
+message IssueCertificateResponse {
+  bytes certificate = 1; // DER leaf
+  bytes chain       = 2; // DER intermediates (not root)
+  bytes ocsp_staple = 3; // pre-generated OCSP response for offline carry
+}
+
+message RevokeCertificateRequest {
+  string ca_id  = 1;
+  bytes  serial = 2;
+  int32  reason = 3; // RFC 5280 reason code
+}
+message RevokeCertificateResponse {}
+
+message ListCertificatesRequest {
+  string ca_id      = 1;
+  string page_token = 2;
+  int32  page_size  = 3;
+}
+message ListCertificatesResponse {
+  repeated bytes certificates = 1;
+  string         next_page_token = 2;
+}
+
+message GetCRLRequest {
+  string ca_id = 1;
+  bool   delta = 2;
+}
+message GetCRLResponse {
+  bytes  crl         = 1; // DER
+  string this_update = 2; // RFC3339
+  string next_update = 3; // RFC3339
+}
+
+message GetOCSPRequest  { bytes serial = 1; }
+message GetOCSPResponse { bytes response = 1; }
+
+message CreateCustomerCARequest {
+  string       tenant_id = 1;
+  string       label     = 2;
+  KeyAlgorithm algorithm = 3;
+  bytes        policy    = 4; // optional JSON-encoded TenantPolicy; stored atomically
+}
+message CreateCustomerCAResponse {
+  string intermediate_ca_id = 1;
+  string device_ca_id       = 2;
+  string operator_ca_id     = 3;
+  bytes  intermediate_cert  = 4; // DER
+}
+
+message RotateCARequest  { string ca_id = 1; }
+message RotateCAResponse { string new_ca_id = 1; bytes new_cert = 2; }
+
+message RevokeCARequest  { string ca_id = 1; int32 reason = 2; }
+message RevokeCAResponse {}
+
+message GetCAChainRequest  { string ca_id = 1; }
+message GetCAChainResponse { repeated bytes chain = 1; } // leaf CA → root
+
+message GetAuditLogRequest {
+  string tenant_id  = 1;
+  string since      = 2; // RFC3339
+  string resource   = 3;
+  int32  page_size  = 4;
+  string page_token = 5;
+}
+
+// GetCACerts returns all active CA certificates for the authenticated tenant.
+// Tenant is taken from x-tenant-id gRPC metadata. Used by the EST cacerts endpoint.
+message GetCACertsRequest {}
+message GetCACertsResponse {
+  repeated bytes certs = 1; // DER-encoded CA certificates (root → device CA order)
+}
+
+// GenerateKeyAndIssueCert generates an ephemeral ECDSA P-384 keypair, issues a
+// certificate via the same pipeline as IssueCertificate, and returns both.
+// Used by the EST serverkeygen endpoint.
+message GenerateKeyAndIssueCertRequest {
+  string      profile = 1;
+  AuthContext auth    = 2;
+  bytes       csr     = 3; // client-provided CSR carrying subject + algorithm hint
+}
+message GenerateKeyAndIssueCertResponse {
+  bytes private_key  = 1; // DER PKCS#8 cleartext (confidentiality via TLS)
+  bytes certificate  = 2; // DER leaf
+  bytes chain        = 3; // DER intermediates (not root)
+}
+
+message VerifyEABSignatureRequest {
+  string tenant_id = 1;
+  string key_id    = 2;
+  bytes  message   = 3; // base64url(protected) + "." + base64url(payload)
+  bytes  mac       = 4; // raw HMAC-SHA256 bytes
+}
+
+message VerifyEABSignatureResponse {
+  bool   valid                = 1;
+  string ca_id                = 2;
+  string profile              = 3;
+  bool   attestation_required = 4;
+  string device_id            = 5;
+}
+
+// --- Tenant policy ---
+
+message SetTenantPolicyRequest {
+  string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+  bytes  policy    = 2; // JSON-encoded store.TenantPolicy
+}
+message SetTenantPolicyResponse {}
+
+message GetTenantPolicyRequest {
+  string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+}
+message GetTenantPolicyResponse {
+  bytes policy = 1; // JSON-encoded store.TenantPolicy; empty if none set
+}
+
+// --- CA listing ---
+
+message ListCAsRequest {
+  string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+}
+message CAInfo {
+  string ca_id       = 1;
+  string label       = 2;
+  string status      = 3;  // "active" | "revoked"
+  string not_after   = 4;  // RFC3339
+  bytes  certificate = 5; // DER
+}
+message ListCAsResponse {
+  repeated CAInfo cas = 1;
+}
+
+// --- Offboarding ---
+
+message OffboardTenantRequest {
+  string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+}
+message OffboardTenantResponse {}
+
+// --- EAB key management ---
+
+message CreateEABKeyRequest {
+  string tenant_id            = 1; // injected from gRPC metadata x-tenant-id
+  string ca_id                = 2;
+  string device_id            = 3;
+  string profile              = 4;
+  bool   attestation_required = 5;
+}
+message CreateEABKeyResponse {
+  string key_id   = 1;
+  string hmac_key = 2; // hex-encoded raw HMAC key (returned once only)
+}
+
+message ListEABKeysRequest {
+  string tenant_id     = 1; // injected from gRPC metadata x-tenant-id
+  int32  page_size     = 2;
+  string page_token    = 3; // UUID of last key from previous page
+  string status_filter = 4; // "active" | "consumed" | "revoked" | "" (all)
+}
+message EABKeyInfo {
+  string key_id                = 1;
+  string ca_id                 = 2;
+  string device_id             = 3;
+  string profile               = 4;
+  bool   attestation_required  = 5;
+  string status                = 6;
+  string created_at            = 7; // RFC3339
+}
+message ListEABKeysResponse {
+  repeated EABKeyInfo keys            = 1;
+  string              next_page_token = 2;
+}
+
+message RevokeEABKeyRequest {
+  string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+  string key_id    = 2;
+}
+message RevokeEABKeyResponse {}
+
+// --- Enrollment token management ---
+
+message CreateEnrollmentTokenRequest {
+  string tenant_id   = 1; // injected from gRPC metadata x-tenant-id
+  string ca_id       = 2;
+  string device_id   = 3;
+  string profile     = 4;
+  int64  ttl_seconds = 5;
+}
+message CreateEnrollmentTokenResponse {
+  string token_id    = 1;
+  string token_value = 2; // plaintext token (returned once only)
+  string expires_at  = 3; // RFC3339
+}
+
+message ListEnrollmentTokensRequest {
+  string tenant_id     = 1; // injected from gRPC metadata x-tenant-id
+  int32  page_size     = 2;
+  string page_token    = 3; // UUID of last token from previous page
+  bool   show_consumed = 4; // if false (default) show only unused non-revoked tokens
+}
+message EnrollmentTokenInfo {
+  string token_id   = 1;
+  string device_id  = 2;
+  string profile    = 3;
+  string expires_at = 4; // RFC3339
+  bool   consumed   = 5;
+  string created_at = 6; // RFC3339
+}
+message ListEnrollmentTokensResponse {
+  repeated EnrollmentTokenInfo tokens         = 1;
+  string                       next_page_token = 2;
+}
+
+message RevokeEnrollmentTokenRequest {
+  string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+  string token_id  = 2;
+}
+message RevokeEnrollmentTokenResponse {}
+
+// --- Operator cert issuance ---
+
+message IssueOperatorCertRequest {
+  string          tenant_id     = 1; // injected from gRPC metadata x-tenant-id
+  string          subject_cn    = 2;
+  string          subject_email = 3;
+  repeated string entitlements  = 4;
+  int64           ttl_seconds   = 5;
+  bool            field_mode    = 6;
+  bytes           csr           = 7; // optional DER PKCS#10; if empty engine generates keypair
+}
+message IssueOperatorCertResponse {
+  bytes certificate = 1; // DER leaf
+  bytes chain       = 2; // DER intermediates
+  bytes private_key = 3; // DER PKCS#8; non-empty only when engine generated the keypair
+  bytes ocsp_staple = 4;
+}
+
+message GetCertificateRequest  { bytes serial = 1; }
+message GetCertificateResponse { bytes certificate = 1; } // DER leaf
