@@ -5,6 +5,14 @@ package wendycloud.v1;
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";
 
+enum AssetKind {
+  ASSET_KIND_UNSPECIFIED = 0;
+  ASSET_KIND_DRONE       = 1;
+  ASSET_KIND_CAR         = 2;
+  ASSET_KIND_QUADRUPED   = 3;
+  ASSET_KIND_STATIONARY  = 4;
+}
+
 service AssetService {
   rpc CreateAsset(CreateAssetRequest) returns (Asset);
   rpc GetAsset(GetAssetRequest) returns (Asset);
@@ -48,6 +56,17 @@ message Asset {
   // Tags for filtering and organization
   repeated string tags = 23;
 
+  // Geographic coordinates
+  optional double latitude = 24;
+  optional double longitude = 25;
+  optional double altitude = 26;
+
+  // Presence: set when the device has an active or recent broker connection
+  optional google.protobuf.Timestamp last_heartbeat = 27;
+
+  AssetKind kind          = 28;
+  optional double heading = 29;
+
   google.protobuf.Timestamp created_at = 21;
   google.protobuf.Timestamp updated_at = 22;
 }
@@ -75,6 +94,11 @@ message CreateAssetRequest {
   optional string ip_address = 18;
   optional string mac_address = 19;
   repeated string tags = 20;
+
+  optional double latitude = 21;
+  optional double longitude = 22;
+  optional double altitude = 23;
+  optional double heading  = 24;
 }
 
 message GetAssetRequest {
@@ -99,6 +123,12 @@ message UpdateAssetRequest {
   optional string ip_address = 15;
   optional string mac_address = 16;
   repeated string tags = 17;
+
+  optional double latitude = 18;
+  optional double longitude = 19;
+  optional double altitude = 20;
+  optional string asset_type = 21;
+  optional double heading    = 22;
 }
 
 message DeleteAssetRequest {
@@ -116,6 +146,7 @@ message ListAssetsRequest {
   optional int32 offset = 3;
   optional int32 limit = 4;
   optional string filter = 5;  // Filter by name, details, asset_type, device_type, or tags
+  optional bool online_only = 6;  // If true, only return assets with active broker presence
 }
 
 message ListAssetsResponse {
