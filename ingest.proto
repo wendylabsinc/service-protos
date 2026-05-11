@@ -1,0 +1,28 @@
+syntax = "proto3";
+package wendycloud.v1;
+
+import "opentelemetry/proto/collector/logs/v1/logs_service.proto";
+import "opentelemetry/proto/collector/metrics/v1/metrics_service.proto";
+import "opentelemetry/proto/collector/trace/v1/trace_service.proto";
+
+// IngestEnvelope multiplexes logs, metrics, and traces over a single
+// length-prefixed TCP connection. The wire format is:
+//
+//   [4-byte big-endian length][IngestEnvelope protobuf bytes]
+//
+// This allows microcontrollers that cannot run full HTTP/2 + gRPC to
+// send telemetry over plain mTLS TCP.
+message IngestEnvelope {
+  oneof payload {
+    opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest logs = 1;
+    opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest metrics = 2;
+    opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest traces = 3;
+  }
+}
+
+// IngestResponse is sent back for each IngestEnvelope received.
+message IngestResponse {
+  int64 accepted_count = 1;
+  int64 rejected_count = 2;
+  string error_message = 3;
+}
