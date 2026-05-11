@@ -64,7 +64,7 @@ message Asset {
   // Presence: set when the device has an active or recent broker connection
   optional google.protobuf.Timestamp last_heartbeat = 27;
 
-  AssetKind kind          = 28;
+  AssetKind kind = 28;
   optional double heading = 29;
 
   google.protobuf.Timestamp created_at = 21;
@@ -128,7 +128,7 @@ message UpdateAssetRequest {
   optional double longitude = 19;
   optional double altitude = 20;
   optional string asset_type = 21;
-  optional double heading    = 22;
+  optional double heading = 22;
 }
 
 message DeleteAssetRequest {
