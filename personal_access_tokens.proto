@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service PersonalAccessTokenService {
+  rpc CreatePersonalAccessToken(CreatePATRequest) returns (CreatePATResponse);
+  rpc ListPersonalAccessTokens(ListPATsRequest) returns (ListPATsResponse);
+  rpc GetPersonalAccessToken(GetPATRequest) returns (PersonalAccessToken);
+  rpc RevokePersonalAccessToken(RevokePATRequest) returns (RevokePATResponse);
+}
+
+message PersonalAccessToken {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  string prefix = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  google.protobuf.Timestamp last_used_at = 6;
+  google.protobuf.Timestamp revoked_at = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message CreatePATRequest {
+  string name = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message CreatePATResponse {
+  PersonalAccessToken token = 1;
+  string raw_token = 2;
+}
+
+message ListPATsRequest {
+  int32 page_size = 1;
+  int32 offset = 2;
+}
+
+message ListPATsResponse {
+  repeated PersonalAccessToken tokens = 1;
+}
+
+message GetPATRequest {
+  string id = 1;
+}
+
+message RevokePATRequest {
+  string id = 1;
+}
+
+message RevokePATResponse {}

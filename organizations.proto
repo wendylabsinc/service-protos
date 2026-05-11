@@ -89,14 +89,14 @@ message AddMemberRequest {
 }
 
 message UpdateMemberRoleRequest {
-  int32 user_id = 1;
+  string user_id = 1;
   int32 organization_id = 2;
   OrganizationRole role = 3;
 }
 
 message RemoveMemberRequest {
   int32 organization_id = 1;
-  int32 user_id = 2;  
+  string user_id = 2;
 }
 
 message RemoveMemberResponse {

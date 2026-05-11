@@ -20,6 +20,7 @@ service DeploymentService {
   // ==================== Asset App Desired Instructions (wendy-agent) ====================
   rpc HandleReportedState(stream UpdateReportedStateRequest) returns (stream DesiredStateResponse);
   rpc ListAssetApps(ListAssetAppsRequest) returns (ListAssetAppsResponse);
+  rpc GetPullCredentials(GetPullCredentialsRequest) returns (GetPullCredentialsResponse);
 }
 
 // ==================== App Releases ====================
@@ -30,8 +31,9 @@ message AppRelease {
   string name = 4;
   string details = 5;
   optional string image_digest = 6;
-  google.protobuf.Timestamp created_at = 7; 
+  google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+  ReleaseType release_type = 9;
 }
 
 message CreateAppReleaseRequest {
@@ -39,6 +41,7 @@ message CreateAppReleaseRequest {
   int32 organization_id = 2;
   string name = 3;
   string details = 4;
+  ReleaseType release_type = 5;
 }
 
 // Use this to assign a image_digest to an app_release after it has been pushed to the registry
@@ -133,18 +136,26 @@ message CurrentState {
 // if the app_id does not exist, wendy-agent should remove the container from the asset
 message DesiredStateResponse {
   repeated DesiredAppState desired_app_states = 1;
+  optional google.protobuf.Timestamp cert_expires_at = 2;
 }
 
 message DesiredAppState {
   string app_id = 1;
   optional int32 app_release_id = 2;
   Running desired_state = 3;
+  optional string image_digest = 4;
+  ReleaseType release_type = 5;
 }
 
 enum Running {
   ABSENT = 0;
   RUNNING = 1;
   STOPPED = 2;
+}
+
+enum ReleaseType {
+  CONTAINER = 0;
+  WASM = 1;
 }
 
 // ==================== List Asset Apps ====================
@@ -166,8 +177,23 @@ message AssetApp {
   optional int32 deployment_id = 9;
   optional string deployment_details = 10;
   optional google.protobuf.Timestamp deployment_created_at = 11;
+  ReleaseType release_type = 12;
 }
 
 message ListAssetAppsResponse {
   repeated AssetApp asset_apps = 1;
+}
+
+// ==================== Pull Credentials (wendy-agent / microcontrollers) ====================
+message GetPullCredentialsRequest {
+  int32 app_release_id = 1;
+}
+
+message GetPullCredentialsResponse {
+  string registry_url = 1;
+  string full_artifact_path = 2;
+  string access_token = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  string username = 5;
+  ReleaseType release_type = 6;
 }
