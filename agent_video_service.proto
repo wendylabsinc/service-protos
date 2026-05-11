@@ -1,5 +1,5 @@
 syntax = "proto3";
-package wendy.agent.v1;
+package wendy.agent.services.v1;
 option go_package = "github.com/wendylabsinc/cloud/services/internal/proto";
 
 service WendyVideoService {
