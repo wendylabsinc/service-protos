@@ -15,8 +15,8 @@ message ListVideoDevicesResponse {
 
 message VideoDevice {
   uint32 id          = 1;
-  string device_path = 2;
-  string description = 3;
+  string name        = 2;
+  string device_path = 3;
 }
 
 message StreamVideoRequest {

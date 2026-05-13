@@ -67,6 +67,13 @@ message Asset {
   AssetKind kind = 28;
   optional double heading = 29;
 
+  // Connection location: populated from the IP of the most recent broker connection
+  optional string connection_ip = 30;
+  optional string connection_city = 31;
+  optional string connection_country = 32;
+  optional double connection_latitude = 33;
+  optional double connection_longitude = 34;
+
   google.protobuf.Timestamp created_at = 21;
   google.protobuf.Timestamp updated_at = 22;
 }
