@@ -35,6 +35,11 @@ service TunnelBrokerService {
   // the broker assigns a session_id and notifies the target agent via RegisterPresence.
   // Subsequent messages carry payload data relayed to/from the agent.
   rpc ClientTunnel(stream ClientTunnelMessage) returns (stream TunnelData);
+
+  // Services backend: open a tunnel to a device. Authenticated via x-service-token
+  // metadata header instead of mTLS. The first message must be ServiceTunnelOpen;
+  // subsequent messages carry payload data relayed to/from the agent.
+  rpc ServiceTunnel(stream ServiceTunnelMessage) returns (stream TunnelData);
 }
 
 message AgentHeartbeat {
@@ -75,5 +80,22 @@ message ClientTunnelMessage {
   oneof content {
     ClientTunnelOpen open = 1;
     TunnelData       data = 2;
+  }
+}
+
+// Sent by the services backend to open a tunnel. Carries the target asset and
+// endpoint; the broker generates a session and dispatches a DialRequest to the agent.
+message ServiceTunnelOpen {
+  int32  asset_id = 1;
+  string host     = 2;
+  uint32 port     = 3;
+}
+
+// Sent by the services backend on a ServiceTunnel stream. The first message must
+// be `open`; all subsequent messages must be `data`.
+message ServiceTunnelMessage {
+  oneof content {
+    ServiceTunnelOpen open = 1;
+    TunnelData        data = 2;
   }
 }
