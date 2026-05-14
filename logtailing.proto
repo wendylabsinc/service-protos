@@ -11,6 +11,7 @@ package wendycloud.v1;
 
 import "google/protobuf/timestamp.proto";
 import "opentelemetry/proto/logs/v1/logs.proto";
+import "opentelemetry/proto/collector/logs/v1/logs_service.proto";
 
 // Log tailing service using standard OTLP format.
 //
@@ -26,6 +27,13 @@ service LogTailingService {
   // Implemented by polling Cloud Logging's entries.list and emitting batches.
   // Intended for gRPC-web consumption from the dashboard.
   rpc TailLogEntries(TailLogEntriesRequest) returns (stream TailLogEntriesResponse);
+}
+
+// DeviceLogStreamService streams live logs directly from a device via the cloud tunnel.
+// The cloud service dials the device using a service certificate, so the caller does
+// not need device mTLS credentials. Authentication is via Firebase JWT or PAT.
+service DeviceLogStreamService {
+  rpc StreamDeviceLogs(StreamDeviceLogsRequest) returns (stream StreamDeviceLogsResponse);
 }
 
 // Request to tail logs for a specific app on an asset (dashboard only).
@@ -53,4 +61,15 @@ message TailLogEntriesResponse {
 
   // Watermark timestamp up to which the server attempted to read.
   google.protobuf.Timestamp read_through = 2;
+}
+
+message StreamDeviceLogsRequest {
+  int32 organization_id = 1;
+  int32 asset_id = 2;
+  optional string app_name = 3;
+  optional int32 min_severity = 4;
+}
+
+message StreamDeviceLogsResponse {
+  opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest logs = 1;
 }
