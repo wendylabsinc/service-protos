@@ -6,30 +6,34 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/wendylabsinc/cloud/services/internal/proto;proto";
 
 service BeeMonitorService {
+  // Auth: asset mTLS cert.
   rpc IngestEvents(stream BeeEventBatch) returns (stream IngestAck);
 
+  // Auth: Firebase JWT.
   rpc ListBeeHives(ListBeeHivesRequest) returns (ListBeeHivesResponse);
   rpc GetBeeHive(GetBeeHiveRequest) returns (BeeHive);
   rpc UpdateBeeHiveConfig(UpdateBeeHiveConfigRequest) returns (BeeHive);
   rpc GetKpis(GetKpisRequest) returns (GetKpisResponse);
 
+  // Auth: Firebase JWT. Long-lived bidirectional stream.
   rpc OpenSignalingSession(stream SignalingMessage) returns (stream SignalingMessage);
 
+  // Auth: Firebase JWT.
   rpc GetTurnCredentials(GetTurnCredentialsRequest) returns (GetTurnCredentialsResponse);
 }
 
 enum Direction {
   DIRECTION_UNSPECIFIED = 0;
-  IN = 1;
-  OUT = 2;
+  DIRECTION_IN = 1;
+  DIRECTION_OUT = 2;
 }
 
 enum BeeClass {
   BEE_CLASS_UNSPECIFIED = 0;
-  UNKNOWN = 1;
-  WORKER = 2;
-  DRONE = 3;
-  QUEEN = 4;
+  BEE_CLASS_UNKNOWN = 1;
+  BEE_CLASS_WORKER = 2;
+  BEE_CLASS_DRONE = 3;
+  BEE_CLASS_QUEEN = 4;
 }
 
 enum Window {
@@ -66,6 +70,7 @@ message IngestAck {
 }
 
 message Line {
+  // Image-space coordinates, normalized 0..1 relative to frame width/height.
   float x1 = 1;
   float y1 = 2;
   float x2 = 3;
