@@ -1,0 +1,174 @@
+syntax = "proto3";
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/wendylabsinc/cloud/services/internal/proto;proto";
+
+service BeeMonitorService {
+  rpc IngestEvents(stream BeeEventBatch) returns (stream IngestAck);
+
+  rpc ListBeeHives(ListBeeHivesRequest) returns (ListBeeHivesResponse);
+  rpc GetBeeHive(GetBeeHiveRequest) returns (BeeHive);
+  rpc UpdateBeeHiveConfig(UpdateBeeHiveConfigRequest) returns (BeeHive);
+  rpc GetKpis(GetKpisRequest) returns (GetKpisResponse);
+
+  rpc OpenSignalingSession(stream SignalingMessage) returns (stream SignalingMessage);
+
+  rpc GetTurnCredentials(GetTurnCredentialsRequest) returns (GetTurnCredentialsResponse);
+}
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  IN = 1;
+  OUT = 2;
+}
+
+enum BeeClass {
+  BEE_CLASS_UNSPECIFIED = 0;
+  UNKNOWN = 1;
+  WORKER = 2;
+  DRONE = 3;
+  QUEEN = 4;
+}
+
+enum Window {
+  WINDOW_UNSPECIFIED = 0;
+  WINDOW_HOUR = 1;
+  WINDOW_DAY = 2;
+  WINDOW_WEEK = 3;
+  WINDOW_MONTH = 4;
+  WINDOW_YEAR = 5;
+}
+
+enum Granularity {
+  GRANULARITY_UNSPECIFIED = 0;
+  GRANULARITY_MINUTE = 1;
+  GRANULARITY_HOUR = 2;
+  GRANULARITY_DAY = 3;
+}
+
+message BeeEvent {
+  string id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  Direction direction = 3;
+  BeeClass bee_class = 4;
+  float confidence = 5;
+  int32 track_id = 6;
+}
+
+message BeeEventBatch {
+  repeated BeeEvent events = 1;
+}
+
+message IngestAck {
+  repeated string event_ids = 1;
+}
+
+message Line {
+  float x1 = 1;
+  float y1 = 2;
+  float x2 = 3;
+  float y2 = 4;
+}
+
+message Tripwire {
+  Line outside = 1;
+  Line inside = 2;
+}
+
+message BeeHive {
+  int32 asset_id = 1;
+  int32 organization_id = 2;
+  string name = 3;
+  Tripwire tripwire = 4;
+  google.protobuf.Timestamp installed_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListBeeHivesRequest {
+  int32 organization_id = 1;
+}
+
+message ListBeeHivesResponse {
+  repeated BeeHive hives = 1;
+}
+
+message GetBeeHiveRequest {
+  int32 asset_id = 1;
+  int32 organization_id = 2;
+}
+
+message UpdateBeeHiveConfigRequest {
+  int32 asset_id = 1;
+  int32 organization_id = 2;
+  string name = 3;
+  Tripwire tripwire = 4;
+}
+
+message GetKpisRequest {
+  int32 asset_id = 1;
+  int32 organization_id = 2;
+  Window window = 3;
+  Granularity granularity = 4;
+}
+
+message KpiBucket {
+  google.protobuf.Timestamp bucket_start = 1;
+  int32 bees_in = 2;
+  int32 bees_out = 3;
+}
+
+message Totals {
+  int32 bees_in = 1;
+  int32 bees_out = 2;
+  int32 bees_in_prev_window = 3;
+  int32 bees_out_prev_window = 4;
+}
+
+message GetKpisResponse {
+  repeated KpiBucket buckets = 1;
+  Totals totals = 2;
+}
+
+message SdpOffer { string sdp = 1; }
+message SdpAnswer { string sdp = 1; }
+
+message IceCandidate {
+  string candidate = 1;
+  string sdp_mid = 2;
+  int32 sdp_mline_index = 3;
+}
+
+message TurnCredentials {
+  string url = 1;
+  string username = 2;
+  string credential = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message TurnCredentialsRefreshRequest {}
+
+message SignalingClose {
+  string reason = 1;
+}
+
+message SignalingMessage {
+  oneof payload {
+    SdpOffer offer = 1;
+    SdpAnswer answer = 2;
+    IceCandidate ice = 3;
+    TurnCredentials turn_credentials = 4;
+    TurnCredentialsRefreshRequest turn_refresh = 5;
+    SignalingClose close = 6;
+  }
+}
+
+message GetTurnCredentialsRequest {
+  int32 asset_id = 1;
+  int32 organization_id = 2;
+}
+
+message GetTurnCredentialsResponse {
+  TurnCredentials credentials = 1;
+}
