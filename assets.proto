@@ -154,6 +154,9 @@ message ListAssetsRequest {
   optional int32 limit = 4;
   optional string filter = 5;  // Filter by name, details, asset_type, device_type, or tags
   optional bool online_only = 6;  // If true, only return assets with active broker presence
+  // Server-side ordering (applied across all matching assets, before pagination).
+  optional string order_by = 7;   // "id" | "name" | "status" | "type"; defaults to "id"
+  optional string order_dir = 8;  // "asc" | "desc"; defaults to "asc"
 }
 
 message ListAssetsResponse {
