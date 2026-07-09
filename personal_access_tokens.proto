@@ -21,11 +21,16 @@ message PersonalAccessToken {
   google.protobuf.Timestamp revoked_at = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+  // Recognized scopes: registry:pull, registry:push. Empty means the token was
+  // created before scopes existed (legacy full gRPC access, no registry).
+  repeated string scopes = 10;
 }
 
 message CreatePATRequest {
   string name = 1;
   google.protobuf.Timestamp expires_at = 2;
+  // Optional scopes to grant. Recognized: registry:pull, registry:push.
+  repeated string scopes = 3;
 }
 
 message CreatePATResponse {
