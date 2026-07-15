@@ -25,6 +25,19 @@ service DeploymentService {
   // ==================== Device Container Control ====================
   rpc ListDeviceContainers(ListDeviceContainersRequest) returns (stream DeviceContainer);
   rpc ControlContainer(ControlContainerRequest) returns (ControlContainerResponse);
+
+  // ==================== Operator-signed hash-chained postbox (AAA v0.6 section 5.3, D8/D9) ====================
+  // SubmitChangeRequest is the operator-facing accept-gate: cloud verifies the operator
+  // certificate's validity-at-signing and the caller's live authorization, timestamps the
+  // request via the pki-core RFC 3161 Time-Stamping Authority (TSA), then appends one
+  // append-only, hash-chained row per target. It replaces the unsigned desired-state write.
+  rpc SubmitChangeRequest(SubmitChangeRequestRequest) returns (SubmitChangeRequestResponse);
+  // PollChanges is device-facing (device mTLS identity): it returns the contiguous chain of
+  // postbox entries with id greater than since_id for the caller's (tenant, target) chain.
+  rpc PollChanges(PollChangesRequest) returns (PollChangesResponse);
+  // GetHeadCheckpoint returns the latest pki-core-signed head checkpoint for a (tenant, target)
+  // chain so a device can bound its high-water mark without walking every entry.
+  rpc GetHeadCheckpoint(GetHeadCheckpointRequest) returns (GetHeadCheckpointResponse);
 }
 
 // ==================== App Releases ====================
@@ -244,4 +257,91 @@ enum ContainerAction {
 
 message ControlContainerResponse {
   optional string warning = 1;
+}
+
+// ==================== Operator-signed hash-chained postbox (AAA v0.6 section 5.3) ====================
+
+// ChangeRequest is the operator-authored desired-state change. The operator serializes this
+// message and signs the resulting bytes with the private key of its operator certificate; the
+// signature and certificate travel in OperatorSignedChangeRequest. Cloud stores these exact
+// signed bytes verbatim as the postbox entry payload so the signature stays verifiable by the
+// device forever, independent of any future proto field additions.
+message ChangeRequest {
+  int32 tenant = 1;                   // organization id the change belongs to
+  repeated string target_set = 2;     // targets the change applies to (asset ids as strings)
+  string release_oci_digest = 3;      // pinned image digest the targets should converge to
+  Running desired_state = 4;          // running / stopped / absent
+  string app_id = 5;                  // app the change targets
+  optional int32 app_release_id = 6;  // app release backing the digest, when known
+  google.protobuf.Timestamp iat = 7;  // issued-at; the operator cert must be valid at this instant
+  google.protobuf.Timestamp exp = 8;  // expiry; cloud rejects a request already expired at accept time
+  string nonce = 9;                   // unique per request; device-side replay guard
+}
+
+// OperatorSignedChangeRequest binds a ChangeRequest to the operator identity that authored it.
+message OperatorSignedChangeRequest {
+  bytes change_request = 1;  // the serialized ChangeRequest bytes that were signed
+  bytes operator_cert = 2;   // DER operator certificate whose key produced operator_sig
+  bytes operator_sig = 3;    // ECDSA P-256 / SHA-256 signature (DER) over change_request
+}
+
+message SubmitChangeRequestRequest {
+  OperatorSignedChangeRequest signed = 1;
+}
+
+message SubmitChangeRequestResponse {
+  repeated PostboxEntry entries = 1;  // one appended entry per target in target_set
+}
+
+// PostboxEntry is one append-only, hash-chained row. The chain is per (tenant, target):
+//   row_hash = SHA256(prior_hash || canonical(entry))
+// where canonical(entry) is the length-prefixed concatenation, in field order, of
+// tenant, target, payload, operator_sig and tsa_token. prior_hash is the row_hash of the
+// preceding entry in the same (tenant, target) chain, or 32 zero bytes for the first entry.
+message PostboxEntry {
+  int64 id = 1;                        // monotonic, table-wide append order
+  int32 tenant = 2;
+  string target = 3;
+  bytes payload = 4;                   // the operator-signed ChangeRequest bytes
+  bytes operator_sig = 5;
+  bytes tsa_token = 6;                 // RFC 3161 timestamp token from pki-core TSA
+  bytes prior_hash = 7;
+  bytes row_hash = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message PollChangesRequest {
+  int32 tenant = 1;      // must match the device certificate org
+  string target = 2;     // the polling device's target id
+  int64 since_id = 3;    // high-water mark; entries with id > since_id are returned in order
+  int32 limit = 4;       // 0 means server default
+}
+
+message PollChangesResponse {
+  repeated PostboxEntry entries = 1;
+}
+
+message GetHeadCheckpointRequest {
+  int32 tenant = 1;
+  string target = 2;
+}
+
+// HeadCheckpoint is the signed high-water mark for a (tenant, target) chain.
+message HeadCheckpoint {
+  int32 tenant = 1;
+  string target = 2;
+  int64 max_id = 3;
+  bytes hash_of_head = 4;              // row_hash of the entry at max_id (or 32 zero bytes if empty)
+  google.protobuf.Timestamp time = 5;
+}
+
+// SignedHeadCheckpoint carries a HeadCheckpoint signed by pki-core.
+message SignedHeadCheckpoint {
+  bytes checkpoint = 1;   // the serialized HeadCheckpoint bytes that were signed
+  bytes signature = 2;    // ECDSA P-256 / SHA-256 signature (DER) over checkpoint
+  bytes signer_cert = 3;  // DER certificate of the pki-core checkpoint signer
+}
+
+message GetHeadCheckpointResponse {
+  SignedHeadCheckpoint checkpoint = 1;
 }
