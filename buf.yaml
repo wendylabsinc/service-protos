@@ -12,9 +12,3 @@ lint:
 breaking:
   use:
     - FILE
-  # One-time exclusion: pkicore/v1 is being reconciled to pki-core's current
-  # protos from a stale, never-consumed snapshot, so this establishing commit
-  # intentionally "breaks" the old copy. Removed in the immediate follow-up PR
-  # once master carries the corrected baseline, after which pkicore/v1 is guarded.
-  ignore:
-    - pkicore/v1
