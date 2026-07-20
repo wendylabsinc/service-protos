@@ -1,0 +1,20 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+  except:
+    - SERVICE_SUFFIX             # service pkicore.v1.CAEngine (RPC path, cannot rename)
+    - RPC_RESPONSE_STANDARD_NAME # streaming AuditLogEntry response
+    - ENUM_VALUE_PREFIX          # KeyAlgorithm/AuthMode values = generated Go consts
+    - ENUM_ZERO_VALUE_SUFFIX
+breaking:
+  use:
+    - FILE
+  # One-time exclusion: pkicore/v1 is being reconciled to pki-core's current
+  # protos from a stale, never-consumed snapshot, so this establishing commit
+  # intentionally "breaks" the old copy. Removed in the immediate follow-up PR
+  # once master carries the corrected baseline, after which pkicore/v1 is guarded.
+  ignore:
+    - pkicore/v1

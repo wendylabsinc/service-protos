@@ -1,7 +1,7 @@
 // proto/pkicore/v1/engine.proto
 syntax = "proto3";
 package pkicore.v1;
-option go_package = "github.com/wendylabsinc/cloud/services/internal/pkicore;pkicore";
+option go_package = "github.com/wendylabsinc/service-protos/pkicore/v1;pkicorev1";
 import "pkicore/v1/types.proto";
 
 service CAEngine {
@@ -16,7 +16,6 @@ service CAEngine {
   rpc GetCAChain(GetCAChainRequest)               returns (GetCAChainResponse);
   rpc GetAuditLog(GetAuditLogRequest)             returns (stream AuditLogEntry);
   rpc GetCACerts(GetCACertsRequest)                          returns (GetCACertsResponse);
-  rpc GenerateKeyAndIssueCert(GenerateKeyAndIssueCertRequest) returns (GenerateKeyAndIssueCertResponse);
   rpc VerifyEABSignature(VerifyEABSignatureRequest) returns (VerifyEABSignatureResponse);
   rpc GetCertificate(GetCertificateRequest)         returns (GetCertificateResponse);
 
@@ -32,6 +31,44 @@ service CAEngine {
   rpc ListEnrollmentTokens(ListEnrollmentTokensRequest)   returns (ListEnrollmentTokensResponse);
   rpc RevokeEnrollmentToken(RevokeEnrollmentTokenRequest) returns (RevokeEnrollmentTokenResponse);
   rpc IssueOperatorCert(IssueOperatorCertRequest)       returns (IssueOperatorCertResponse);
+  // LookupTenant resolves a tenant slug to its authoritative UUID identity.
+  // Backs the admin API GET /v1/tenants?slug=<slug> route.
+  rpc LookupTenant(LookupTenantRequest)                 returns (LookupTenantResponse);
+
+  // Migration RPC (Plan 23 — PQ modular redesign §4.4).
+  rpc MigrateCA(MigrateCARequest) returns (MigrateCAResponse);
+
+  // --- Code-signing RPCs (Phase 4) ---
+
+  // Sign-blob: server-held key signs a pre-computed digest, returns signature + chain.
+  // Routed by /v1/sign/blob via the code-signing frontend.
+  rpc SignBlob(SignBlobRequest) returns (SignBlobResponse);
+
+  // RFC 3161 timestamp issuance. Routed by /v1/timestamp.
+  rpc IssueTimestamp(IssueTimestampRequest) returns (IssueTimestampResponse);
+
+  // CA lifecycle (admin-API):
+  rpc BootstrapPlatformCodeSigningRoot(BootstrapPlatformCodeSigningRootRequest)   returns (BootstrapPlatformCodeSigningRootResponse);
+  rpc ProvisionPlatformCodeSigningActive(ProvisionPlatformCodeSigningActiveRequest) returns (ProvisionPlatformCodeSigningActiveResponse);
+  rpc BootstrapPlatformTSA(BootstrapPlatformTSARequest)                           returns (BootstrapPlatformTSAResponse);
+  rpc AttachCodeSigningCA(AttachCodeSigningCARequest)                             returns (AttachCodeSigningCAResponse);
+
+  // Signer lifecycle (admin-API):
+  rpc CreateCodeSigningSigner(CreateCodeSigningSignerRequest)                     returns (CreateCodeSigningSignerResponse);
+  rpc RetireCodeSigningSigner(RetireCodeSigningSignerRequest)                     returns (RetireCodeSigningSignerResponse);
+  rpc ListCodeSigningSigners(ListCodeSigningSignersRequest)                       returns (ListCodeSigningSignersResponse);
+
+  // Tenant rules (admin-API):
+  rpc CreateCodeSigningRule(CreateCodeSigningRuleRequest)                         returns (CreateCodeSigningRuleResponse);
+  rpc UpdateCodeSigningRule(UpdateCodeSigningRuleRequest)                         returns (UpdateCodeSigningRuleResponse);
+  rpc DeleteCodeSigningRule(DeleteCodeSigningRuleRequest)                         returns (DeleteCodeSigningRuleResponse);
+  rpc ListCodeSigningRules(ListCodeSigningRulesRequest)                           returns (ListCodeSigningRulesResponse);
+
+  // Durable denial audit: the code-signing frontend rejects most requests
+  // before any other RPC fires, so it records those denials via this RPC into
+  // the engine's hash-chained audit_log (action "code-sign.deny"), scoped to
+  // the resolved tenant.
+  rpc RecordCodeSignDenial(RecordCodeSignDenialRequest)                           returns (RecordCodeSignDenialResponse);
 }
 
 message IssueCertificateRequest {
@@ -40,6 +77,10 @@ message IssueCertificateRequest {
   string      profile           = 3;
   AuthContext auth              = 4;
   repeated Extension extra_extensions = 5;
+  // Per-request override of the leaf algorithm (registry name, e.g.
+  // "ECDSA_P384" or "ML_DSA_65"). Controls leaf keypair only — must agree
+  // with the CSR's SubjectPublicKeyInfo when a CSR is supplied.
+  optional string leaf_algorithm = 6;
 }
 
 message IssueCertificateResponse {
@@ -81,14 +122,35 @@ message GetOCSPResponse { bytes response = 1; }
 message CreateCustomerCARequest {
   string       tenant_id = 1;
   string       label     = 2;
-  KeyAlgorithm algorithm = 3;
+  // Deprecated: superseded by algorithm_name. The legacy enum only covered
+  // ML-DSA + ECDSA_P384; new callers should set algorithm_name + backend.
+  KeyAlgorithm algorithm = 3 [deprecated = true];
   bytes        policy    = 4; // optional JSON-encoded TenantPolicy; stored atomically
+  // Registry algorithm name (e.g. "ECDSA_P384", "ML_DSA_65"). Overrides the
+  // tenant default for the intermediate role. Empty falls back to algorithm.
+  optional string algorithm_name = 5;
+  // Registry backend name (e.g. "software", "cloudkms"). Overrides the
+  // tenant default for the intermediate role. Empty falls back to platform
+  // default.
+  optional string backend = 6;
 }
 message CreateCustomerCAResponse {
   string intermediate_ca_id = 1;
   string device_ca_id       = 2;
   string operator_ca_id     = 3;
   bytes  intermediate_cert  = 4; // DER
+  // Server-minted tenant UUID. The request tenant_id is the caller-supplied
+  // slug; the engine mints the authoritative tenant identity and returns it
+  // here so the admin API and clients can address the tenant by UUID.
+  string tenant_id          = 5;
+}
+
+message LookupTenantRequest  { string slug = 1; }
+message LookupTenantResponse {
+  string tenant_id = 1; // canonical UUID
+  string slug      = 2;
+  string label     = 3;
+  string status    = 4; // "active" | "offboarded"
 }
 
 message RotateCARequest  { string ca_id = 1; }
@@ -113,20 +175,6 @@ message GetAuditLogRequest {
 message GetCACertsRequest {}
 message GetCACertsResponse {
   repeated bytes certs = 1; // DER-encoded CA certificates (root → device CA order)
-}
-
-// GenerateKeyAndIssueCert generates an ephemeral ECDSA P-384 keypair, issues a
-// certificate via the same pipeline as IssueCertificate, and returns both.
-// Used by the EST serverkeygen endpoint.
-message GenerateKeyAndIssueCertRequest {
-  string      profile = 1;
-  AuthContext auth    = 2;
-  bytes       csr     = 3; // client-provided CSR carrying subject + algorithm hint
-}
-message GenerateKeyAndIssueCertResponse {
-  bytes private_key  = 1; // DER PKCS#8 cleartext (confidentiality via TLS)
-  bytes certificate  = 2; // DER leaf
-  bytes chain        = 3; // DER intermediates (not root)
 }
 
 message VerifyEABSignatureRequest {
@@ -272,13 +320,226 @@ message IssueOperatorCertRequest {
   int64           ttl_seconds   = 5;
   bool            field_mode    = 6;
   bytes           csr           = 7; // optional DER PKCS#10; if empty engine generates keypair
+  string          operator_id   = 8; // authoritative per-operator identity; SPIFFE path segment; renewal-safe (not uniqueness-enforced)
 }
 message IssueOperatorCertResponse {
   bytes certificate = 1; // DER leaf
   bytes chain       = 2; // DER intermediates
-  bytes private_key = 3; // DER PKCS#8; non-empty only when engine generated the keypair
+  reserved 3;            // W12: was private_key; server never returns a key
+  reserved "private_key";
   bytes ocsp_staple = 4;
 }
 
 message GetCertificateRequest  { bytes serial = 1; }
 message GetCertificateResponse { bytes certificate = 1; } // DER leaf
+
+// --- Migration (Plan 23 §4.4) ---
+
+// MigrateCA creates a successor CA under a new (algorithm, backend) pair.
+// The successor CA is signed by the same parent (or self-signs for roots);
+// the predecessor CA is left active for issuance until its TTL elapses, at
+// which point an external reaper revokes it. Both algorithm and backend are
+// required — empty values are rejected.
+message MigrateCARequest {
+  string ca_id     = 1;
+  string algorithm = 2; // registry name, required
+  string backend   = 3; // registry name, required
+}
+
+message MigrateCAResponse {
+  string successor_ca_id = 1;
+  bytes  certificate     = 2; // DER of the successor CA
+}
+
+// --- Code-signing messages (Phase 4) ---
+
+message SignBlobRequest {
+  string tenant_id          = 1; // "system" for platform signers
+  string signer_id          = 2; // UUID of code_signing_signers row
+  bytes  digest             = 3; // hex-decoded bytes
+  string digest_alg         = 4; // "sha256" | "sha384" | "sha512"
+  bool   request_timestamp  = 5;
+  string request_id         = 6; // server-generated UUID for correlation
+}
+message SignBlobResponse {
+  bytes  signature       = 1;
+  string signature_alg   = 2; // e.g. "ECDSA_P256_SHA256", "ML_DSA_65"
+  bytes  signer_cert     = 3; // DER
+  repeated bytes chain   = 4; // DER intermediates (parent CA → next-up; root excluded)
+  bytes  timestamp_token = 5; // optional, DER RFC 3161 TimeStampResp; empty if not requested
+}
+
+message IssueTimestampRequest {
+  bytes  tsr_request = 1; // DER RFC 3161 TimeStampReq
+  string tenant_id   = 2; // for audit; "system" for platform signers
+  string request_id  = 3;
+}
+message IssueTimestampResponse {
+  bytes tsr_response = 1; // DER RFC 3161 TimeStampResp
+}
+
+message BootstrapPlatformCodeSigningRootRequest {
+  string label              = 1;
+  string algorithm          = 2; // ML-DSA only
+  string key_manager_name   = 3;
+  int32  validity_years     = 4;
+  bool   force              = 5;
+}
+message BootstrapPlatformCodeSigningRootResponse {
+  string root_ca_id = 1;
+  bytes  certificate = 2; // DER
+}
+
+message ProvisionPlatformCodeSigningActiveRequest {
+  string root_ca_id        = 1;
+  string algorithm         = 2; // Plan-23 algorithm name
+  string backend           = 3; // "software" | "pkcs11" | "cloudkms"
+  int32  validity_years    = 4;
+}
+message ProvisionPlatformCodeSigningActiveResponse {
+  string active_ca_id = 1;
+  bytes  certificate  = 2;
+}
+
+message BootstrapPlatformTSARequest {
+  string root_label           = 1;
+  string root_algorithm       = 2; // ML-DSA only
+  string root_key_manager     = 3;
+  int32  root_validity_years  = 4;
+
+  string signer_algorithm     = 5; // defaults to ECDSA_P256
+  string signer_key_manager   = 6;
+  int32  signer_validity_years= 7;
+
+  bool   force                = 8;
+}
+message BootstrapPlatformTSAResponse {
+  string root_ca_id        = 1;
+  bytes  root_certificate  = 2;
+  bytes  signer_certificate = 3;
+  string signer_algorithm  = 4;
+}
+
+message AttachCodeSigningCARequest {
+  string tenant_id  = 1;
+  string algorithm  = 2; // Plan-23 algorithm name
+  string backend    = 3; // "software" | "pkcs11" | "cloudkms"
+}
+message AttachCodeSigningCAResponse {
+  string ca_id              = 1;
+  bytes  certificate        = 2; // DER
+  string default_signer_id  = 3;
+  bytes  default_signer_cert = 4; // DER
+}
+
+message CreateCodeSigningSignerRequest {
+  string tenant_id = 1;
+  string ca_id     = 2;
+  string label     = 3;
+  string algorithm = 4;
+  string backend   = 5;
+  string purpose   = 6; // "app" | "image" | "ota"
+}
+message CreateCodeSigningSignerResponse {
+  string signer_id    = 1;
+  bytes  certificate  = 2; // DER leaf
+  string algorithm    = 3; // resolved
+}
+
+message RetireCodeSigningSignerRequest {
+  string tenant_id  = 1;
+  string signer_id  = 2;
+}
+message RetireCodeSigningSignerResponse {}
+
+message ListCodeSigningSignersRequest {
+  string tenant_id     = 1;
+  string status_filter = 2; // "" | "active" | "retired"
+}
+message CodeSigningSignerInfo {
+  string signer_id   = 1;
+  string label       = 2;
+  string ca_id       = 3;
+  string algorithm   = 4;
+  string status      = 5;
+  string created_at  = 6; // RFC3339
+  bytes  certificate = 7; // DER
+}
+message ListCodeSigningSignersResponse {
+  repeated CodeSigningSignerInfo signers = 1;
+}
+
+message CreateCodeSigningRuleRequest {
+  string tenant_id            = 1;
+  string label                = 2;
+  string issuer               = 3;
+  string repository           = 4;
+  string ref_pattern          = 5;
+  string job_workflow_pattern = 6;
+  string target_ca_id         = 7;
+  string signer_id            = 8; // empty = use default signer
+  repeated string allowed_endpoints = 9; // subset of {"sign_blob","sign_cert","timestamp"}
+  int32  max_ttl_seconds      = 10;
+  string purpose              = 11; // "app" | "image" | "ota" (tenant rules must be "app")
+}
+message CreateCodeSigningRuleResponse {
+  string rule_id = 1;
+}
+
+message UpdateCodeSigningRuleRequest {
+  string rule_id              = 1;
+  string tenant_id            = 2;
+
+  // Mutable fields. Empty/zero => "no change" for that field.
+  string label                = 3;
+  string issuer               = 4;
+  string repository           = 5;
+  string ref_pattern          = 6;
+  string job_workflow_pattern = 7;
+  string target_ca_id         = 8;
+  string signer_id            = 9;
+  repeated string allowed_endpoints = 10;
+  int32  max_ttl_seconds      = 11;
+  string purpose              = 12;
+}
+message UpdateCodeSigningRuleResponse {}
+
+message DeleteCodeSigningRuleRequest {
+  string tenant_id = 1;
+  string rule_id   = 2;
+}
+message DeleteCodeSigningRuleResponse {}
+
+message ListCodeSigningRulesRequest {
+  string tenant_id = 1;
+}
+message CodeSigningRuleInfo {
+  string rule_id              = 1;
+  string label                = 2;
+  string issuer               = 3;
+  string repository           = 4;
+  string ref_pattern          = 5;
+  string job_workflow_pattern = 6;
+  string target_ca_id         = 7;
+  string signer_id            = 8;
+  repeated string allowed_endpoints = 9;
+  int32  max_ttl_seconds      = 10;
+  string purpose              = 11;
+  string created_at           = 12; // RFC3339
+  string updated_at           = 13; // RFC3339
+}
+message ListCodeSigningRulesResponse {
+  repeated CodeSigningRuleInfo rules = 1;
+}
+
+message RecordCodeSignDenialRequest {
+  string tenant_id  = 1; // resolved tenant ("system" for platform/Flow 1)
+  // actor is a CLIENT-CLAIMED principal hint and is NOT authoritative (A9).
+  // The engine records it under audit details.claimed_actor; the authoritative
+  // audit `actor` column is always the verified mTLS channel identity.
+  string actor      = 2;
+  string code       = 3; // stable denial code, e.g. "RULE_NOT_MATCHED"
+  string request_id = 4;
+  string endpoint   = 5; // "sign_blob" | "sign_cert" | "timestamp"
+}
+message RecordCodeSignDenialResponse {}
