@@ -1,0 +1,21 @@
+name: buf
+on:
+  pull_request:
+  push:
+    branches: [master]
+jobs:
+  buf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: bufbuild/buf-setup-action@v1
+      # Lint only the protos this repo's owners maintain under buf conventions.
+      # (Other protos predate buf lint; enabling it repo-wide is a separate cleanup.)
+      - name: Lint (pkicore/v1)
+        run: buf lint --path pkicore/v1
+      # Breaking-change guard for ALL cross-service protos — the drift guard,
+      # caught in one place. Runs on PRs against main.
+      - name: Breaking change check (vs main)
+        if: github.event_name == 'pull_request'
+        run: buf breaking --against "https://github.com/wendylabsinc/service-protos.git#branch=master"
