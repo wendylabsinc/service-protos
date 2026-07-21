@@ -1,0 +1,20 @@
+syntax = "proto3";
+package wendyauth.v1;
+
+import "wendyauth/v1/envelope.proto";  // Envelope, SignedArtifact
+
+// Fail-safe / revoke-only SSF/CAEP push channel (AAA contract §6).
+// Implemented by BOTH cloud and pki-core (receivers); wendy-auth is the sole transmitter.
+// Proposed by wendy-auth (W4) — pending joint agreement with the cloud + pki-core
+// receiver teams before either wires it live.
+service SecurityEventService {
+  // The SET rides in Envelope.signed_artifact { kind:"set+jwt", value:<compact JWS> }.
+  // Receiver MUST: verify the JWS against the realm JWKS (iss->realm), enforce aud==self,
+  // dedup on the SET jti, dispatch on the 'events' claim, and act REVOKE-ONLY.
+  rpc PushSecurityEvent(Envelope) returns (PushSecurityEventAck);
+}
+
+message PushSecurityEventAck {
+  string jti      = 1;  // the SET jti the receiver processed (echo, for audit correlation)
+  bool   accepted = 2;  // true = processed OR already-seen (idempotent); false = rejected
+}
