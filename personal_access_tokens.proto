@@ -21,11 +21,16 @@ message PersonalAccessToken {
   google.protobuf.Timestamp revoked_at = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+  // Field 10 was the removed `scopes` field (a vestigial registry-scope design that
+  // was never persisted or enforced). Reserved so the tag cannot be silently reused.
+  reserved 10;
 }
 
 message CreatePATRequest {
   string name = 1;
   google.protobuf.Timestamp expires_at = 2;
+  // Field 3 was the removed `scopes` field. Reserved so the tag cannot be reused.
+  reserved 3;
 }
 
 message CreatePATResponse {
