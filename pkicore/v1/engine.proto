@@ -330,6 +330,7 @@ message IssueOperatorCertRequest {
   bool            field_mode    = 6;
   bytes           csr           = 7; // optional DER PKCS#10; if empty engine generates keypair
   string          operator_id   = 8; // authoritative per-operator identity; SPIFFE path segment; renewal-safe (not uniqueness-enforced)
+  string          spiffe_kind   = 9; // "operator" (default/empty) or "service"; server-selected SPIFFE kind
 }
 message IssueOperatorCertResponse {
   bytes certificate = 1; // DER leaf
