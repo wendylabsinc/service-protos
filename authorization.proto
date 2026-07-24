@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Cloud authorization contracts for the cloud <-> pki-core two-key model (AAA W9 / W15 / W18).
+// DRAFT for joint review with pki-core; not yet wired. These are the surfaces Cloud PRODUCES or
+// SERVES:
+//   - W9  CloudAuthorizationGrant        : the grant Cloud signs and relays for entitlement issuance
+//   - W15 RightsAttestationService       : Cloud-served RPC pki-core calls to check rights at signing time
+//   - W18 EnrollmentTokenRevocation      : Cloud-emitted revoke-only signal for a pending enrollment token
+//   - W18 OperatorEnrollmentRequest      : operator-signed enrollment request Cloud relays to pki-core
+//
+// Cross-repo note (for the joint review): the transport/wrapper types these ride on live in
+// wendy-auth's `wendyauth.v1` namespace, NOT in this repo:
+//   - the fabric `Envelope` + `SignedArtifact { kind, value }` carry W9 and W18's relayed request;
+//   - the SSF `PushSecurityEvent` channel carries W18's revoke signal.
+// This file defines only the Cloud-owned PAYLOADS. Whether service-protos vendors/imports the
+// `wendyauth.v1` wrapper types, or these payloads are serialized into the opaque `SignedArtifact.value`
+// (bytes) without a compile-time import, is a placement decision to settle in review. Kept
+// import-free here so the file is reviewable without resolving that first.
+
+// ---------------------------------------------------------------------------
+// W9 — entitlement-bearing certificate issuance: the Cloud authorization grant
+// ---------------------------------------------------------------------------
+// Cloud's attestation that it verified the caller and authorized the named entitlements for the
+// named tenant. Two-key model: the OPERATOR signs the request (pki-core verifies that signature
+// independently, D7); CLOUD signs THIS grant. pki-core mints an entitlement cert only when both
+// verify, bounded by entitlements ⊆ tenant ceiling ⊆ platform cap (no-expansion).
+//
+// Signing: serialized and signed as a JWS with a GCP KMS key whose access is gated by Cloud's GCP
+// workload identity (NOT the WI OIDC token itself, which is Google-controlled and carries no
+// embeddable grant; NOT a pki-core cert, which Cloud does not hold). Carried as a `SignedArtifact`
+// of kind "cloud-grant+jws". pki-core pins the KMS key's public JWKS (see the JWKS deliverable in
+// the accompanying contract doc). Operator identity is NOT a field here: it is established by the
+// operator signature pki-core verifies independently.
+message CloudAuthorizationGrant {
+  // Tenant SPIFFE URI of the principal the entitlements are granted to:
+  // spiffe://wendy.sh/tenant/<uuid>/<kind>/<name>.
+  string principal = 1;
+
+  // Entitlement-grammar strings (Cloud-defined vocabulary): entitlement:{category}:{permission}:{effect},
+  // categories organization|asset|app|deployment|member|team, permissions read|create|write|owner,
+  // effect allow|deny (deny-wins), `*` wildcard, 512-byte budget. Must be ⊆ tenant ceiling ⊆ platform cap.
+  repeated string entitlements = 2;
+
+  // SHA-256 thumbprint of the CSR public key this grant authorizes, so the grant cannot be
+  // repointed onto a different key.
+  bytes csr_key_binding = 3;
+
+  // Grant validity (short). pki-core rejects an expired grant.
+  google.protobuf.Timestamp not_after = 4;
+
+  // Replay id for pki-core's replay cache.
+  string jti = 5;
+
+  // Optional deliberate attenuation: a scope narrower than the principal's full authority. A
+  // narrower `entitlements` set already expresses attenuation; this is for any additional scoping
+  // the two teams decide to carry explicitly.
+  repeated string scope = 6;
+}
+
+// ---------------------------------------------------------------------------
+// W15 — device-facing verification: rights at signing time
+// ---------------------------------------------------------------------------
+// Cloud is the SERVER; pki-core is the client. When a device asks pki-core to verify a queued
+// operator-signed change request, pki-core verifies the operator signature + cert-validity-at-signing
+// (against its RFC 3161 TSA timestamp), then calls this to confirm the operator's rights AT THAT TIME.
+// Cloud answers from the tamper-evident accounting record of the accept-gate decision it made when it
+// accepted and queued that exact request (keyed by request_descriptor_hash) — a point-in-time answer
+// by recorded decision, NOT a reconstruction of historical roles.
+service RightsAttestationService {
+  rpc AttestRightsAtSigningTime(RightsAttestationRequest) returns (RightsAttestationResponse);
+}
+
+message RightsAttestationRequest {
+  // Tenant SPIFFE URI of the operator who signed the request.
+  string operator_principal = 1;
+
+  // Hash of the canonical request descriptor the operator signed; the key Cloud looks up in its
+  // audit chain.
+  bytes request_descriptor_hash = 2;
+
+  // The signing time T (from pki-core's TSA timestamp) the rights are asked about.
+  google.protobuf.Timestamp signing_time = 3;
+}
+
+message RightsAttestationResponse {
+  // Fail-closed: false when Cloud has no recorded accept-gate decision for this request. A request
+  // Cloud never accepted cannot be attested.
+  bool authorized = 1;
+
+  // When Cloud recorded the accept-gate decision (should bracket `signing_time`).
+  google.protobuf.Timestamp decision_time = 2;
+
+  // The entitlement(s) the accept-gate enforced for this request (Cloud-defined grammar).
+  repeated string required_entitlements = 3;
+
+  // Cross-service trace id stitching this flow through the audit chains.
+  string correlation_id = 4;
+}
+
+// ---------------------------------------------------------------------------
+// W18 — enrollment-token revocation (revoke-only signal)
+// ---------------------------------------------------------------------------
+// Cloud-emitted, revoke-only event to kill a still-pending (unredeemed) enrollment token at pki-core.
+// Rides the existing SSF `PushSecurityEvent` push channel (fail-safe direction: cloud -> pki-core,
+// only ever removes authority). Cloud holds no enrollment bookkeeping of its own: an enrollment is a
+// not-yet-redeemed credential pki-core already tracks, so cancellation is a revoke of that token, not
+// a Cloud-side flag. The exact embedding as a `wendyauth.v1` SecurityEvent kind is settled in review.
+message EnrollmentTokenRevocation {
+  // Identifies the pending credential to revoke; kind depends on device class.
+  oneof credential {
+    string eab_key_id = 1;   // Class A/B: the ACME External Account Binding key id
+    string token_id = 2;     // Class C: the EST bootstrap token id
+  }
+
+  // Tenant UUID and device the token was bound to (single-use, {device_id, tenant}).
+  string tenant = 3;
+  string device_id = 4;
+
+  // Free-form audit reason (device lost/stolen before install, operator cancelled, tenant suspended).
+  string reason = 5;
+}
+
+// ---------------------------------------------------------------------------
+// W18 — operator-signed enrollment request (relayed by Cloud)
+// ---------------------------------------------------------------------------
+// The operator-signed enrollment request Cloud relays over the fabric to pki-core, which then mints a
+// device+tenant-bound single-use token (ACME EAB key for Class A/B, EST bootstrap token for Class C).
+// Content is operator-produced; Cloud authorizes (on the operator's permissions), records nothing
+// long-lived, and relays. Carried as a `SignedArtifact` of kind "enrollment-request+jws"; the operator
+// signature rides that wrapper and pki-core verifies it independently.
+message OperatorEnrollmentRequest {
+  string tenant = 1;                       // tenant UUID
+  string device_id = 2;
+  DeviceClass device_class = 3;
+
+  // For Class A/B: thumbprint of the device-generated key (the key stays on the device); for Class A,
+  // an attestation reference proving the key lives in hardware. One or both per class.
+  bytes csr_key_binding = 4;
+  bytes attestation_ref = 5;
+
+  google.protobuf.Timestamp iat = 6;       // issued-at (freshness)
+  google.protobuf.Timestamp exp = 7;       // request expiry (freshness)
+  string jti = 8;                          // replay id
+}
+
+// Device capability/trust + (re)enrollment class (AAA section 5.4). Orthogonal to deployment
+// (field_mode) and provisioning method.
+enum DeviceClass {
+  DEVICE_CLASS_UNSPECIFIED = 0;
+  DEVICE_CLASS_A = 1;  // hardware attestation (TPM/SE); enrolls over ACME, attestation required
+  DEVICE_CLASS_B = 2;  // held key, no/weak attestation; enrolls over ACME
+  DEVICE_CLASS_C = 3;  // constrained; enrolls over lightweight EST/CSR
+}
