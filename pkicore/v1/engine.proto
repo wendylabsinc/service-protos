@@ -78,6 +78,17 @@ service CAEngine {
   // the SET jti) and drives the renewal-refusal gate. Fail-safe / revoke-only:
   // it only ever removes a principal's ability to renew, never grants.
   rpc RecordPrincipalDisable(RecordPrincipalDisableRequest)                       returns (RecordPrincipalDisableResponse);
+
+  // Enrollment-token revoke relay (AAA contract §5.4, W18). The private-only
+  // fabric frontend verifies an inbound cloud-origin token-revoke security-event
+  // token (cloud KMS signer — a distinct trust domain from the realm-signed
+  // account-disabled/purged SETs above), then relays the already-verified fact
+  // to the key-holding engine over the internal hop via this RPC. The engine
+  // idempotently records the revocation (keyed on token_kind+token_ref and on
+  // source_jti); EST/ACME enrollment-token redemption (EAB and bootstrap) then
+  // refuses the revoked token. Fail-safe / revoke-only: it only ever removes a
+  // token's ability to be redeemed, never grants.
+  rpc RecordEnrollmentTokenRevoke(RecordEnrollmentTokenRevokeRequest)             returns (RecordEnrollmentTokenRevokeResponse);
 }
 
 message IssueCertificateRequest {
@@ -566,3 +577,16 @@ message RecordPrincipalDisableRequest {
   int64  set_exp_unix  = 5; // the SET exp (unix seconds) — bounds the replay-cache row TTL
 }
 message RecordPrincipalDisableResponse {}
+
+// RecordEnrollmentTokenRevokeRequest carries the fact extracted from a verified
+// cloud-origin token-revoke security-event token by the fabric frontend. The
+// token itself (the raw SET) is NEVER relayed to the engine — only this
+// extracted fact — and is never persisted or logged (secret-free).
+message RecordEnrollmentTokenRevokeRequest {
+  string token_kind = 1; // "eab" | "bootstrap"
+  string token_ref  = 2; // opaque token reference (EAB key id / enrollment-token id)
+  string tenant_id  = 3; // injected from gRPC metadata x-tenant-id
+  string device_id  = 4; // optional device identifier
+  string source_jti = 5; // the SET jti — idempotency key
+}
+message RecordEnrollmentTokenRevokeResponse {}
