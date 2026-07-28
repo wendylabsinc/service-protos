@@ -29,8 +29,9 @@ enum NotificationSeverity {
 }
 
 message NotificationAudience {
-  // Cloud deduplicates these selectors, permits at most 100 entries across all
-  // three lists, and caps the resolved recipient union at 10,000 users.
+  // At least one selector is required and must resolve to at least one recipient.
+  // Cloud resolves the selectors as a deduplicated union, with at most 100 raw
+  // selectors across all three lists and at most 10,000 resolved users.
   repeated string user_ids = 1;
   repeated int32 team_ids = 2;
   repeated OrganizationRole roles = 3;
@@ -49,6 +50,7 @@ message Notification {
 
   string title = 9;
   string deep_link = 10;
+  // Canonical UUID v4; absent for legacy Notifications.
   optional string notification_id = 11;
   google.protobuf.Struct metadata = 12;
   optional NotificationAudience audience = 13;
@@ -78,7 +80,7 @@ message CreateNotificationV2Request {
   NotificationSeverity severity = 5;
   // Absolute wendy:// URI understood by Wendy clients.
   string deep_link = 6;
-  // Caller-generated UUID v4. Cloud stores and returns its canonical lowercase form.
+  // Caller-generated UUID v4, stored and returned as canonical lowercase text.
   string notification_id = 7;
   optional google.protobuf.Struct metadata = 8;
   // Required for provisioned-device callers and stamped by the Wendy agent/daemon.
@@ -87,6 +89,7 @@ message CreateNotificationV2Request {
 }
 
 message CreateNotificationV2Response {
+  // Canonical lowercase UUID v4.
   string notification_id = 1;
   int32 recipient_count = 2;
 }
