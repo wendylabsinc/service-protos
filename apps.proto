@@ -19,6 +19,9 @@ message App {
   string details = 4;
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp updated_at = 6;
+  // Interim owner/admin-controlled grant allowing this app to send notifications.
+  // WDY-2058 will replace this with capability-scoped app authorization.
+  bool can_send_notifications = 7;
 }
 
 message UpsertAppRequest {
@@ -38,6 +41,9 @@ message UpdateAppRequest {
   int32 organization_id = 2;
   optional string name = 3;
   optional string details = 4;
+  // Interim owner/admin-controlled grant allowing this app to send notifications.
+  // WDY-2058 will replace this with capability-scoped app authorization.
+  optional bool can_send_notifications = 5;
 }
 
 message DeleteAppRequest {
