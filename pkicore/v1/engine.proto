@@ -680,13 +680,28 @@ message GetPostboxFreshnessResponse {
   // tenant-wide ("") head. Empty when nothing has been notarized yet — a
   // device treats that as "no authoritative view" and fail-safes.
   bytes checkpoint = 1;
-  // The receipt lower bound: how many operator-posted receipts pki-core holds
-  // for this target that cloud has not acknowledged. A device shown fewer
-  // entries than this by cloud has detected censorship without needing cloud's
-  // cooperation.
+  // The OUTSTANDING set: operator-posted receipts pki-core holds for this
+  // target that cloud has not acknowledged. This drives the notarization gate,
+  // but note it is NOT cloud-independent — cloud zeroes it out simply by
+  // asserting acknowledged_entry_hashes (pki-core cannot verify that claim; it
+  // holds no log). Use the HELD set below for a bound cloud cannot retract.
   uint32 outstanding_count          = 2;
   repeated bytes outstanding_hashes = 3;
   int64  oldest_arrival_unix        = 4; // 0 when none outstanding
+
+  // The HELD set: every receipt pki-core holds for this target within the
+  // retention window, acknowledged or not. THIS is the cloud-independent lower
+  // bound on the log's true contents (W8 review finding I1): an operator posted
+  // each of these directly to pki-core, so a cloud that both withholds an entry
+  // AND falsely acknowledges it cannot remove the evidence — it can only shrink
+  // the outstanding set. A device shown fewer entries than held_count has
+  // detected censorship with no cooperation from cloud whatsoever.
+  uint32 held_count          = 5;
+  repeated bytes held_hashes = 6;
+  // True when held_hashes was capped by the server-side row limit, so
+  // held_count is exact but the hash list is partial — a device must treat this
+  // as "at least this many", never as the complete set.
+  bool held_truncated        = 7;
 }
 
 // --- Unified X.509 renewal (W3) ---
