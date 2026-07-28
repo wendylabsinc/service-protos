@@ -101,6 +101,10 @@ message IssueCertificateRequest {
   // "ECDSA_P384" or "ML_DSA_65"). Controls leaf keypair only — must agree
   // with the CSR's SubjectPublicKeyInfo when a CSR is supplied.
   optional string leaf_algorithm = 6;
+  // W9: raw cloud-signed authorization grant (compact JWS, kind
+  // "cloud-grant+jws"). When present, the engine re-verifies it (D7) and mints
+  // an entitlement-bearing cert gated by the grant. Empty => ordinary issuance.
+  bytes grant = 7;
 }
 
 message IssueCertificateResponse {
@@ -258,6 +262,8 @@ message CreateEABKeyRequest {
   string device_id            = 3;
   string profile              = 4;
   bool   attestation_required = 5;
+  // W18: originating enrollment-request jti; when set the engine enforces single-use of the signed request (empty on the admin path => no replay check).
+  string source_jti           = 6;
 }
 message CreateEABKeyResponse {
   string key_id   = 1;
@@ -298,6 +304,8 @@ message CreateEnrollmentTokenRequest {
   string device_id   = 3;
   string profile     = 4;
   int64  ttl_seconds = 5;
+  // W18: originating enrollment-request jti; when set the engine enforces single-use of the signed request (empty on the admin path => no replay check).
+  string source_jti  = 6;
 }
 message CreateEnrollmentTokenResponse {
   string token_id    = 1;
