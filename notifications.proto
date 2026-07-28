@@ -8,7 +8,9 @@ import "organizations.proto";
 
 service NotificationService {
   // Legacy single-user creation API. Kept for existing dashboard and legacy clients.
-  rpc CreateNotification(CreateNotificationRequest) returns (Notification);
+  rpc CreateNotification(CreateNotificationRequest) returns (Notification) {
+    option deprecated = true;
+  }
   // Creates per-user Notifications for the union of users, organization teams, and roles.
   // User credentials and provisioned-device credentials are both supported.
   rpc CreateNotificationV2(CreateNotificationV2Request) returns (CreateNotificationV2Response);
@@ -60,6 +62,8 @@ message Notification {
 }
 
 message CreateNotificationRequest {
+  option deprecated = true;
+
   string user_id = 1;
   int32 organization_id = 2;
   string body = 3;
