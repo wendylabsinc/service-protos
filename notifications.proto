@@ -7,7 +7,7 @@ import "google/protobuf/struct.proto";
 import "organizations.proto";
 
 service NotificationService {
-  // Legacy single-user creation API. Kept for existing dashboard and MCP clients.
+  // Legacy single-user creation API. Kept for existing dashboard and legacy clients.
   rpc CreateNotification(CreateNotificationRequest) returns (Notification);
   // Creates per-user Notifications for the union of users, organization teams, and roles.
   // User credentials and provisioned-device credentials are both supported.
