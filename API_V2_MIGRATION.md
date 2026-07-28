@@ -6,6 +6,8 @@ destructively changing `wendycloud.v1`. Buf continues to protect the v1 wire con
 throughout migration. Retire v1 only after every known producer and consumer has
 migrated and the exit criteria below are met.
 
+Tracking: [WDY-2053](https://linear.app/wendylabsinc/issue/WDY-2053/plan-wendycloudv2-api-hardening-and-migration)
+
 **Status labels**
 
 - **Approved direction** describes the intended v2 outcome.
@@ -20,6 +22,9 @@ migrated and the exit criteria below are met.
   `CreateNotificationRequest` from the v2 package. Keep them intact in v1 during
   migration.
 - [ ] Make the canonical UUID the sole public `Notification` identifier.
+- [ ] Treat creation as a strict resource claim: the first use of a canonical UUID may
+  succeed, every later use fails with `ALREADY_EXISTS`, and a new UUID creates a distinct
+  Notification.
 - [ ] Keep per-recipient projection identifiers internal; do not expose their integer
   IDs through the canonical v2 interface.
 - [ ] Define List, Get, Delete, Mark, and read-state APIs around canonical Notification
@@ -71,7 +76,8 @@ agreement:
 - [ ] Every inventoried producer and consumer has an owner-confirmed v2 migration.
 - [ ] Canonical UUID and required-field backfills are complete and verified; transitional
   nullable columns or fields are no longer needed.
-- [ ] V2 creation, retry, fanout, read-state, and navigation behavior has parity coverage.
+- [ ] V2 creation, duplicate rejection, fanout, read-state, and navigation behavior has
+  parity coverage.
 - [ ] APNs and Companion navigation use UUIDs end to end.
 - [ ] Production telemetry shows no v1 Notification traffic for the approved observation
   period.
