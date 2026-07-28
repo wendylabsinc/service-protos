@@ -89,6 +89,17 @@ service CAEngine {
   // refuses the revoked token. Fail-safe / revoke-only: it only ever removes a
   // token's ability to be redeemed, never grants.
   rpc RecordEnrollmentTokenRevoke(RecordEnrollmentTokenRevokeRequest)             returns (RecordEnrollmentTokenRevokeResponse);
+
+  // Unified X.509 renewal (AAA contract §5.2/§5.4, W3). "Renewal is a PKI
+  // operation, not a new authorization": renewability is authorized once at
+  // first issuance and renewals go direct to pki-core. This is the dedicated
+  // renewal operation for the direct X.509 renewal frontend (operator/service
+  // identity + direct device renewal + the D14 grant-accept path); device
+  // ACME/EST re-enroll continue to run the SAME shared renewal gate via
+  // IssueCertificate's device-cert branch. The distinct RenewOutcome (esp.
+  // NEEDS_GRANT for the D14 post-expiry seam) is why renewal has its own RPC
+  // rather than reusing IssueCertificate's response.
+  rpc RenewCertificate(RenewCertificateRequest)                                   returns (RenewCertificateResponse);
 }
 
 message IssueCertificateRequest {
@@ -598,3 +609,39 @@ message RecordEnrollmentTokenRevokeRequest {
   string source_jti = 5; // the SET jti — idempotency key
 }
 message RecordEnrollmentTokenRevokeResponse {}
+
+// --- Unified X.509 renewal (W3) ---
+
+// RenewCertificateRequest drives the dedicated renewal operation. The presented
+// cert is an identity + possession claim: for a non-grant renewal it MUST be
+// possession-proven by the caller (the frontend sources it from the mTLS peer
+// handshake, never from an untrusted body), and for the D14 post-expiry path it
+// may be an EXPIRED cert supplied in-band ONLY together with a grant (whose
+// operator signature + principal match + CSR-key binding supply the safety
+// instead of old-key possession).
+message RenewCertificateRequest {
+  bytes  presented_cert = 1; // DER of the current (or, with a grant, expired) cert
+  bytes  csr            = 2; // DER PKCS#10 for the new key (possession proof)
+  bytes  grant          = 3; // optional: W9-shaped operator grant (D14 grant-accept)
+  string actor          = 4;
+  string correlation_id = 5;
+}
+
+// RenewOutcome distinguishes renewal's outcomes, which issuance does not have.
+// NEEDS_GRANT is the D14 seam: a post-expiry attempt is NOT a flat reject but a
+// distinct "route to operator-approval / present a grant" outcome.
+enum RenewOutcome {
+  RENEW_OUTCOME_UNSPECIFIED = 0;
+  RENEWED     = 1;
+  DENIED      = 2;
+  NEEDS_GRANT = 3;
+}
+
+message RenewCertificateResponse {
+  RenewOutcome outcome        = 1;
+  bytes        certificate    = 2; // DER leaf; set iff outcome == RENEWED
+  bytes        chain          = 3; // DER intermediates (not root)
+  bytes        ocsp_staple    = 4; // pre-generated OCSP response for offline carry
+  string       correlation_id = 5;
+  string       detail         = 6; // human-readable reason for DENIED / NEEDS_GRANT
+}
