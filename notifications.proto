@@ -13,6 +13,8 @@ service NotificationService {
   }
   // Creates per-user Notifications for the union of users, organization teams, and roles.
   // User credentials and provisioned-device credentials are both supported.
+  // notification_id is an idempotency key. An exact retry returns the original result;
+  // reuse for a changed request fails with ALREADY_EXISTS.
   rpc CreateNotificationV2(CreateNotificationV2Request) returns (CreateNotificationV2Response);
   // Server-streamed pagination using offset/limit (matches OrganizationService)
   rpc ListNotifications(ListNotificationsRequest) returns (stream ListNotificationsResponse);
@@ -100,6 +102,8 @@ message CreateNotificationV2Request {
 message CreateNotificationV2Response {
   // Canonical lowercase UUID v4.
   string notification_id = 1;
+  // Number of distinct recipient projections persisted, not successful push deliveries;
+  // unchanged on exact retries.
   int32 recipient_count = 2;
 }
 
