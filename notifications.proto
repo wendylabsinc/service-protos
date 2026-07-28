@@ -79,13 +79,18 @@ message CreateNotificationV2Request {
   // REFACTOR: Request content intentionally duplicates Notification content because
   // Notification must retain legacy flat fields 1-8 for Companion wire compatibility.
   // A shared content message can be introduced only in a future version that migrates them.
+  // Required; 1-120 UTF-8 bytes, with no surrounding whitespace or control characters.
   string title = 3;
+  // Required; 1-2,000 UTF-8 bytes, with no surrounding whitespace or control characters.
   string body = 4;
+  // NOTIFICATION_SEVERITY_UNSPECIFIED is invalid.
   NotificationSeverity severity = 5;
-  // Absolute wendy:// URI understood by Wendy clients.
+  // Required absolute wendy:// URI understood by Wendy clients; 1-2,048 UTF-8 bytes,
+  // with a host and no userinfo or credentials.
   string deep_link = 6;
   // Caller-generated UUID v4, stored and returned as canonical lowercase text.
   string notification_id = 7;
+  // Optional structured metadata; serialized JSON is limited to 16 KiB.
   optional google.protobuf.Struct metadata = 8;
   // Required for provisioned-device callers and stamped by the Wendy agent/daemon.
   // Cloud validates that this app belongs to the authenticated organization and device.
