@@ -9,6 +9,15 @@ lint:
     - RPC_RESPONSE_STANDARD_NAME # streaming AuditLogEntry response
     - ENUM_VALUE_PREFIX          # KeyAlgorithm/AuthMode values = generated Go consts
     - ENUM_ZERO_VALUE_SUFFIX
+    # pkicore.v1.FabricRelayService deliberately takes the SHARED
+    # wendyauth.v1.Envelope as the request type for every relay RPC (§11.2: one
+    # typed envelope carrying {tenant, correlation_id, workload_identity,
+    # payload, signed_artifact} across all fabric methods, cross-checked against
+    # the transport-authenticated peer). Per-RPC request messages would defeat
+    # the point of a shared envelope, so these two rules cannot be satisfied
+    # without abandoning the design.
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
 breaking:
   use:
     - FILE
