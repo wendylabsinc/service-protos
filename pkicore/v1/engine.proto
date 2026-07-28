@@ -8,6 +8,7 @@ service CAEngine {
   rpc IssueCertificate(IssueCertificateRequest)   returns (IssueCertificateResponse);
   rpc RevokeCertificate(RevokeCertificateRequest) returns (RevokeCertificateResponse);
   rpc ListCertificates(ListCertificatesRequest)   returns (ListCertificatesResponse);
+  rpc ListCertMetadata(ListCertMetadataRequest)   returns (ListCertMetadataResponse);
   rpc GetCRL(GetCRLRequest)                       returns (GetCRLResponse);
   rpc GetOCSP(GetOCSPRequest)                     returns (GetOCSPResponse);
   rpc CreateCustomerCA(CreateCustomerCARequest)   returns (CreateCustomerCAResponse);
@@ -165,6 +166,24 @@ message ListCertificatesResponse {
   string         next_page_token = 2;
 }
 
+message ListCertMetadataRequest {
+  string tenant_id  = 1; // injected from gRPC metadata x-tenant-id
+  int32  page_size  = 2;
+  string page_token = 3; // opaque; hex serial of the last row from the previous page
+}
+message CertMetadata {
+  bytes  serial      = 1;
+  string principal   = 2; // SPIFFE URI SAN ("" when the leaf had none)
+  string status      = 3; // "active" | "revoked" | "expired"
+  string expires_at  = 4; // RFC3339
+  bytes  fingerprint = 5; // SHA-256 of the leaf DER
+  int32  revoke_reason = 6; // RFC 5280; 0 and status!="revoked" ⇒ not revoked
+}
+message ListCertMetadataResponse {
+  repeated CertMetadata items           = 1;
+  string                next_page_token = 2;
+}
+
 message GetCRLRequest {
   string ca_id = 1;
   bool   delta = 2;
@@ -212,7 +231,13 @@ message LookupTenantResponse {
   string status    = 4; // "active" | "offboarded"
 }
 
-message RotateCARequest  { string ca_id = 1; }
+// W20: source_jti = originating management-request jti; when set the engine enforces single-use of the signed request (empty on the admin path => no replay check).
+message RotateCARequest  {
+  string ca_id = 1;
+  string source_jti = 2;
+  // false ⇒ soft-drain (predecessor → active_revocation_only); true ⇒ immediate full revoke (compromise cutover).
+  bool hard = 3;
+}
 message RotateCAResponse { string new_ca_id = 1; bytes new_cert = 2; }
 
 message RevokeCARequest  { string ca_id = 1; int32 reason = 2; }
@@ -408,6 +433,8 @@ message MigrateCARequest {
   string ca_id     = 1;
   string algorithm = 2; // registry name, required
   string backend   = 3; // registry name, required
+  // W20: originating management-request jti; when set the engine enforces single-use of the signed request (empty on the admin path => no replay check).
+  string source_jti = 4;
 }
 
 message MigrateCAResponse {
