@@ -1,0 +1,42 @@
+// proto/pkicore/v1/fabric_relay.proto
+syntax = "proto3";
+package pkicore.v1;
+option go_package = "github.com/wendylabsinc/service-protos/pkicore/v1;pkicorev1";
+import "wendyauth/v1/envelope.proto";
+
+// FabricRelayService is the pki-core-authored receiver for the cloud→fabric→
+// engine relay-for-issuance path (AAA §11, W9 + W18). Hosted on the private-only
+// fabric frontend alongside wendyauth.v1.SecurityEventService. Reuses the shared
+// wendyauth.v1.Envelope; authority rides in Envelope.signed_artifact and is
+// re-verified before any mint (D7).
+service FabricRelayService {
+  // W9: Envelope.payload = serialized IssueCertificateRequest; signed_artifact =
+  // {kind:"cloud-grant+jws", value:<grant JWS>}.
+  rpc RelayIssuance(wendyauth.v1.Envelope) returns (RelayIssuanceResponse);
+  // W18: signed_artifact = {kind:"enrollment-request+jws", value:<operator JWS>}.
+  rpc RelayEnrollment(wendyauth.v1.Envelope) returns (RelayEnrollmentResponse);
+  // Connect-time capability/version handshake.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+}
+
+message RelayIssuanceResponse {
+  bytes certificate = 1; // DER leaf
+  bytes chain       = 2; // DER intermediates
+  bytes ocsp_staple = 3;
+}
+
+message RelayEnrollmentResponse {
+  string credential_kind = 1; // "eab" | "enrollment_token"
+  string eab_key_id      = 2; // class A/B
+  string eab_hmac_key    = 3; // hex, once only
+  string token_id        = 4; // class C
+  string token_value     = 5; // once only
+  string expires_at      = 6; // RFC3339 (token)
+}
+
+message GetCapabilitiesRequest {}
+message GetCapabilitiesResponse {
+  string proto_version              = 1;
+  repeated string supported_methods = 2;
+  map<string,string> features       = 3;
+}
