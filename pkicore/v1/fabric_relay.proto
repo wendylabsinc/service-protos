@@ -1,0 +1,74 @@
+// proto/pkicore/v1/fabric_relay.proto
+syntax = "proto3";
+package pkicore.v1;
+option go_package = "github.com/wendylabsinc/service-protos/pkicore/v1;pkicorev1";
+import "wendyauth/v1/envelope.proto";
+
+// FabricRelayService is the pki-core-authored receiver for the cloud→fabric→
+// engine relay-for-issuance path (AAA §11, W9 + W18). Hosted on the private-only
+// fabric frontend alongside wendyauth.v1.SecurityEventService. Reuses the shared
+// wendyauth.v1.Envelope; authority rides in Envelope.signed_artifact and is
+// re-verified before any mint (D7).
+service FabricRelayService {
+  // W9: Envelope.payload = serialized IssueCertificateRequest; signed_artifact =
+  // {kind:"cloud-grant+jws", value:<grant JWS>}.
+  rpc RelayIssuance(wendyauth.v1.Envelope) returns (RelayIssuanceResponse);
+  // W18: signed_artifact = {kind:"enrollment-request+jws", value:<operator JWS>}.
+  rpc RelayEnrollment(wendyauth.v1.Envelope) returns (RelayEnrollmentResponse);
+  // Connect-time capability/version handshake.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+  // W8 (§5.3/D8): Envelope.payload = serialized PostboxHeadAssertion. No
+  // signed_artifact — a head assertion carries no delegated authority; the
+  // checkpoint notarizes cloud's claim, it does not believe it. Tenant is taken
+  // from the transport-authenticated Envelope, never from the payload (D7).
+  rpc NotarizePostboxHead(wendyauth.v1.Envelope) returns (RelayNotarizeHeadResponse);
+  // W8 (§5.3 step 3 / D9): Envelope.payload = DER RFC 3161 TimeStampReq. Lets
+  // cloud timestamp each accepted postbox entry over the authenticated,
+  // tenant-attributed fabric instead of the public device-facing /v1/time.
+  rpc RelayTimestamp(wendyauth.v1.Envelope) returns (RelayTimestampResponse);
+}
+
+// PostboxHeadAssertion is the Envelope.payload for NotarizePostboxHead. It
+// deliberately carries NO tenant field: the tenant comes from the
+// transport-authenticated Envelope, so a payload cannot name a tenant it was
+// not authenticated for.
+message PostboxHeadAssertion {
+  string target    = 1; // device SPIFFE URI, or "" for a tenant-wide postbox
+  uint64 max_id    = 2;
+  bytes  head_hash = 3; // raw SHA-256, 32 bytes
+  repeated bytes acknowledged_entry_hashes = 4;
+}
+
+// RelayNotarizeHeadResponse mirrors the engine's NotarizePostboxHeadResponse
+// without importing engine.proto — the same decoupling RelayIssuanceResponse
+// keeps from IssueCertificateResponse.
+message RelayNotarizeHeadResponse {
+  bytes checkpoint = 1; // the encoded {body, timestamp_token} artifact
+  bool  repeat     = 2; // head unchanged, TTL refreshed
+}
+
+message RelayTimestampResponse {
+  bytes tsr_response = 1; // DER RFC 3161 TimeStampResp
+}
+
+message RelayIssuanceResponse {
+  bytes certificate = 1; // DER leaf
+  bytes chain       = 2; // DER intermediates
+  bytes ocsp_staple = 3;
+}
+
+message RelayEnrollmentResponse {
+  string credential_kind = 1; // "eab" | "enrollment_token"
+  string eab_key_id      = 2; // class A/B
+  string eab_hmac_key    = 3; // hex, once only
+  string token_id        = 4; // class C
+  string token_value     = 5; // once only
+  string expires_at      = 6; // RFC3339 (token)
+}
+
+message GetCapabilitiesRequest {}
+message GetCapabilitiesResponse {
+  string proto_version              = 1;
+  repeated string supported_methods = 2;
+  map<string,string> features       = 3;
+}
