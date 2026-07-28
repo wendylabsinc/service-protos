@@ -90,6 +90,30 @@ service CAEngine {
   // token's ability to be redeemed, never grants.
   rpc RecordEnrollmentTokenRevoke(RecordEnrollmentTokenRevokeRequest)             returns (RecordEnrollmentTokenRevokeResponse);
 
+  // Postbox head notarization (AAA contract §5.3 / D8, W8). pki-core holds NO
+  // postbox — the log is cloud's. This RPC notarizes a head cloud ASSERTS,
+  // binding it to pki-core's own clock inside an RFC 3161-timestamped
+  // checkpoint. The engine keeps a per-(tenant,target) watermark and REFUSES a
+  // head below it (rollback) or a different head at the same id (fork), and
+  // refuses while an operator submission receipt has gone unacknowledged past
+  // the configured grace window (withholding). Fail-safe: it only ever attests
+  // or refuses.
+  rpc NotarizePostboxHead(NotarizePostboxHeadRequest)                             returns (NotarizePostboxHeadResponse);
+
+  // Submission-receipt intake (AAA contract §10 item 4, W8). The §5.3 frontend
+  // verifies an operator-signed change request posted DIRECTLY by operator
+  // tooling — a second ingestion path cloud does not control — and relays the
+  // extracted fact here. The raw signed request is never relayed, persisted, or
+  // logged; only its SHA-256 and the verified principal. Idempotent on
+  // (tenant, request_hash, target).
+  rpc RecordChangeRequestReceipt(RecordChangeRequestReceiptRequest)               returns (RecordChangeRequestReceiptResponse);
+
+  // Device freshness view (AAA contract §5.3, W8): the latest notarized
+  // checkpoint for a target plus the receipt lower bound pki-core holds
+  // independently of cloud. Serving this from pki-core is what takes cloud out
+  // of the checkpoint-delivery path.
+  rpc GetPostboxFreshness(GetPostboxFreshnessRequest)                             returns (GetPostboxFreshnessResponse);
+
   // Unified X.509 renewal (AAA contract §5.2/§5.4, W3). "Renewal is a PKI
   // operation, not a new authorization": renewability is authorized once at
   // first issuance and renewals go direct to pki-core. This is the dedicated
@@ -609,6 +633,61 @@ message RecordEnrollmentTokenRevokeRequest {
   string source_jti = 5; // the SET jti — idempotency key
 }
 message RecordEnrollmentTokenRevokeResponse {}
+
+// NotarizePostboxHeadRequest is cloud's ASSERTION about its postbox head (W8).
+// pki-core cannot verify max_id/head_hash — it holds no log — so a checkpoint
+// notarizes the assertion, bound to pki-core's clock. What the notarization DOES
+// enforce is monotonicity, fork-freedom, and receipt acknowledgement.
+message NotarizePostboxHeadRequest {
+  string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+  // Postbox scope: the target device's SPIFFE URI, or "" for a tenant-wide
+  // postbox (whose notarization covers every device in the tenant).
+  string target    = 2;
+  uint64 max_id    = 3; // highest postbox entry id cloud asserts
+  bytes  head_hash = 4; // cloud's hash of the head entry: raw SHA-256, 32 bytes
+  // SHA-256 of each entry's EXACT compact-JWS signed-request bytes for entries
+  // added since the last notarization. This is the same preimage a submission
+  // receipt is keyed on, and is NOT W15's request_descriptor_hash (which hashes
+  // the base64url-DECODED inner JWS payload). Acknowledging an entry marks the
+  // matching receipt covered; leaving a receipt unacknowledged past the grace
+  // window makes the next notarization fail with reason "receipt_outstanding".
+  repeated bytes acknowledged_entry_hashes = 5;
+}
+message NotarizePostboxHeadResponse {
+  bytes checkpoint = 1; // the encoded {body, timestamp_token} artifact
+  // True when the head was unchanged and only the checkpoint TTL was refreshed
+  // (a legitimate re-notarization), false when the watermark advanced.
+  bool  repeat     = 2;
+}
+
+// RecordChangeRequestReceiptRequest carries the fact extracted from an
+// operator-signed change request verified at the §5.3 frontend (W8).
+message RecordChangeRequestReceiptRequest {
+  string tenant_id         = 1; // injected from gRPC metadata x-tenant-id
+  bytes  request_hash      = 2; // SHA-256 of the exact compact-JWS signed request, 32 bytes
+  repeated string targets  = 3; // device SPIFFE URIs from the descriptor's target.devices
+  string principal         = 4; // operator SPIFFE URI — authority: the VERIFIED leaf, never the payload
+  int64  signing_time_unix = 5; // trusted RFC 3161 genTime; 0 ⇒ engine uses arrival time
+}
+message RecordChangeRequestReceiptResponse {}
+
+message GetPostboxFreshnessRequest {
+  string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+  string target    = 2; // the calling device's SPIFFE URI (from its verified cert)
+}
+message GetPostboxFreshnessResponse {
+  // Latest notarized checkpoint for the target, falling back to the
+  // tenant-wide ("") head. Empty when nothing has been notarized yet — a
+  // device treats that as "no authoritative view" and fail-safes.
+  bytes checkpoint = 1;
+  // The receipt lower bound: how many operator-posted receipts pki-core holds
+  // for this target that cloud has not acknowledged. A device shown fewer
+  // entries than this by cloud has detected censorship without needing cloud's
+  // cooperation.
+  uint32 outstanding_count          = 2;
+  repeated bytes outstanding_hashes = 3;
+  int64  oldest_arrival_unix        = 4; // 0 when none outstanding
+}
 
 // --- Unified X.509 renewal (W3) ---
 
