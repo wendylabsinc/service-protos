@@ -1,0 +1,38 @@
+// proto/pkicore/v1/fabric_management.proto
+syntax = "proto3";
+package pkicore.v1;
+option go_package = "github.com/wendylabsinc/service-protos/pkicore/v1;pkicorev1";
+import "wendyauth/v1/envelope.proto";
+import "pkicore/v1/types.proto";
+import "pkicore/v1/engine.proto";
+import "pkicore/v1/fabric_relay.proto";
+
+// FabricManagementService is the pki-core-authored receiver for the retired
+// Admin REST API's tenant-scoped management surface (AAA W20), hosted on the
+// private-only fabric server alongside FabricRelayService/SecurityEventService.
+// Authority is per-operation: tier-1 ops trust the transport-authenticated
+// caller + envelope tenant; tier-3 ops carry an operator-signed request
+// (signed_artifact kind "management-request+jws") re-verified at the edge (D7).
+service FabricManagementService {
+  // -- tier 1: transport authority (no signed_artifact) --
+  rpc ListCAs(wendyauth.v1.Envelope)               returns (ListCAsResponse);
+  rpc GetCAChain(wendyauth.v1.Envelope)            returns (GetCAChainResponse);       // payload = GetCAChainRequest
+  rpc GetTenantPolicy(wendyauth.v1.Envelope)       returns (GetTenantPolicyResponse);
+  rpc ListEABKeys(wendyauth.v1.Envelope)           returns (ListEABKeysResponse);      // payload = ListEABKeysRequest
+  rpc ListEnrollmentTokens(wendyauth.v1.Envelope)  returns (ListEnrollmentTokensResponse); // payload = ListEnrollmentTokensRequest
+  rpc RevokeCertificate(wendyauth.v1.Envelope)     returns (RevokeCertificateResponse);// payload = RevokeCertificateRequest
+  rpc RevokeEABKey(wendyauth.v1.Envelope)          returns (RevokeEABKeyResponse);     // payload = RevokeEABKeyRequest
+  rpc RevokeEnrollmentToken(wendyauth.v1.Envelope) returns (RevokeEnrollmentTokenResponse); // payload = RevokeEnrollmentTokenRequest
+  rpc RevokeCA(wendyauth.v1.Envelope)              returns (RevokeCAResponse);         // payload = RevokeCARequest
+  rpc CreateTenant(wendyauth.v1.Envelope)          returns (CreateCustomerCAResponse); // payload = CreateCustomerCARequest (platform provisioning, no anchor at create time)
+
+  // -- tier 3: signed operator request (signed_artifact "management-request+jws") --
+  rpc SetTenantPolicy(wendyauth.v1.Envelope)       returns (SetTenantPolicyResponse);
+  rpc OffboardTenant(wendyauth.v1.Envelope)        returns (OffboardTenantResponse);
+  rpc ListCertMetadata(wendyauth.v1.Envelope)      returns (ListCertMetadataResponse);
+  rpc GetAuditLog(wendyauth.v1.Envelope)           returns (stream AuditLogEntry);
+  rpc RotateCA(wendyauth.v1.Envelope)              returns (RotateCAResponse);        // payload = RotateCARequest
+  rpc MigrateCA(wendyauth.v1.Envelope)             returns (MigrateCAResponse);       // payload = MigrateCARequest
+
+  rpc GetCapabilities(GetCapabilitiesRequest)      returns (GetCapabilitiesResponse);  // reuse from fabric_relay.proto
+}
