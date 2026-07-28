@@ -8,6 +8,7 @@ import "organizations.proto";
 
 service NotificationService {
   // Legacy single-user creation API. Kept for existing dashboard and legacy clients.
+  // MIGRATION(wendycloud.v2): Remove this RPC and request; see API_V2_MIGRATION.md.
   rpc CreateNotification(CreateNotificationRequest) returns (Notification) {
     option deprecated = true;
   }
@@ -43,6 +44,7 @@ message NotificationAudience {
 
 message Notification {
   // Fields 1 through 8 are the legacy Companion contract and must remain stable.
+  // MIGRATION(wendycloud.v2): Migrate the read model to canonical UUID APIs; see API_V2_MIGRATION.md.
   int32 id = 1;
   string user_id = 2;
   int32 organization_id = 3;
@@ -80,7 +82,7 @@ message CreateNotificationV2Request {
   NotificationAudience audience = 2;
   // REFACTOR: Request content intentionally duplicates Notification content because
   // Notification must retain legacy flat fields 1-8 for Companion wire compatibility.
-  // A shared content message can be introduced only in a future version that migrates them.
+  // MIGRATION(wendycloud.v2): Extract NotificationContent; see API_V2_MIGRATION.md.
   // Required; 1-120 UTF-8 bytes, with no surrounding whitespace or control characters.
   string title = 3;
   // Required; 1-2,000 UTF-8 bytes, with no surrounding whitespace or control characters.
