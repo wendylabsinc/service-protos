@@ -128,6 +128,14 @@ service CAEngine {
   // NEEDS_GRANT for the D14 post-expiry seam) is why renewal has its own RPC
   // rather than reusing IssueCertificate's response.
   rpc RenewCertificate(RenewCertificateRequest)                                   returns (RenewCertificateResponse);
+
+  // Over-duration issuance (four-eyes). A request whose validity exceeds the
+  // tenant ceiling is held pending a second operator signature rather than
+  // rejected. Authority is the SIGNED envelope, never the transport (D7).
+  rpc RequestOverDurationIssuance(RequestOverDurationIssuanceRequest)         returns (RequestOverDurationIssuanceResponse);
+  rpc ApproveOverDurationIssuance(ApproveOverDurationIssuanceRequest)         returns (ApproveOverDurationIssuanceResponse);
+  rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
+  rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
 }
 
 message IssueCertificateRequest {
@@ -769,3 +777,68 @@ message RenewCertificateResponse {
   string       correlation_id = 5;
   string       detail         = 6; // human-readable reason for DENIED / NEEDS_GRANT
 }
+
+enum OverDurationOutcome {
+  OVER_DURATION_OUTCOME_UNSPECIFIED = 0;
+  // Requested validity was within the tenant ceiling: minted immediately.
+  OVER_DURATION_OUTCOME_MINTED = 1;
+  // Over the tenant ceiling (but within the platform cap): held pending a
+  // second signature. certificate/chain are empty.
+  OVER_DURATION_OUTCOME_ADDITIONAL_VERIFICATION_REQUIRED = 2;
+  // kind==device_duration within ceiling, or approved: an authorization was
+  // recorded rather than a certificate minted.
+  OVER_DURATION_OUTCOME_AUTHORIZATION_RECORDED = 3;
+}
+
+message RequestOverDurationIssuanceRequest {
+  // Operator-signed JWS (compact) whose payload is the canonical request
+  // descriptor. The tenant, kind, profile, duration and CSR all come from
+  // this signed payload — never from unsigned message fields.
+  bytes signed_request = 1;
+  // DER RFC 3161 TimeStampResp over signed_request.
+  bytes timestamp_token = 2;
+}
+
+message RequestOverDurationIssuanceResponse {
+  OverDurationOutcome outcome = 1;
+  bytes certificate = 2;                 // MINTED only
+  repeated bytes chain = 3;              // MINTED only
+  string pending_request_id = 4;         // ADDITIONAL_VERIFICATION_REQUIRED only
+  bytes request_hash = 5;                // the value an approver must sign over
+  string device_authorization_id = 6;    // AUTHORIZATION_RECORDED only
+}
+
+message ApproveOverDurationIssuanceRequest {
+  string pending_request_id = 1;
+  // Operator-signed JWS whose payload is the canonical approval descriptor,
+  // binding this approval to the pending request's hash.
+  bytes signed_approval = 2;
+  bytes timestamp_token = 3;
+}
+
+message ApproveOverDurationIssuanceResponse {
+  OverDurationOutcome outcome = 1;
+  bytes certificate = 2;              // operator_cert kind
+  repeated bytes chain = 3;           // operator_cert kind
+  string device_authorization_id = 4; // device_duration kind
+}
+
+message PendingOverDurationRequest {
+  string id = 1;
+  string kind = 2;
+  string requester_principal = 3;
+  string profile = 4;
+  int64 requested_duration_seconds = 5;
+  int64 tenant_ceiling_seconds = 6;
+  string device_uri = 7;
+  bytes request_hash = 8;
+  int64 created_at_unix = 9;
+  int64 expires_at_unix = 10;
+}
+
+message ListPendingOverDurationRequestsRequest {}
+message ListPendingOverDurationRequestsResponse {
+  repeated PendingOverDurationRequest requests = 1;
+}
+message GetPendingOverDurationRequestRequest { string id = 1; }
+message GetPendingOverDurationRequestResponse { PendingOverDurationRequest request = 1; }
