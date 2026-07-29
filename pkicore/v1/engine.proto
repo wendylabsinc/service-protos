@@ -20,7 +20,9 @@ service CAEngine {
   rpc VerifyEABSignature(VerifyEABSignatureRequest) returns (VerifyEABSignatureResponse);
   rpc GetCertificate(GetCertificateRequest)         returns (GetCertificateResponse);
 
-  // Admin API RPCs (Plan 16a)
+  // Management-plane RPCs (formerly the Admin REST API, Plan 16a; that REST
+  // surface is retired — AAA W20). Fronted by FabricManagementService on the
+  // private-only fabric, or by the `pkicore admin` CLI.
   rpc SetTenantPolicy(SetTenantPolicyRequest)           returns (SetTenantPolicyResponse);
   rpc GetTenantPolicy(GetTenantPolicyRequest)           returns (GetTenantPolicyResponse);
   rpc ListCAs(ListCAsRequest)                           returns (ListCAsResponse);
@@ -33,7 +35,8 @@ service CAEngine {
   rpc RevokeEnrollmentToken(RevokeEnrollmentTokenRequest) returns (RevokeEnrollmentTokenResponse);
   rpc IssueOperatorCert(IssueOperatorCertRequest)       returns (IssueOperatorCertResponse);
   // LookupTenant resolves a tenant slug to its authoritative UUID identity.
-  // Backs the admin API GET /v1/tenants?slug=<slug> route.
+  // Engine-internal today: the Admin REST route that used to front it is
+  // retired (AAA W20) and it has no FabricManagementService front yet.
   rpc LookupTenant(LookupTenantRequest)                 returns (LookupTenantResponse);
 
   // Migration RPC (Plan 23 — PQ modular redesign §4.4).
@@ -219,7 +222,7 @@ message CreateCustomerCAResponse {
   bytes  intermediate_cert  = 4; // DER
   // Server-minted tenant UUID. The request tenant_id is the caller-supplied
   // slug; the engine mints the authoritative tenant identity and returns it
-  // here so the admin API and clients can address the tenant by UUID.
+  // here so the management plane and clients can address the tenant by UUID.
   string tenant_id          = 5;
 }
 
