@@ -417,7 +417,17 @@ message IssueOperatorCertRequest {
   string          subject_email = 3;
   repeated string entitlements  = 4;
   int64           ttl_seconds   = 5;
-  bool            field_mode    = 6;
+  // RETIRED. field_mode used to raise this request's TTL ceiling on a single
+  // signature (8h -> 72h). That escalation is superseded by the four-eyes
+  // over-duration flow (RequestOverDurationIssuance /
+  // ApproveOverDurationIssuance), so pki-core no longer honors it.
+  //
+  // Kept in place, rather than deleted-and-reserved, because deleting a field
+  // trips this repo's `buf breaking` policy. pki-core REJECTS a request that
+  // sets it (InvalidArgument) instead of silently ignoring it — a client
+  // still asking for field_mode is asking for an escalation that no longer
+  // exists, and should be told so rather than quietly handed a short cert.
+  bool            field_mode    = 6 [deprecated = true];
   bytes           csr           = 7; // optional DER PKCS#10; if empty engine generates keypair
   string          operator_id   = 8; // authoritative per-operator identity; SPIFFE path segment; renewal-safe (not uniqueness-enforced)
   string          spiffe_kind   = 9; // "operator" (default/empty) or "service"; server-selected SPIFFE kind
