@@ -136,6 +136,24 @@ service CAEngine {
   rpc ApproveOverDurationIssuance(ApproveOverDurationIssuanceRequest)         returns (ApproveOverDurationIssuanceResponse);
   rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
   rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
+
+  // Operator-authority status (WDY-2217). Answers "has this operator leaf's
+  // authority been withdrawn?" from the revocation state pki-core ALREADY owns
+  // — the certificate_ledger revoked_at column and the SSF-driven
+  // disabled_principals kill switch — so the fabric edge (a separate process
+  // that holds no database) can enforce operator revocation on its
+  // highest-authority paths without fetching or trusting a published CRL.
+  //
+  // Deliberately NOT a CRL/OCSP fetch: operator authority must not depend on a
+  // CDN being reachable or a CRL being fresh, and a revocation recorded here
+  // takes effect on the NEXT request rather than at the next CRL publish. The
+  // caller already cannot be served without the engine, so a failed lookup is
+  // the same dependency the request already has.
+  //
+  // Read-only and side-effect free; it grants nothing. The engine derives the
+  // tenant, fingerprint and principal from the presented leaf itself and
+  // requires the derived tenant to equal the authenticated one.
+  rpc CheckOperatorAuthority(CheckOperatorAuthorityRequest) returns (CheckOperatorAuthorityResponse);
 }
 
 message IssueCertificateRequest {
@@ -181,6 +199,10 @@ message ListCertMetadataRequest {
   string tenant_id  = 1; // injected from gRPC metadata x-tenant-id
   int32  page_size  = 2;
   string page_token = 3; // opaque; hex serial of the last row from the previous page
+  // W20/WDY-2216: originating tier-3 management-request jti; when set the engine
+  // enforces single-use of the signed request (empty on the admin path => no
+  // replay check). Same posture as RotateCARequest.source_jti.
+  string source_jti = 4;
 }
 message CertMetadata {
   bytes  serial      = 1;
@@ -263,6 +285,9 @@ message GetAuditLogRequest {
   string resource   = 3;
   int32  page_size  = 4;
   string page_token = 5;
+  // W20/WDY-2216: originating tier-3 management-request jti; single-use enforced
+  // by the engine when set (empty on the admin path => no replay check).
+  string source_jti = 6;
 }
 
 // GetCACerts returns all active CA certificates for the authenticated tenant.
@@ -292,6 +317,9 @@ message VerifyEABSignatureResponse {
 message SetTenantPolicyRequest {
   string tenant_id = 1; // injected from gRPC metadata x-tenant-id
   bytes  policy    = 2; // JSON-encoded store.TenantPolicy
+  // W20/WDY-2216: originating tier-3 management-request jti; single-use enforced
+  // by the engine when set (empty on the admin path => no replay check).
+  string source_jti = 3;
 }
 message SetTenantPolicyResponse {}
 
@@ -322,6 +350,9 @@ message ListCAsResponse {
 
 message OffboardTenantRequest {
   string tenant_id = 1; // injected from gRPC metadata x-tenant-id
+  // W20/WDY-2216: originating tier-3 management-request jti; single-use enforced
+  // by the engine when set (empty on the admin path => no replay check).
+  string source_jti = 2;
 }
 message OffboardTenantResponse {}
 
@@ -852,3 +883,24 @@ message ListPendingOverDurationRequestsResponse {
 }
 message GetPendingOverDurationRequestRequest { string id = 1; }
 message GetPendingOverDurationRequestResponse { PendingOverDurationRequest request = 1; }
+
+// --- Operator-authority status (WDY-2217) ---
+
+message CheckOperatorAuthorityRequest {
+  // DER of the operator leaf whose authority is being checked. The full
+  // certificate (not just a fingerprint) so the ENGINE performs every
+  // derivation — tenant SPIFFE SAN, SHA-256 fingerprint, principal URI —
+  // making the fabric edge and the engine-side over-duration verifier share
+  // one implementation with no duplicated parsing rules.
+  bytes certificate = 1;
+}
+
+message CheckOperatorAuthorityResponse {
+  // True when this leaf's authority has been withdrawn and the caller MUST
+  // reject the request.
+  bool withdrawn = 1;
+  // Machine-readable cause when withdrawn: "revoked" (certificate_ledger
+  // revoked_at is set) or "principal_disabled" (disabled_principals kill
+  // switch). Empty when withdrawn is false.
+  string reason = 2;
+}
