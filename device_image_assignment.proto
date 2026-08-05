@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+// ImageAssignmentService is the Cloud slice of the device image pull
+// (Authentication, Authorization, Accounting contract section 5.7). wendy-proxy
+// terminates the device mutual TLS connection, derives the tenant from the
+// certificate Subject Alternative Name and selects that tenant's registry
+// (Gate 1), then calls CheckImagePull to ask Cloud whether the device is
+// assigned the requested image (Gate 2). Cloud owns and answers that
+// authorization decision only; it mints no credentials and fronts no registry.
+//
+// The caller is authenticated as the wendy-proxy workload identity over the
+// inter-service fabric (contract section 11.4); this Remote Procedure Call
+// carries no end-user token.
+service ImageAssignmentService {
+  rpc CheckImagePull(CheckImagePullRequest) returns (CheckImagePullResponse);
+}
+
+message CheckImagePullRequest {
+  // Tenant and device, relayed from the verified device certificate Subject
+  // Alternative Name (today urn:wendy:org:<org_id>:asset:<asset_id>).
+  int32 org_id = 1;
+  int32 asset_id = 2;
+  // Repository path the proxy selected, e.g. "org-7/api".
+  string repository = 3;
+  // Requested reference: an image tag or a "sha256:" digest.
+  string reference = 4;
+}
+
+message CheckImagePullResponse {
+  bool allowed = 1;
+  string reason = 2;
+  string canonical_repository = 3;
+  // Resolved image digest, surfaced only on an allow (never on a deny).
+  string digest = 4;
+}
