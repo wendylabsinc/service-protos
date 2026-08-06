@@ -1,0 +1,99 @@
+{
+  "generated_by" : "wendy-auth SETBuilder (producer of record, WDY-2335)",
+  "notes" : "Deterministic canonical SET payload bytes (JSONSerialization .sortedKeys; note: forward slashes are escaped as \\\/). Receivers must accept a JWS-signed form of exactly these payloads. Envelope constants: msg_type=ssf.security_event, signed_artifact.kind=set+jwt, JWS typ=secevent+jwt.",
+  "vectors" : [
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f636c6f75642e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e6f70656e69642e6e65745c2f7365636576656e745c2f636165705c2f6576656e742d747970655c2f73657373696f6e2d7265766f6b6564223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a2261646d696e5f666f7263655f7369676e6f7574227d2c227375626a656374223a7b22666f726d6174223a226973735f737562222c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c22737562223a22752d31227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c226a7469223a226a74692d66697865642d31222c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/cloud.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.openid.net\\\/secevent\\\/caep\\\/event-type\\\/session-revoked\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"admin_force_signout\"},\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"sub\":\"u-1\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"jti\":\"jti-fixed-1\",\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/cloud.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.openid.net\/secevent\/caep\/event-type\/session-revoked",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/acme",
+        "jti" : "jti-fixed-1",
+        "reason" : "admin_force_signout",
+        "subject" : "u-1"
+      },
+      "name" : "cloud-session-revoked-iss-sub"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f636c6f75642e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e6f70656e69642e6e65745c2f7365636576656e745c2f636165705c2f6576656e742d747970655c2f746f6b656e2d636c61696d732d6368616e6765223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a226772616e745f6368616e676564227d2c227375626a656374223a7b22666f726d6174223a226973735f737562222c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c22737562223a22752d31227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c226a7469223a226a74692d66697865642d31222c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/cloud.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.openid.net\\\/secevent\\\/caep\\\/event-type\\\/token-claims-change\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"grant_changed\"},\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"sub\":\"u-1\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"jti\":\"jti-fixed-1\",\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/cloud.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.openid.net\/secevent\/caep\/event-type\/token-claims-change",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/acme",
+        "jti" : "jti-fixed-1",
+        "reason" : "grant_changed",
+        "subject" : "u-1"
+      },
+      "name" : "cloud-token-claims-change-iss-sub"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f636c6f75642e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e6f70656e69642e6e65745c2f7365636576656e745c2f636165705c2f6576656e742d747970655c2f63726564656e7469616c2d6368616e6765223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a2270617373776f72645f7265736574227d2c227375626a656374223a7b22666f726d6174223a226973735f737562222c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c22737562223a22752d31227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c226a7469223a226a74692d66697865642d31222c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/cloud.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.openid.net\\\/secevent\\\/caep\\\/event-type\\\/credential-change\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"password_reset\"},\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"sub\":\"u-1\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"jti\":\"jti-fixed-1\",\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/cloud.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.openid.net\/secevent\/caep\/event-type\/credential-change",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/acme",
+        "jti" : "jti-fixed-1",
+        "reason" : "password_reset",
+        "subject" : "u-1"
+      },
+      "name" : "cloud-credential-change-iss-sub"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f636c6f75642e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e6f70656e69642e6e65745c2f7365636576656e745c2f726973635c2f6576656e742d747970655c2f6163636f756e742d64697361626c6564223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a226d656d6265725f73757370656e646564227d2c227375626a656374223a7b22666f726d6174223a226973735f737562222c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c22737562223a22752d31227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c226a7469223a226a74692d66697865642d31222c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/cloud.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.openid.net\\\/secevent\\\/risc\\\/event-type\\\/account-disabled\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"member_suspended\"},\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"sub\":\"u-1\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"jti\":\"jti-fixed-1\",\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/cloud.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-disabled",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/acme",
+        "jti" : "jti-fixed-1",
+        "reason" : "member_suspended",
+        "subject" : "u-1"
+      },
+      "name" : "cloud-account-disabled-iss-sub"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f706b692e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e6f70656e69642e6e65745c2f7365636576656e745c2f726973635c2f6576656e742d747970655c2f6163636f756e742d64697361626c6564223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a226d656d6265725f73757370656e646564227d2c227375626a656374223a7b22666f726d6174223a226973735f737562222c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c22737562223a22752d31227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c226a7469223a226a74692d66697865642d31222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a5c2f5c2f77656e64792e73685c2f74656e616e745c2f31323334353637382d313233342d313233342d313233342d3132333435363738396162635c2f6f70657261746f725c2f752d31227d2c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/pki.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.openid.net\\\/secevent\\\/risc\\\/event-type\\\/account-disabled\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"member_suspended\"},\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"sub\":\"u-1\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"jti\":\"jti-fixed-1\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe:\\\/\\\/wendy.sh\\\/tenant\\\/12345678-1234-1234-1234-123456789abc\\\/operator\\\/u-1\"},\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/pki.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-disabled",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/acme",
+        "jti" : "jti-fixed-1",
+        "reason" : "member_suspended",
+        "sub_id_uri" : "spiffe:\/\/wendy.sh\/tenant\/12345678-1234-1234-1234-123456789abc\/operator\/u-1",
+        "subject" : "u-1"
+      },
+      "name" : "pki-account-disabled-operator-sub-id"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f706b692e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e6f70656e69642e6e65745c2f7365636576656e745c2f726973635c2f6576656e742d747970655c2f6163636f756e742d707572676564223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a226d656d6265725f72656d6f766564227d2c227375626a656374223a7b22666f726d6174223a226973735f737562222c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c22737562223a227376632d31227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c226a7469223a226a74692d66697865642d31222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a5c2f5c2f77656e64792e73685c2f74656e616e745c2f31323334353637382d313233342d313233342d313233342d3132333435363738396162635c2f736572766963655c2f7376632d31227d2c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/pki.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.openid.net\\\/secevent\\\/risc\\\/event-type\\\/account-purged\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"member_removed\"},\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"sub\":\"svc-1\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"jti\":\"jti-fixed-1\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe:\\\/\\\/wendy.sh\\\/tenant\\\/12345678-1234-1234-1234-123456789abc\\\/service\\\/svc-1\"},\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/pki.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-purged",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/acme",
+        "jti" : "jti-fixed-1",
+        "reason" : "member_removed",
+        "sub_id_uri" : "spiffe:\/\/wendy.sh\/tenant\/12345678-1234-1234-1234-123456789abc\/service\/svc-1",
+        "subject" : "svc-1"
+      },
+      "name" : "pki-account-purged-service-sub-id"
+    }
+  ],
+  "version" : "set-vectors-v1"
+}
