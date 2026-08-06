@@ -28,6 +28,12 @@ Each `vectors[]` entry:
 
 - **Envelope constants:** `msg_type = "ssf.security_event"`,
   `signed_artifact.kind = "set+jwt"`, JWS `typ = "secevent+jwt"`.
+- **JWS alg: `ES256`** — pinned regardless of wendy-auth's platform signing posture
+  (default ML-DSA-65): pki-core's realm-trust SET verifier resolves keys ES256-only
+  (`internal/ssf/verify.go` hardcodes `reqsig.AlgES256`, and its go-jose cannot
+  materialize AKP/ML-DSA JWKS entries), so a PQ-signed SET is rejected at key
+  resolution. Revisit when pki-core's `Verifier` adopts the alg-agnostic
+  `EntryByKID` path its `CloudVerifier` already uses.
 - **Audiences:** pki-core `https://pki.wendy.sh/fabric/ssf`,
   cloud `https://cloud.wendy.sh/fabric/ssf`.
 - **`exp = iat + 300`** — deliberate deviation from RFC 8417 §2.2 (which discourages
