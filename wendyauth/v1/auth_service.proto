@@ -1,0 +1,34 @@
+syntax = "proto3";
+package wendyauth.v1;
+
+// wendy-auth's fabric server surface (AAA contract §11).
+// wendy-auth is the SERVER; cloud (and other first-party services) are callers.
+// Proposed by wendy-auth — jointly agreed with the calling teams before wiring live.
+service AuthFabric {
+  // Capability/version handshake (contract §11.2). Called at connect so a caller
+  // learns the server's base-protocol version and supported method set.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+
+  // Admin-initiated force sign-out (SSF receiver). Revokes sessions AND
+  // refresh-token families for the subject. Fail-safe: removes access only.
+  rpc ForceSignOut(ForceSignOutRequest) returns (ForceSignOutResponse);
+}
+
+message GetCapabilitiesRequest {
+  string proto_version = 1;         // caller's base-protocol version
+}
+message GetCapabilitiesResponse {
+  string proto_version = 1;         // server's base-protocol version
+  repeated string methods = 2;      // fully-qualified method names supported
+}
+
+message ForceSignOutRequest {
+  string correlation_id = 1;        // threaded end-to-end
+  string realm = 2;                 // realm slug
+  string subject = 3;               // user sub whose access is removed
+  string reason = 4;                // audit reason (free-form)
+}
+message ForceSignOutResponse {
+  uint32 sessions_revoked = 1;
+  uint32 token_families_revoked = 2;
+}
