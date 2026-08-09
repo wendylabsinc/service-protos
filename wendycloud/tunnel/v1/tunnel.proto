@@ -35,8 +35,9 @@ service TunnelAuthorizationService {
   rpc IssuePresenceLease(IssuePresenceLeaseRequest) returns (IssuePresenceLeaseResponse);
 
   // Authenticated caller presents the complete request body plus its existing
-  // §4.1 cert-bound request signature. Cloud obtains a pki-core attestation
-  // before authorizing target and service or minting a session grant.
+  // §4.1 cert-bound request signature. Cloud authorizes and resolves target and
+  // service, selects a live broker incarnation, then obtains the pki-core
+  // attestation before minting the session grant or calling the broker.
   rpc RequestTunnel(RequestTunnelRequest) returns (RequestTunnelResponse);
 }
 
@@ -120,6 +121,10 @@ message IssuePresenceLeaseResponse {
 // Cloud and pki-core, never to the broker. The reqsig descriptor MUST use
 // operation "create_tunnel", aud "pki-core/tunnel-attestation", and a target
 // object that binds the same target asset and symbolic service as this body.
+// Descriptor nonce is pki-core's sole single-use replay key: first use is
+// consumed and every duplicate is rejected even when the request is identical.
+// Pki-core retains that replay record through descriptor expiry plus verifier
+// clock skew, then reaps it; storage is not unbounded.
 // The validated leaf selects the verifier. This tunnel profile allows only
 // RFC 9964 pure/empty-context ML-DSA-44, ML-DSA-65, or ML-DSA-87, with
 // ML-DSA-65 the issuance default. Header alg, leaf algorithm, and signature
@@ -135,7 +140,10 @@ message TunnelPrincipalRequestBody {
   // hashing. Compressed points, alternate parameters, BER, trailing bytes, and
   // other noncanonical encodings are rejected. Max 256 bytes.
   bytes caller_signing_public_key_spki_der = 3;
-  bytes request_id = 4; // Caller-generated replay nonce, exactly 16 bytes.
+  // Opaque caller-generated request/idempotency id, exactly 16 bytes. This is
+  // not a second replay nonce; pki-core replay enforcement uses only the
+  // signed descriptor nonce.
+  bytes request_id = 4;
   reserved 5 to 15;
 }
 
@@ -175,7 +183,7 @@ message AttestTunnelPrincipalResponse {
 }
 
 message RequestTunnelResponse {
-  // Compact Cloud JWS with protected typ "tunnel-session-grant+jwt". It binds
+  // Compact Cloud JWS with protected typ "tunnel-session-grant+jws". It binds
   // only opaque handles, SHA-256 hashes, key bindings, and admission/relay
   // deadlines; it has no `sub`, target, service, hostname, or port.
   string session_grant_jws = 1; // 1..16384 ASCII bytes.
@@ -689,8 +697,9 @@ message JoinSessionResponse {
 // * PERMISSION_DENIED: authenticated Cloud policy denial (including target or
 //   service denial). Broker-facing denials never reveal such identity.
 // * NOT_FOUND: broker has no unexpired opaque route/session reservation.
-// * ALREADY_EXISTS: conflicting CreateSession reuse, second presence owner, or
-//   second proven endpoint for a role. Exact CreateSession retries return OK.
+// * ALREADY_EXISTS: replayed pki principal descriptor nonce, conflicting
+//   CreateSession reuse, second presence owner, or second proven endpoint for a
+//   role. Exact CreateSession retries return OK.
 // * FAILED_PRECONDITION: expired/not-yet-valid artifact, audience/instance
 //   mismatch, presence/grant/envelope hash mismatch, admission after exp, or a
 //   state transition that is valid in shape but no longer permitted.

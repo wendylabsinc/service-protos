@@ -18,6 +18,11 @@ Implementations must test these invariants before enabling the v1 services:
   agree. Thus Cloud cannot fabricate principal authority. Other broker-facing
   messages and signed grants contain no user, organization, asset, service,
   hostname, port, `sub`, certificate, or Wendy identity.
+- The signed §4.1 descriptor `nonce` is pki-core's sole single-use replay key;
+  first use consumes it and an identical duplicate is rejected. The body's
+  16-byte `request_id` is only an opaque caller request/idempotency identifier,
+  never a second replay key. Replay state is retained through descriptor expiry
+  plus verifier clock skew and then reaped.
 - Pki-core derives the request verifier and algorithm from the validated leaf
   and extracts its tenant from the Wendy SPIFFE SAN. Tunnel v1 permits only
   RFC 9964 ML-DSA-44/65/87 (default ML-DSA-65); ES256 is not authorized for
@@ -83,10 +88,9 @@ a complete protobuf request body and cert-bound request signature, the mandatory
 audited Cloud-to-pki Envelope, an identity-free pki-core attestation, a Cloud KMS
 session grant, a real HPKE seal, role proofs, attestation consumption/retry, and
 negative cases that prove neither signer can substitute for the other.
-
-[`tunnel-vectors-v1.json`](tunnel-vectors-v1.json) is the legacy pre-attestation
-fixture. It is archival historical data only: its self-signed messages have no
-proto decoder or acceptance path and are not tunnel authority.
+The pki-core attestation protected `typ` is exactly
+`tunnel-principal-attestation+jwt`; the Cloud session grant is a compact JWS
+whose protected `typ` is exactly `tunnel-session-grant+jws`.
 
 The authoritative blind-attestation fixture is organized as:
 
@@ -117,6 +121,9 @@ The authoritative blind-attestation fixture is organized as:
   `session_id` while binding the second valid envelope.
 - `proofs`: presence, caller-join, and agent-join domains, roles, challenges,
   exact canonical preimages/digests, and valid raw P-256 signatures.
+- `principal_request_replay_cases`: first use consumes the signed descriptor
+  nonce and an identical duplicate is rejected without changing replay state;
+  the body `request_id` remains the same opaque idempotency identifier in both.
 - `malformed_protobuf_cases`: compact deterministic mutation recipes against
   the canonical dial fixture, covering invalid padding size, string/control/descriptor bounds, and
   transport/destination semantic violations. Except for the dedicated size
@@ -134,7 +141,7 @@ The authoritative blind-attestation fixture is organized as:
   unchanged in both WAITING and ACTIVE; conflicting fingerprints return
   `ALREADY_EXISTS` unchanged in both states. The replay model is a process-local
   conformance oracle, not the broker's runtime persistence implementation.
-- `negative_cases`: named header, claim, Envelope-kind, target/body, expiry,
+- `negative_cases`: named header, claim, Envelope-kind, target/body semantic, expiry,
   audience, signer, request/key/attestation/envelope binding, HPKE context,
   proof, and attestation-replay substitutions.
 
