@@ -56,50 +56,7 @@ service FabricManagementService {
 // artifact cloud transported. A compromised cloud gains no authority from a
 // read-only validity oracle.
 //
-// Verdict semantics: the response reports only DEFINITE answers. Internal
-// failures (storage unavailable, engine unreachable) surface as gRPC status
-// errors, and the caller MUST fail closed on them. A `valid: false` verdict is
-// final for the presented leaf (except "principal_disabled", which clears if
-// the SSF disable is lifted); a `valid: true` verdict is point-in-time — cache
-// it briefly (minutes) and never past `not_after`.
-message ValidateOperatorCertificateRequest {
-  // DER of the operator leaf to validate. For a signed request this is
-  // exactly x5c[0]/x5chain[0], passed through verbatim. The full certificate
-  // (not a fingerprint) so pki-core performs every derivation itself — chain
-  // verification against the tenant's Operator-Authority CA, SPIFFE SAN
-  // extraction, SHA-256 fingerprint — and the caller never parses X.509.
-  // Presented intermediates are deliberately NOT accepted: pki-core validates
-  // against the CA material it owns, not against what the requester supplied.
-  bytes certificate = 1;
-}
-
-message ValidateOperatorCertificateResponse {
-  // True only when every check passes: the leaf parses, chains to the
-  // envelope tenant's Operator-Authority CA, is inside its validity window,
-  // has a certificate_ledger row without revoked_at, and its SPIFFE principal
-  // has no disabled_principals record.
-  bool valid = 1;
-  // Machine-readable cause when !valid — the FIRST failure in check order:
-  //   "malformed"          — leaf does not parse as an X.509 certificate
-  //   "untrusted"          — does not chain to the envelope tenant's
-  //                          Operator-Authority CA (also covers a leaf of a
-  //                          DIFFERENT tenant: anchors are strictly per-tenant)
-  //   "not_operator"       — chains, but the SPIFFE SAN is not an operator
-  //                          principal of the envelope tenant
-  //   "not_yet_valid"      — NotBefore is in the future
-  //   "expired"            — NotAfter has passed (no roll-forward: an expired
-  //                          operator re-onboards via wendy-auth)
-  //   "not_issued"         — no certificate_ledger row: pki-core never minted
-  //                          this leaf (definite refusal, not a lookup miss)
-  //   "revoked"            — certificate_ledger revoked_at is set
-  //   "principal_disabled" — sticky SSF-driven disabled_principals kill switch
-  // Empty when valid.
-  string reason = 2;
-  // Server-derived SPIFFE URI of the operator principal, set only when valid.
-  // This is the identity cloud should authorize against — returned so the
-  // caller never extracts SANs from the leaf itself.
-  string principal = 3;
-  // RFC3339 leaf NotAfter, set only when valid. Hard upper bound for any
-  // caller-side caching of this verdict.
-  string not_after = 4;
-}
+// Request/response messages and verdict semantics live in engine.proto next
+// to CheckOperatorAuthority — this RPC is the fabric-facing face of the same
+// engine check family, and the fabric edge relays to CAEngine's
+// ValidateOperatorCertificate.
