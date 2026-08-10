@@ -25,6 +25,7 @@ service FabricManagementService {
   rpc RevokeEnrollmentToken(wendyauth.v1.Envelope) returns (RevokeEnrollmentTokenResponse); // payload = RevokeEnrollmentTokenRequest
   rpc RevokeCA(wendyauth.v1.Envelope)              returns (RevokeCAResponse);         // payload = RevokeCARequest
   rpc CreateTenant(wendyauth.v1.Envelope)          returns (CreateCustomerCAResponse); // payload = CreateCustomerCARequest (platform provisioning, no anchor at create time)
+  rpc ValidateOperatorCertificate(wendyauth.v1.Envelope) returns (ValidateOperatorCertificateResponse); // payload = ValidateOperatorCertificateRequest
 
   // -- tier 3: signed operator request (signed_artifact "management-request+jws") --
   rpc SetTenantPolicy(wendyauth.v1.Envelope)       returns (SetTenantPolicyResponse);
@@ -36,3 +37,26 @@ service FabricManagementService {
 
   rpc GetCapabilities(GetCapabilitiesRequest)      returns (GetCapabilitiesResponse);  // reuse from fabric_relay.proto
 }
+
+// ValidateOperatorCertificate (tier 1) answers, live from pki-core's own
+// state: "is this leaf a currently-valid operator certificate of the envelope
+// tenant?" It exists for cloud's authorization path — when cloud receives an
+// operator-signed request (JWS/COSE with x5c/x5chain), it delegates the whole
+// cert-validity question here instead of building X.509 paths, tracking CA
+// rotations, and consuming CRL/OCSP artifacts itself. The published CRL/OCSP
+// pipeline stays what it is: distribution for third-party/offline relying
+// parties, never the authority's own hot path (same rationale as the engine's
+// CheckOperatorAuthority — a revocation must take effect on the NEXT request,
+// not at the next publish).
+//
+// Tier 1 is justified the same way the Revoke*/Get* family is: the caller
+// already holds the certificate it is asking about, the check is single-leaf
+// (no enumeration, no inventory — unlike ListCertMetadata, which stays
+// tier 3), and the verdict reveals nothing about the tenant beyond the one
+// artifact cloud transported. A compromised cloud gains no authority from a
+// read-only validity oracle.
+//
+// Request/response messages and verdict semantics live in engine.proto next
+// to CheckOperatorAuthority — this RPC is the fabric-facing face of the same
+// engine check family, and the fabric edge relays to CAEngine's
+// ValidateOperatorCertificate.
