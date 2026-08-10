@@ -12,12 +12,35 @@ jobs:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - uses: bufbuild/buf-setup-action@v1
-      # Lint only the protos this repo's owners maintain under buf conventions.
-      # (Other protos predate buf lint; enabling it repo-wide is a separate cleanup.)
-      - name: Lint maintained packages
-        run: buf lint --path pkicore/v1 --path wendycloud/tunnel/v1
+      - name: Lint every changed proto
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base_sha="$PR_BASE_SHA"
+          elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse HEAD^)"
+          else
+            base_sha="$BEFORE_SHA"
+          fi
+
+          mapfile -t proto_files < <(
+            git diff --name-only --diff-filter=ACMR "$base_sha" "$GITHUB_SHA" -- '*.proto'
+          )
+          if (( ${#proto_files[@]} == 0 )); then
+            echo "No changed proto files to lint."
+            exit 0
+          fi
+
+          lint_args=()
+          for proto_file in "${proto_files[@]}"; do
+            lint_args+=(--path "$proto_file")
+          done
+          buf lint "${lint_args[@]}"
       # Breaking-change guard for ALL cross-service protos — the drift guard,
-      # caught in one place. Runs on PRs against main.
-      - name: Breaking change check (vs main)
+      # caught in one place. Runs on PRs against master.
+      - name: Breaking change check (vs master)
         if: github.event_name == 'pull_request'
         run: buf breaking --against "https://github.com/wendylabsinc/service-protos.git#branch=master"
