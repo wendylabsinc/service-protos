@@ -22,6 +22,13 @@ service NotificationService {
   // Stable, canonical-ID-relative traversal for durable inbox clients.
   rpc ListNotificationsV2(ListNotificationsV2Request) returns (ListNotificationsV2Response);
   rpc GetNotification(GetNotificationRequest) returns (Notification);
+  // Resolves one stored attachment for the authenticated recipient. The caller supplies
+  // no organization, tenant, clip identifier, or destination URL; Cloud derives those
+  // exclusively from the canonical Notification.
+  rpc ResolveNotificationAttachment(ResolveNotificationAttachmentRequest) returns (ResolveNotificationAttachmentResponse);
+  // Performs one stored operational action for the authenticated recipient. Cloud loads
+  // and authorizes the canonical action rather than accepting a caller-chosen command.
+  rpc PerformNotificationAction(PerformNotificationActionRequest) returns (PerformNotificationActionResponse);
   rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
   rpc MarkAsRead(MarkAsReadRequest) returns (MarkAsReadResponse);
   rpc MarkAsUnread(MarkAsUnreadRequest) returns (MarkAsUnreadResponse);
@@ -253,6 +260,34 @@ message GetNotificationRequest {
   int32 id = 1;
   // Canonical UUID. New clients use this field instead of id.
   optional string notification_id = 2;
+}
+
+message ResolveNotificationAttachmentRequest {
+  // Required canonical Notification UUID.
+  string notification_id = 1;
+  // Required ID of an attachment stored on that Notification.
+  string attachment_id = 2;
+}
+
+message ResolveNotificationAttachmentResponse {
+  // Absolute HTTPS URL suitable for a credential-free media request. Wendy-managed
+  // URLs are short-lived; approved customer URLs may be returned unchanged.
+  string url = 1;
+  // Present when url carries time-limited authorization.
+  optional google.protobuf.Timestamp expires_at = 2;
+}
+
+message PerformNotificationActionRequest {
+  // Required canonical Notification UUID.
+  string notification_id = 1;
+  // Required ID of an action stored on that Notification.
+  string action_id = 2;
+  // Optional operator note or false-positive reason; 1-1,000 UTF-8 bytes when present.
+  optional string note = 3;
+}
+
+message PerformNotificationActionResponse {
+  bool success = 1;
 }
 
 message DeleteNotificationRequest {
