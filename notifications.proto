@@ -22,17 +22,21 @@ service NotificationService {
   // Stable, canonical-ID-relative traversal for durable inbox clients.
   rpc ListNotificationsV2(ListNotificationsV2Request) returns (ListNotificationsV2Response);
   rpc GetNotification(GetNotificationRequest) returns (Notification);
-  // Resolves one stored attachment for the authenticated recipient. The caller supplies
-  // no organization, tenant, clip identifier, or destination URL; Cloud derives those
-  // exclusively from the canonical Notification.
+  // Resolves one stored Wendy-managed attachment for the authenticated recipient. The
+  // caller supplies no organization, tenant, clip identifier, or destination URL.
   rpc ResolveNotificationAttachment(ResolveNotificationAttachmentRequest) returns (ResolveNotificationAttachmentResponse);
-  // Performs one stored operational action for the authenticated recipient. Cloud loads
-  // and authorizes the canonical action rather than accepting a caller-chosen command.
-  rpc PerformNotificationAction(PerformNotificationActionRequest) returns (PerformNotificationActionResponse);
+  // Performs one stored custom control for the authenticated recipient. Cloud loads the
+  // canonical control and derives publisher routing; the caller supplies no payload.
+  rpc PerformNotificationControlAction(PerformNotificationControlActionRequest) returns (PerformNotificationControlActionResponse);
   rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
-  rpc MarkAsRead(MarkAsReadRequest) returns (MarkAsReadResponse);
-  rpc MarkAsUnread(MarkAsUnreadRequest) returns (MarkAsUnreadResponse);
-  rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse);
+  rpc MarkAsRead(MarkAsReadRequest) returns (MarkAsReadResponse) {
+    option deprecated = true;
+  }
+  rpc SetNotificationReadStatus(SetNotificationReadStatusRequest) returns (SetNotificationReadStatusResponse);
+  rpc CountNotifications(CountNotificationsRequest) returns (CountNotificationsResponse);
+  rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse) {
+    option deprecated = true;
+  }
 }
 
 enum NotificationSeverity {
@@ -52,9 +56,19 @@ message NotificationAudience {
   repeated OrganizationRole roles = 3;
 }
 
+message NotificationSection {
+  // Required; unique among named sections in this Notification. The anonymous
+  // section is represented by omitted item section references, not a section entry.
+  string key = 1;
+  // Optional user-facing heading.
+  optional string title = 2;
+  // Optional user-facing supporting text. Detail without title is a text-only
+  // heading; omitting both title and detail creates a grouping-only section.
+  optional string detail = 3;
+}
+
 message NotificationAttachment {
-  // Required; unique among this Notification's attachments. 1-256 ASCII
-  // letters, digits, periods, underscores, or hyphens.
+  // Required canonical lowercase UUID v4; unique among this Notification's attachments.
   string id = 1;
   // Optional; 1-256 UTF-8 bytes when present, with no surrounding whitespace
   // or control characters.
@@ -62,9 +76,8 @@ message NotificationAttachment {
   // Optional visible description; 1-1,024 UTF-8 bytes when present, with no
   // surrounding whitespace or control characters.
   optional string caption = 3;
-  // Required absolute HTTPS URL; 1-8,192 UTF-8 bytes, with no credentials.
-  // Cloud accepts it only when its exact normalized origin is approved for
-  // notification media by the creating organization.
+  // Required absolute HTTPS Wendy-managed broker reference; 1-8,192 UTF-8
+  // bytes, with no credentials. Customer-hosted media is not supported in V1.
   string url = 4;
   // Optional producer-declared media type; 1-256 ASCII characters when present.
   optional string content_type = 5;
@@ -81,6 +94,8 @@ message NotificationAttachment {
     NotificationAttachmentVideo video = 9;
     NotificationAttachmentAudio audio = 10;
   }
+  // Optional key of a declared named section. Omitted means the anonymous section.
+  optional string section = 11;
 }
 
 message NotificationAttachmentImage {
@@ -98,41 +113,55 @@ message NotificationAttachmentVideo {
   // Required producer-declared dimensions; each must be greater than zero.
   uint32 width_pixels = 1;
   uint32 height_pixels = 2;
-  // Optional ID of an image in the same Notification's attachments.
+  // Optional canonical UUID of an image in the same Notification's attachments.
   optional string poster_attachment_id = 3;
-  // Optional producer-declared duration; must be greater than zero when present.
-  optional uint64 duration_milliseconds = 4;
+  // Required producer-declared duration; must be greater than zero.
+  uint64 duration_milliseconds = 4;
 }
 
 message NotificationAttachmentAudio {
-  // Optional producer-declared duration; must be greater than zero when present.
-  optional uint64 duration_milliseconds = 1;
+  // Required producer-declared duration; must be greater than zero.
+  uint64 duration_milliseconds = 1;
 }
 
-enum NotificationActionStyle {
-  NOTIFICATION_ACTION_STYLE_UNSPECIFIED = 0;
-  NOTIFICATION_ACTION_STYLE_STANDARD = 1;
-  NOTIFICATION_ACTION_STYLE_PROMINENT = 2;
-  NOTIFICATION_ACTION_STYLE_DESTRUCTIVE = 3;
+enum NotificationControlStyle {
+  NOTIFICATION_CONTROL_STYLE_UNSPECIFIED = 0;
+  NOTIFICATION_CONTROL_STYLE_STANDARD = 1;
+  NOTIFICATION_CONTROL_STYLE_PROMINENT = 2;
+  // Clients require explicit user confirmation before performing this button.
+  NOTIFICATION_CONTROL_STYLE_DESTRUCTIVE = 3;
 }
 
-message NotificationAction {
-  // Required; unique among this Notification's actions. 1-256 ASCII letters,
-  // digits, periods, underscores, or hyphens.
-  string id = 1;
-  // Required; 1-256 UTF-8 bytes, with no surrounding whitespace or control characters.
+message NotificationCustomAction {}
+
+message NotificationButton {
+  // Required; unique among this Notification's controls.
+  string key = 1;
+  // Required user-facing title.
   string title = 2;
-  // Required presentation hint; NOTIFICATION_ACTION_STYLE_UNSPECIFIED is invalid.
-  NotificationActionStyle style = 3;
+  // Required presentation hint; NOTIFICATION_CONTROL_STYLE_UNSPECIFIED is invalid.
+  NotificationControlStyle style = 3;
+  optional string detail = 4;
+  // Optional key of a declared named section. Omitted means the anonymous section.
+  optional string section = 5;
 
-  // Exactly one destination is required.
-  oneof destination {
-    // Absolute wendy:// URI with a host and no credentials; 1-8,192 UTF-8 bytes.
-    // Clients recognize and authorize the route when the action is invoked.
-    string deep_link = 4;
-    // Absolute HTTPS URL with no credentials; 1-8,192 UTF-8 bytes. External
-    // action URLs are user-initiated and do not require media-origin approval.
-    string url = 5;
+  // Exactly one action is required.
+  oneof action {
+    // Absolute wendy:// URI supported by Companion, with a host and no credentials.
+    string deep_link = 6;
+    // Absolute HTTPS URL with no credentials. This is explicit user navigation
+    // and does not require notification media-origin approval.
+    string url = 7;
+    // Cloud-mediated publisher operation identified by this button's key.
+    NotificationCustomAction custom = 8;
+  }
+}
+
+message NotificationControl {
+  // Exactly one typed control is required. V1 permits button only; other typed
+  // controls may be added here later.
+  oneof control {
+    NotificationButton button = 1;
   }
 }
 
@@ -149,6 +178,8 @@ message Notification {
   optional google.protobuf.Timestamp deleted_at = 8;
 
   string title = 9;
+  // Explicit primary wendy:// action when present. Empty string represents no
+  // explicit deep link for wire and source compatibility.
   string deep_link = 10;
   // Canonical UUID v4; absent for legacy Notifications.
   optional string notification_id = 11;
@@ -159,14 +190,16 @@ message Notification {
   optional string created_by_app_id = 16;
   // Independent per-recipient read state. Deletion remains represented by deleted_at.
   optional google.protobuf.Timestamp read_at = 17;
-  // Ordered canonical attachments; at most 5. Clients validate the actual
-  // external media response before rendering producer-declared metadata.
-  repeated NotificationAttachment attachments = 18;
-  // Optional ID of an image in attachments to use as the push preview. When
-  // absent or unavailable, clients use a text-only push and do not infer one.
-  optional string preview_attachment_id = 19;
-  // Ordered canonical actions; at most 5.
-  repeated NotificationAction actions = 20;
+  // Ordered named sections; at most 10. Anonymous content is represented by
+  // omitted item section references rather than a section entry.
+  repeated NotificationSection sections = 18;
+  // Ordered canonical attachments; at most 10.
+  repeated NotificationAttachment attachments = 19;
+  // Optional canonical UUID of an image attachment. No preview is inferred, and
+  // V1 push delivery remains text-only.
+  optional string preview_attachment_id = 20;
+  // Ordered canonical controls; at most 10. V1 permits button only.
+  repeated NotificationControl controls = 21;
 }
 
 message CreateNotificationRequest {
@@ -193,8 +226,10 @@ message CreateNotificationV2Request {
   string body = 4;
   // NOTIFICATION_SEVERITY_UNSPECIFIED is invalid.
   NotificationSeverity severity = 5;
-  // Required absolute wendy:// URI understood by Wendy clients; 1-2,048 UTF-8 bytes,
-  // with a host and no userinfo or credentials.
+  // An empty or omitted wire value requests canonical Notification detail as the
+  // push primary action. A nonempty value must be an absolute wendy:// URI
+  // understood by Wendy clients, with 1-2,048 UTF-8 bytes, a host, and no userinfo
+  // or credentials; that URI becomes the push primary action.
   string deep_link = 6;
   // Caller-generated UUID v4, stored and returned as canonical lowercase text.
   string notification_id = 7;
@@ -203,13 +238,17 @@ message CreateNotificationV2Request {
   // Required for provisioned-device callers and stamped by the Wendy agent/daemon.
   // Cloud validates that this app belongs to the authenticated organization and device.
   optional string app_id = 9;
-  // Ordered attachments; at most 5. IDs must be unique within this collection.
-  repeated NotificationAttachment attachments = 10;
-  // Optional ID of an image in attachments to use as the push preview. Cloud
-  // does not infer an image when this field is absent.
-  optional string preview_attachment_id = 11;
-  // Ordered actions; at most 5. IDs must be unique within this collection.
-  repeated NotificationAction actions = 12;
+  // Ordered named sections; at most 10 in addition to the anonymous section.
+  // Keys must be unique.
+  repeated NotificationSection sections = 10;
+  // Ordered attachments; at most 10. IDs must be unique canonical UUIDs. Any
+  // section reference must name a declared section or the entire request is invalid.
+  repeated NotificationAttachment attachments = 11;
+  // Optional canonical UUID of an image attachment. Cloud does not infer a preview.
+  optional string preview_attachment_id = 12;
+  // Ordered controls; at most 10. V1 permits button only and keys must be unique.
+  // Any section reference must name a declared section or the entire request is invalid.
+  repeated NotificationControl controls = 13;
 }
 
 message CreateNotificationV2Response {
@@ -232,11 +271,10 @@ message ListNotificationsResponse {
   int32 total = 2;
 }
 
-enum NotificationReadFilter {
-  NOTIFICATION_READ_FILTER_UNSPECIFIED = 0;
-  NOTIFICATION_READ_FILTER_ALL = 1;
-  NOTIFICATION_READ_FILTER_UNREAD = 2;
-  NOTIFICATION_READ_FILTER_READ = 3;
+enum NotificationReadStatus {
+  NOTIFICATION_READ_STATUS_UNSPECIFIED = 0;
+  NOTIFICATION_READ_STATUS_READ = 1;
+  NOTIFICATION_READ_STATUS_UNREAD = 2;
 }
 
 message ListNotificationsV2Request {
@@ -245,7 +283,8 @@ message ListNotificationsV2Request {
   optional string after_notification_id = 3;
   int32 limit = 4;
   optional NotificationSeverity severity_filter = 5;
-  NotificationReadFilter read_filter = 6;
+  // Omitted means no read-status filtering. Explicit UNSPECIFIED is invalid.
+  optional NotificationReadStatus read_status = 6;
 }
 
 message ListNotificationsV2Response {
@@ -265,30 +304,28 @@ message GetNotificationRequest {
 message ResolveNotificationAttachmentRequest {
   // Required canonical Notification UUID.
   string notification_id = 1;
-  // Required ID of an attachment stored on that Notification.
+  // Required canonical UUID of an attachment stored on that Notification.
   string attachment_id = 2;
 }
 
 message ResolveNotificationAttachmentResponse {
-  // Absolute HTTPS URL suitable for a credential-free media request. Wendy-managed
-  // URLs are short-lived; approved customer URLs may be returned unchanged.
+  // Absolute HTTPS URL suitable for a credential-free media request. V1 resolves
+  // Wendy-managed attachments only, and their URLs are short-lived.
   string url = 1;
   // Present when url carries time-limited authorization.
   optional google.protobuf.Timestamp expires_at = 2;
 }
 
-message PerformNotificationActionRequest {
+message PerformNotificationControlActionRequest {
   // Required canonical Notification UUID.
   string notification_id = 1;
-  // Required ID of an action stored on that Notification.
-  string action_id = 2;
-  // Optional operator note or false-positive reason; 1-1,000 UTF-8 bytes when present.
-  optional string note = 3;
+  // Required key of a custom control stored on that Notification.
+  string control_key = 2;
 }
 
-message PerformNotificationActionResponse {
-  bool success = 1;
-}
+// Success is represented by the RPC status. A dedicated empty response permits
+// additive response metadata later without a redundant success Boolean.
+message PerformNotificationControlActionResponse {}
 
 message DeleteNotificationRequest {
   // Legacy recipient projection ID.
@@ -313,12 +350,25 @@ message MarkAsReadResponse {
   int32 marked_count = 2;
 }
 
-message MarkAsUnreadRequest {
+message SetNotificationReadStatusRequest {
   repeated string notification_ids = 1;
+  // Required; NOTIFICATION_READ_STATUS_UNSPECIFIED is invalid.
+  NotificationReadStatus read_status = 2;
 }
 
-message MarkAsUnreadResponse {
-  int32 marked_count = 1;
+message SetNotificationReadStatusResponse {
+  int32 updated_count = 1;
+}
+
+message CountNotificationsRequest {
+  int32 organization_id = 1;
+  optional NotificationSeverity severity_filter = 2;
+  // Omitted means no read-status filtering. Explicit UNSPECIFIED is invalid.
+  optional NotificationReadStatus read_status = 3;
+}
+
+message CountNotificationsResponse {
+  int32 count = 1;
 }
 
 message GetUnreadCountRequest {
