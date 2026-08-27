@@ -256,15 +256,21 @@ message CreateCustomerCARequest {
   // tenant default for the intermediate role. Empty falls back to platform
   // default.
   optional string backend = 6;
+  // WDY-2620: tenant UUID minted by the cloud control plane; the engine adopts
+  // it as the authoritative tenant identity instead of minting its own. Empty
+  // falls back to an engine-minted UUID. The nil UUID is reserved for the
+  // system tenant and is rejected here. tenant_id above stays the human slug.
+  string tenant_uuid = 7;
 }
 message CreateCustomerCAResponse {
   string intermediate_ca_id = 1;
   string device_ca_id       = 2;
   string operator_ca_id     = 3;
   bytes  intermediate_cert  = 4; // DER
-  // Server-minted tenant UUID. The request tenant_id is the caller-supplied
-  // slug; the engine mints the authoritative tenant identity and returns it
-  // here so the management plane and clients can address the tenant by UUID.
+  // Echo of the adopted tenant UUID: the request tenant_uuid when the caller
+  // minted one, otherwise the UUID the engine minted. The request tenant_id is
+  // the caller-supplied slug; this is the authoritative tenant identity the
+  // management plane and clients address the tenant by.
   string tenant_id          = 5;
 }
 
