@@ -26,6 +26,22 @@ service FabricRelayService {
   // cloud timestamp each accepted postbox entry over the authenticated,
   // tenant-attributed fabric instead of the public device-facing /v1/time.
   rpc RelayTimestamp(wendyauth.v1.Envelope) returns (RelayTimestampResponse);
+  // WDY-2638: collects the certificate for an APPROVED over-duration request.
+  // It lives here rather than on FabricManagementService because it returns a
+  // certificate — the same reason RelayIssuance does. Tier 3: the operator's
+  // signature is the authority, cloud only relays. Envelope.payload =
+  // OverDurationPickupPayload; signed_artifact =
+  // {kind:"over-duration-pickup+jws", value:<operator JWS>}. Tenant comes from
+  // the transport-authenticated Envelope, never the payload (D7).
+  //
+  // There is no mTLS from the operator to pki-core over the fabric, so the
+  // collecting operator's certificate travels in-band in the payload and the
+  // JWS is what proves possession of its key. The server verifies BOTH that the
+  // JWS validates against the presented certificate AND that the certificate
+  // chains to the tenant's Operator Authority CA: the first alone proves only
+  // possession of some key, the second alone proves only that a valid
+  // certificate exists. Neither check is sufficient on its own.
+  rpc RelayOverDurationPickup(wendyauth.v1.Envelope) returns (RelayOverDurationPickupResponse);
 }
 
 // PostboxHeadAssertion is the Envelope.payload for NotarizePostboxHead. It
@@ -64,6 +80,22 @@ message RelayEnrollmentResponse {
   string token_id        = 4; // class C
   string token_value     = 5; // once only
   string expires_at      = 6; // RFC3339 (token)
+}
+
+// OverDurationPickupPayload is the Envelope.payload for
+// RelayOverDurationPickup. Like PostboxHeadAssertion it deliberately carries no
+// tenant field — the tenant comes from the transport-authenticated Envelope.
+message OverDurationPickupPayload {
+  string pending_request_id   = 1;
+  bytes  operator_certificate = 2; // DER; the collecting operator's leaf, presented in-band
+}
+
+// RelayOverDurationPickupResponse mirrors the engine's over-duration mint
+// result — the same decoupling RelayIssuanceResponse keeps from
+// IssueCertificateResponse. No ocsp_staple: the over-duration mint produces none.
+message RelayOverDurationPickupResponse {
+  bytes          certificate = 1; // DER leaf
+  repeated bytes chain       = 2; // DER intermediates (not root)
 }
 
 message GetCapabilitiesRequest {}

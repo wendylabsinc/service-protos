@@ -35,6 +35,21 @@ service FabricManagementService {
   rpc RotateCA(wendyauth.v1.Envelope)              returns (RotateCAResponse);        // payload = RotateCARequest
   rpc MigrateCA(wendyauth.v1.Envelope)             returns (MigrateCAResponse);       // payload = MigrateCARequest
 
+  // Over-duration issuance (four-eyes) over the fabric (WDY-2638). The operator
+  // submits the request through cloud and collects the certificate at cloud;
+  // these two are the halves that return NO certificate. Tier 3: the operator's
+  // signature IS the authority — cloud only relays, and its transport identity
+  // grants nothing (D7). Tenant is taken from the transport-authenticated
+  // Envelope, never from the payload, the same rule NotarizePostboxHead states.
+  // payload = OverDurationRequestPayload; signed_artifact =
+  // {kind:"over-duration-request+jws", value:<operator JWS over the descriptor>}.
+  rpc RequestOverDurationIssuance(wendyauth.v1.Envelope) returns (OverDurationRequestResponse);
+  // The approval is a SEPARATE signed request, never a replay of the cert
+  // request: four-eyes lives in the second operator's signature, taken over the
+  // pending request's hash. payload = OverDurationApprovalPayload;
+  // signed_artifact = {kind:"over-duration-approval+jws", value:<approver JWS>}.
+  rpc ApproveOverDurationIssuance(wendyauth.v1.Envelope) returns (OverDurationApprovalResponse);
+
   rpc GetCapabilities(GetCapabilitiesRequest)      returns (GetCapabilitiesResponse);  // reuse from fabric_relay.proto
 }
 
@@ -60,3 +75,44 @@ service FabricManagementService {
 // to CheckOperatorAuthority — this RPC is the fabric-facing face of the same
 // engine check family, and the fabric edge relays to CAEngine's
 // ValidateOperatorCertificate.
+
+// --- Over-duration issuance over the fabric (WDY-2638) ---
+//
+// Neither payload carries a tenant field: the tenant comes from the
+// transport-authenticated Envelope, never from the payload (D7) — the same rule
+// PostboxHeadAssertion is built on. Neither carries the signed descriptor
+// either; that rides in Envelope.signed_artifact and is re-verified at the edge,
+// so nothing cloud can alter in the payload carries authority.
+
+// OverDurationRequestPayload is the Envelope.payload for
+// RequestOverDurationIssuance: what the engine's
+// RequestOverDurationIssuanceRequest carries EXCEPT signed_request, which is the
+// signed_artifact.
+message OverDurationRequestPayload {
+  bytes timestamp_token = 1; // DER RFC 3161 TimeStampResp over the signed request
+}
+
+// OverDurationApprovalPayload is the Envelope.payload for
+// ApproveOverDurationIssuance.
+message OverDurationApprovalPayload {
+  string pending_request_id = 1;
+  bytes  timestamp_token    = 2; // DER RFC 3161 TimeStampResp over the signed approval
+}
+
+// OverDurationRequestResponse mirrors the engine's
+// RequestOverDurationIssuanceResponse MINUS certificate/chain — a tier-3
+// management RPC returns no certificate. A held request is collected later over
+// FabricRelayService.RelayOverDurationPickup.
+message OverDurationRequestResponse {
+  OverDurationOutcome outcome    = 1;
+  string pending_request_id      = 2; // ADDITIONAL_VERIFICATION_REQUIRED only
+  bytes  request_hash            = 3; // the value an approver must sign over
+  string device_authorization_id = 4; // AUTHORIZATION_RECORDED only
+}
+
+// OverDurationApprovalResponse carries no certificate and no outcome enum:
+// approval RECORDS an approval and mints nothing, so success is the only
+// outcome and every refusal rides a gRPC status code.
+message OverDurationApprovalResponse {
+  string device_authorization_id = 1; // kind "device_duration" only
+}
