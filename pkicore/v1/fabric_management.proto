@@ -105,7 +105,20 @@ message OverDurationApprovalPayload {
 // FabricRelayService.RelayOverDurationPickup.
 message OverDurationRequestResponse {
   OverDurationOutcome outcome    = 1;
-  string pending_request_id      = 2; // ADDITIONAL_VERIFICATION_REQUIRED only
+  // The handle used to collect the certificate later, via
+  // FabricRelayService.RelayOverDurationPickup. Present whenever there IS
+  // something to collect, WHATEVER the outcome — both when the request is held
+  // for four-eyes approval (ADDITIONAL_VERIFICATION_REQUIRED) and when it was
+  // within ceiling and minted immediately (MINTED), which is held for pickup
+  // rather than returned here so that cloud never has to know the ceiling and
+  // never branches on outcome to find its collection handle.
+  //
+  // Deliberately NOT named pending_request_id: for MINTED nothing is pending —
+  // the certificate exists and is waiting to be fetched. Note the asymmetry
+  // with OverDurationApprovalPayload.pending_request_id, which keeps that name
+  // because there the request genuinely IS pending; the two carry the same
+  // value at different moments in the flow.
+  string collection_id           = 2;
   bytes  request_hash            = 3; // the value an approver must sign over
   string device_authorization_id = 4; // AUTHORIZATION_RECORDED only
 }
