@@ -41,6 +41,17 @@ service FabricRelayService {
   // chains to the tenant's Operator Authority CA: the first alone proves only
   // possession of some key, the second alone proves only that a valid
   // certificate exists. Neither check is sufficient on its own.
+  //
+  // WDY-2691: possession is still not INTENT, so the JWS payload is no longer
+  // opaque — it is the pickup descriptor
+  //   {"op":"over_duration_pickup","tenant":<uuid>,"collection_id":<handle>,
+  //    "iat":<unix>,"exp":<unix>,"jti":<unique>}
+  // and the engine binds the signature to THIS collection_id, within a bounded
+  // freshness window, once (single-use jti). Without that binding, a relaying
+  // caller holding ANY earlier JWS from the operator could collect at a moment
+  // of its choosing. The edge relays the artifact byte-verbatim; the engine is
+  // where the descriptor is verified, because that is where the replay claim
+  // and the mint are.
   rpc RelayOverDurationPickup(wendyauth.v1.Envelope) returns (RelayOverDurationPickupResponse);
 }
 

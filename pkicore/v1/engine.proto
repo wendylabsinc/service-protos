@@ -151,18 +151,17 @@ service CAEngine {
   // ever sits at rest: an uncollected request is only an uncollected
   // authorization, reaped by the existing sweeper.
   //
-  // NOT IDEMPOTENT, and the caller must know what that costs. The mint and the
+  // IDEMPOTENT WITHIN A BOUNDED WINDOW (WDY-2691). The mint and the
   // approved->consumed transition share one transaction, so one approval yields
-  // at most one certificate — but if that transaction commits and the RESPONSE
-  // is lost in transit, the certificate was minted, the authorization is
-  // consumed, and a retry correctly returns an error. The certificate is then
-  // unrecoverable and the operator must obtain a fresh four-eyes approval.
+  // at most one certificate. If that transaction commits and the RESPONSE is
+  // lost in transit, a retry by the SAME collector, presenting the same signed
+  // intent, re-serves the SAME certificate — same serial, same bytes, read back
+  // from the certificate ledger where issuance already persisted it. Nothing is
+  // re-minted. The window is the consumed-row retention; past it the row is
+  // reaped and a repeat is AlreadyExists.
   //
-  // So a transport failure on this RPC is NOT a retry condition. A relaying
-  // caller must surface it rather than retrying blind. Closing this gap needs a
-  // bounded window in which repeating the same collection_id returns the same
-  // certificate; that is not built, and until it is, the cost of a dropped
-  // response is a second approval ceremony.
+  // A transport failure on this RPC is therefore retryable by the original
+  // collector, and by nobody else.
   rpc PickupOverDurationCertificate(PickupOverDurationCertificateRequest)     returns (PickupOverDurationCertificateResponse);
   rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
   rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
@@ -938,18 +937,44 @@ message ApproveOverDurationIssuanceResponse {
   string device_authorization_id = 4; // device_duration kind
 }
 
-// PickupOverDurationCertificateRequest presents the collection handle together
-// with the collecting operator's leaf. The handle alone grants nothing: the
-// engine derives the collector's identity from the certificate it verified and
-// requires it to equal the principal that made the request.
+// PickupOverDurationCertificateRequest presents the collection handle, the
+// collecting operator's leaf, and the operator's SIGNED INTENT to collect this
+// specific request now. The handle alone grants nothing: the engine derives the
+// collector's identity from the certificate it verified and requires it to
+// equal the principal that made the request.
 message PickupOverDurationCertificateRequest {
   string collection_id = 1;              // RequestOverDurationIssuanceResponse.collection_id
   bytes presented_cert = 2;              // DER of the collecting operator's leaf
+  // Operator-signed JWS (compact) whose payload is the pickup descriptor:
+  //   {"op":"over_duration_pickup","tenant":<uuid>,"collection_id":<handle>,
+  //    "iat":<unix>,"exp":<unix>,"jti":<unique>}
+  //
+  // REQUIRED (WDY-2691). Without it the presented certificate proves only
+  // POSSESSION of a key, never INTENT to collect: any earlier JWS from that
+  // operator would satisfy a possession check, so a relaying caller holding one
+  // could collect at a moment of its choosing and burn the one-shot
+  // authorization. This descriptor binds the signature to THIS collection_id,
+  // within a bounded window, once — the jti is claimed single-use.
+  //
+  // Not optional and not phased: the RPC has no callers to break, and an
+  // "enforce only when present" guard would leave the gap open to anyone who
+  // simply omits the field.
+  //
+  // op, tenant and collection_id are all cross-checked (tenant additionally
+  // against the transport-authenticated tenant, which must be non-empty — an
+  // empty tenant is refused, never treated as matching an empty claim).
+  bytes signed_pickup = 3;
 }
 
-// A second pickup is an error, never an idempotent replay: the mint and the
-// approved->consumed transition share one transaction, so a single approval
-// can only ever yield a single certificate.
+// A second pickup within the idempotency window returns THE SAME certificate —
+// same serial, same bytes, re-read from the certificate ledger where the mint
+// already persisted it. Nothing is re-minted, so one approval still yields
+// exactly one certificate; what changes is that a RESPONSE lost in transit no
+// longer costs a second four-eyes ceremony (WDY-2691). Past the window the row
+// is reaped and a repeat is AlreadyExists, as before.
+//
+// Recovery is available to the ORIGINAL COLLECTOR ONLY: a retry must present
+// the same signed intent and the same operator identity.
 message PickupOverDurationCertificateResponse {
   bytes certificate = 1;                 // DER leaf
   repeated bytes chain = 2;              // DER intermediates (not root)
