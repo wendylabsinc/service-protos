@@ -150,6 +150,19 @@ service CAEngine {
   // Because nothing mints before pickup, no issued-but-undelivered certificate
   // ever sits at rest: an uncollected request is only an uncollected
   // authorization, reaped by the existing sweeper.
+  //
+  // NOT IDEMPOTENT, and the caller must know what that costs. The mint and the
+  // approved->consumed transition share one transaction, so one approval yields
+  // at most one certificate — but if that transaction commits and the RESPONSE
+  // is lost in transit, the certificate was minted, the authorization is
+  // consumed, and a retry correctly returns an error. The certificate is then
+  // unrecoverable and the operator must obtain a fresh four-eyes approval.
+  //
+  // So a transport failure on this RPC is NOT a retry condition. A relaying
+  // caller must surface it rather than retrying blind. Closing this gap needs a
+  // bounded window in which repeating the same collection_id returns the same
+  // certificate; that is not built, and until it is, the cost of a dropped
+  // response is a second approval ceremony.
   rpc PickupOverDurationCertificate(PickupOverDurationCertificateRequest)     returns (PickupOverDurationCertificateResponse);
   rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
   rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
@@ -901,6 +914,12 @@ message RequestOverDurationIssuanceResponse {
   // certificate/chain above are vestigial now the mint happens at pickup, and
   // pending_request_id carries this same value for the four-eyes outcome; both
   // are kept rather than renumbered.
+  //
+  // A fabric handler MUST relay collection_id, never pending_request_id. Both
+  // hold the handle for ADDITIONAL_VERIFICATION_REQUIRED, but only this one is
+  // populated for MINTED — so relaying pending_request_id passes every
+  // four-eyes test and silently returns empty for MINTED, reintroducing the
+  // outcome-branch this field exists to remove.
   string collection_id = 7;
 }
 
