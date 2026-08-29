@@ -109,12 +109,14 @@ message OverDurationRequestResponse {
   // FabricRelayService.RelayOverDurationPickup. Present whenever there IS
   // something to collect, WHATEVER the outcome — both when the request is held
   // for four-eyes approval (ADDITIONAL_VERIFICATION_REQUIRED) and when it was
-  // within ceiling and minted immediately (MINTED), which is held for pickup
-  // rather than returned here so that cloud never has to know the ceiling and
-  // never branches on outcome to find its collection handle.
+  // within ceiling (MINTED), which is collected the same way rather than
+  // returned here, so that cloud never has to know the ceiling and never
+  // branches on outcome to find its collection handle.
   //
-  // Deliberately NOT named pending_request_id: for MINTED nothing is pending —
-  // the certificate exists and is waiting to be fetched. Note the asymmetry
+  // Deliberately NOT named pending_request_id: for MINTED there is no pending
+  // APPROVAL — the authorization is already granted and only awaits
+  // collection. Nothing is minted until pickup in either case, so no issued
+  // certificate ever sits undelivered. Note the asymmetry
   // with OverDurationApprovalPayload.pending_request_id, which keeps that name
   // because there the request genuinely IS pending; the two carry the same
   // value at different moments in the flow.
