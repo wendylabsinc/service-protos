@@ -151,17 +151,24 @@ service CAEngine {
   // ever sits at rest: an uncollected request is only an uncollected
   // authorization, reaped by the existing sweeper.
   //
-  // IDEMPOTENT WITHIN A BOUNDED WINDOW (WDY-2691). The mint and the
-  // approved->consumed transition share one transaction, so one approval yields
-  // at most one certificate. If that transaction commits and the RESPONSE is
-  // lost in transit, a retry by the SAME collector, presenting the same signed
-  // intent, re-serves the SAME certificate — same serial, same bytes, read back
-  // from the certificate ledger where issuance already persisted it. Nothing is
-  // re-minted. The window is the consumed-row retention; past it the row is
-  // reaped and a repeat is AlreadyExists.
+  // NOT IDEMPOTENT (WDY-2728). A second pickup is REFUSED, never replayed.
+  // No minted certificate is stored at rest anywhere in this flow — migration
+  // 021 dropped certificate_ledger.certificate and the ledger row carries
+  // metadata only — so there are no bytes to re-serve. A "replay" could
+  // therefore only RE-MINT: a second certificate, with a new serial and a new
+  // (shorter) validity, issued under a single approval. That breaks
+  // one-approval-one-certificate, which is the entire accountability claim
+  // four-eyes makes, so replay is impossible by construction rather than
+  // merely refused.
   //
-  // A transport failure on this RPC is therefore retryable by the original
-  // collector, and by nobody else.
+  // The mint and the approved->consumed transition share one transaction, so
+  // one approval yields at most one certificate and two concurrent pickups
+  // serialize on the row. A repeat is AlreadyExists.
+  //
+  // A transport failure on this RPC is therefore NOT retryable: a response lost
+  // in transit costs the collector a second four-eyes ceremony. That price is
+  // deliberate — the alternatives are storing minted certificates at rest, or
+  // issuing two certificates for one approval.
   rpc PickupOverDurationCertificate(PickupOverDurationCertificateRequest)     returns (PickupOverDurationCertificateResponse);
   rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
   rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
@@ -966,15 +973,14 @@ message PickupOverDurationCertificateRequest {
   bytes signed_pickup = 3;
 }
 
-// A second pickup within the idempotency window returns THE SAME certificate —
-// same serial, same bytes, re-read from the certificate ledger where the mint
-// already persisted it. Nothing is re-minted, so one approval still yields
-// exactly one certificate; what changes is that a RESPONSE lost in transit no
-// longer costs a second four-eyes ceremony (WDY-2691). Past the window the row
-// is reaped and a repeat is AlreadyExists, as before.
+// A second pickup is an ERROR, never an idempotent replay (WDY-2728). Nothing
+// stores the minted certificate, so a repeat could only issue a SECOND
+// certificate under one approval. The approved->consumed transition rides the
+// mint's own transaction, so one approval yields exactly one certificate and a
+// repeat is AlreadyExists.
 //
-// Recovery is available to the ORIGINAL COLLECTOR ONLY: a retry must present
-// the same signed intent and the same operator identity.
+// There is no recovery path: a collector that loses this response must go
+// through four-eyes again.
 message PickupOverDurationCertificateResponse {
   bytes certificate = 1;                 // DER leaf
   repeated bytes chain = 2;              // DER intermediates (not root)
