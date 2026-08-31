@@ -77,6 +77,11 @@ message DeleteOrganizationResponse {
 message ListOrganizationsRequest {
   optional int32 offset = 1;
   optional int32 limit = 2;
+  // Free-text search over organization name and domain, case-insensitive
+  // substring match. Empty or unset returns the unfiltered list. Applied
+  // server-side before offset/limit, so it searches every organization the
+  // caller can see rather than only the current page.
+  optional string query = 3;
 }
 
 message ListOrganizationsResponse {
