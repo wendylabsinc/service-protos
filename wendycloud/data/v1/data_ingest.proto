@@ -226,6 +226,14 @@ message Episode {
   int64 started_unix_nanos = 6;
   int64 ended_unix_nanos = 7;
   EpisodeState state = 8;
+  // Total bytes the episode occupies in object storage: the sum of every
+  // file's size, derived files included. It is deliberately NOT capture-only.
+  // This number answers "what does this episode cost to store", which is what
+  // retention and quota act on, and it stays equal to the sum of the file
+  // sizes so the two can be checked against each other. A total that silently
+  // omitted some of its own parts would match neither storage nor the file
+  // list. Capture-only bytes are a filter over the per-file roles, e.g.
+  // summing size_bytes where role is CAPTURED or UNSPECIFIED.
   uint64 size_bytes = 9;
   // Clock correlation summary JSON (UTC offset bounds, clock status).
   bytes clock_correlation_json = 10;
