@@ -134,6 +134,42 @@ service CAEngine {
   // rejected. Authority is the SIGNED envelope, never the transport (D7).
   rpc RequestOverDurationIssuance(RequestOverDurationIssuanceRequest)         returns (RequestOverDurationIssuanceResponse);
   rpc ApproveOverDurationIssuance(ApproveOverDurationIssuanceRequest)         returns (ApproveOverDurationIssuanceResponse);
+
+  // Collection of an over-duration issuance. The certificate is minted HERE,
+  // at pickup, for EVERY outcome — a request within the tenant ceiling is
+  // auto-approved (it needed no second signature) and waits here like any
+  // other, rather than being minted inline at submit.
+  //
+  // Uniform on purpose: cloud must never have to know pki-core's duration
+  // ceiling, and must never branch on outcome to find its collection handle.
+  // One path always — submit, read collection_id, collect. The extra round
+  // trip lands only on MINTED, which on THIS endpoint means a caller who did
+  // not need four-eyes and arguably should have used ordinary issuance; the
+  // common four-eyes path pays nothing for the uniformity.
+  //
+  // Because nothing mints before pickup, no issued-but-undelivered certificate
+  // ever sits at rest: an uncollected request is only an uncollected
+  // authorization, reaped by the existing sweeper.
+  //
+  // NOT IDEMPOTENT (WDY-2728). A second pickup is REFUSED, never replayed.
+  // No minted certificate is stored at rest anywhere in this flow — migration
+  // 021 dropped certificate_ledger.certificate and the ledger row carries
+  // metadata only — so there are no bytes to re-serve. A "replay" could
+  // therefore only RE-MINT: a second certificate, with a new serial and a new
+  // (shorter) validity, issued under a single approval. That breaks
+  // one-approval-one-certificate, which is the entire accountability claim
+  // four-eyes makes, so replay is impossible by construction rather than
+  // merely refused.
+  //
+  // The mint and the approved->consumed transition share one transaction, so
+  // one approval yields at most one certificate and two concurrent pickups
+  // serialize on the row. A repeat is AlreadyExists.
+  //
+  // A transport failure on this RPC is therefore NOT retryable: a response lost
+  // in transit costs the collector a second four-eyes ceremony. That price is
+  // deliberate — the alternatives are storing minted certificates at rest, or
+  // issuing two certificates for one approval.
+  rpc PickupOverDurationCertificate(PickupOverDurationCertificateRequest)     returns (PickupOverDurationCertificateResponse);
   rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
   rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
 
@@ -154,6 +190,18 @@ service CAEngine {
   // tenant, fingerprint and principal from the presented leaf itself and
   // requires the derived tenant to equal the authenticated one.
   rpc CheckOperatorAuthority(CheckOperatorAuthorityRequest) returns (CheckOperatorAuthorityResponse);
+
+  // Full operator-leaf validity verdict — the engine half of
+  // FabricManagementService.ValidateOperatorCertificate (see
+  // fabric_management.proto for the cloud-facing rationale). A superset of
+  // CheckOperatorAuthority: on top of the ledger/disabled-principals lookup it
+  // verifies the leaf chains to the authenticated tenant's Operator-Authority
+  // CA, is inside its validity window, and carries an operator SPIFFE
+  // principal of that tenant. Same posture as CheckOperatorAuthority:
+  // read-only, side-effect free, grants nothing; every derivation (chain,
+  // SAN, fingerprint) is performed engine-side from the presented leaf, and
+  // the derived tenant must equal the authenticated one.
+  rpc ValidateOperatorCertificate(ValidateOperatorCertificateRequest) returns (ValidateOperatorCertificateResponse);
 }
 
 message IssueCertificateRequest {
@@ -244,15 +292,21 @@ message CreateCustomerCARequest {
   // tenant default for the intermediate role. Empty falls back to platform
   // default.
   optional string backend = 6;
+  // WDY-2620: tenant UUID minted by the cloud control plane; the engine adopts
+  // it as the authoritative tenant identity instead of minting its own. Empty
+  // falls back to an engine-minted UUID. The nil UUID is reserved for the
+  // system tenant and is rejected here. tenant_id above stays the human slug.
+  string tenant_uuid = 7;
 }
 message CreateCustomerCAResponse {
   string intermediate_ca_id = 1;
   string device_ca_id       = 2;
   string operator_ca_id     = 3;
   bytes  intermediate_cert  = 4; // DER
-  // Server-minted tenant UUID. The request tenant_id is the caller-supplied
-  // slug; the engine mints the authoritative tenant identity and returns it
-  // here so the management plane and clients can address the tenant by UUID.
+  // Echo of the adopted tenant UUID: the request tenant_uuid when the caller
+  // minted one, otherwise the UUID the engine minted. The request tenant_id is
+  // the caller-supplied slug; this is the authoritative tenant identity the
+  // management plane and clients address the tenant by.
   string tenant_id          = 5;
 }
 
@@ -462,6 +516,14 @@ message IssueOperatorCertRequest {
   bytes           csr           = 7; // optional DER PKCS#10; if empty engine generates keypair
   string          operator_id   = 8; // authoritative per-operator identity; SPIFFE path segment; renewal-safe (not uniqueness-enforced)
   string          spiffe_kind   = 9; // "operator" (default/empty) or "service"; server-selected SPIFFE kind
+  // DPoP-proof single-use replay guard (WDY-2592). The identity frontend is a
+  // stateless engine-RPC client with no database of its own, so it forwards
+  // the enrollment DPoP proof's jti here and the engine claims it atomically
+  // with issuance (first-seen-wins) against the dpop_replay cache. Empty =>
+  // no replay check (e.g. the admin/CLI path with no DPoP proof). dpop_exp is
+  // the proof's expiry (unix seconds), bounding the replay-cache row's TTL.
+  string          dpop_jti      = 10;
+  int64           dpop_exp      = 11;
 }
 message IssueOperatorCertResponse {
   bytes certificate = 1; // DER leaf
@@ -821,7 +883,9 @@ message RenewCertificateResponse {
 
 enum OverDurationOutcome {
   OVER_DURATION_OUTCOME_UNSPECIFIED = 0;
-  // Requested validity was within the tenant ceiling: minted immediately.
+  // Requested validity was within the tenant ceiling, so no second signature
+  // is required. The certificate is still collected over
+  // PickupOverDurationCertificate rather than returned inline.
   OVER_DURATION_OUTCOME_MINTED = 1;
   // Over the tenant ceiling (but within the platform cap): held pending a
   // second signature. certificate/chain are empty.
@@ -847,6 +911,22 @@ message RequestOverDurationIssuanceResponse {
   string pending_request_id = 4;         // ADDITIONAL_VERIFICATION_REQUIRED only
   bytes request_hash = 5;                // the value an approver must sign over
   string device_authorization_id = 6;    // AUTHORIZATION_RECORDED only
+  // The handle for PickupOverDurationCertificate, and the engine-side half of
+  // FabricManagementService.OverDurationRequestResponse.collection_id: present
+  // whenever there IS something to collect, WHATEVER the outcome — MINTED
+  // included, which is why one field answers "what do I collect?" without the
+  // caller ever branching on outcome.
+  //
+  // certificate/chain above are vestigial now the mint happens at pickup, and
+  // pending_request_id carries this same value for the four-eyes outcome; both
+  // are kept rather than renumbered.
+  //
+  // A fabric handler MUST relay collection_id, never pending_request_id. Both
+  // hold the handle for ADDITIONAL_VERIFICATION_REQUIRED, but only this one is
+  // populated for MINTED — so relaying pending_request_id passes every
+  // four-eyes test and silently returns empty for MINTED, reintroducing the
+  // outcome-branch this field exists to remove.
+  string collection_id = 7;
 }
 
 message ApproveOverDurationIssuanceRequest {
@@ -862,6 +942,48 @@ message ApproveOverDurationIssuanceResponse {
   bytes certificate = 2;              // operator_cert kind
   repeated bytes chain = 3;           // operator_cert kind
   string device_authorization_id = 4; // device_duration kind
+}
+
+// PickupOverDurationCertificateRequest presents the collection handle, the
+// collecting operator's leaf, and the operator's SIGNED INTENT to collect this
+// specific request now. The handle alone grants nothing: the engine derives the
+// collector's identity from the certificate it verified and requires it to
+// equal the principal that made the request.
+message PickupOverDurationCertificateRequest {
+  string collection_id = 1;              // RequestOverDurationIssuanceResponse.collection_id
+  bytes presented_cert = 2;              // DER of the collecting operator's leaf
+  // Operator-signed JWS (compact) whose payload is the pickup descriptor:
+  //   {"op":"over_duration_pickup","tenant":<uuid>,"collection_id":<handle>,
+  //    "iat":<unix>,"exp":<unix>,"jti":<unique>}
+  //
+  // REQUIRED (WDY-2691). Without it the presented certificate proves only
+  // POSSESSION of a key, never INTENT to collect: any earlier JWS from that
+  // operator would satisfy a possession check, so a relaying caller holding one
+  // could collect at a moment of its choosing and burn the one-shot
+  // authorization. This descriptor binds the signature to THIS collection_id,
+  // within a bounded window, once — the jti is claimed single-use.
+  //
+  // Not optional and not phased: the RPC has no callers to break, and an
+  // "enforce only when present" guard would leave the gap open to anyone who
+  // simply omits the field.
+  //
+  // op, tenant and collection_id are all cross-checked (tenant additionally
+  // against the transport-authenticated tenant, which must be non-empty — an
+  // empty tenant is refused, never treated as matching an empty claim).
+  bytes signed_pickup = 3;
+}
+
+// A second pickup is an ERROR, never an idempotent replay (WDY-2728). Nothing
+// stores the minted certificate, so a repeat could only issue a SECOND
+// certificate under one approval. The approved->consumed transition rides the
+// mint's own transaction, so one approval yields exactly one certificate and a
+// repeat is AlreadyExists.
+//
+// There is no recovery path: a collector that loses this response must go
+// through four-eyes again.
+message PickupOverDurationCertificateResponse {
+  bytes certificate = 1;                 // DER leaf
+  repeated bytes chain = 2;              // DER intermediates (not root)
 }
 
 message PendingOverDurationRequest {
@@ -903,4 +1025,53 @@ message CheckOperatorAuthorityResponse {
   // revoked_at is set) or "principal_disabled" (disabled_principals kill
   // switch). Empty when withdrawn is false.
   string reason = 2;
+}
+
+// Verdict semantics for ValidateOperatorCertificate: the response reports
+// only DEFINITE answers. Internal failures (storage unavailable, engine
+// unreachable) surface as gRPC status errors, and the caller MUST fail closed
+// on them. A `valid: false` verdict is final for the presented leaf (except
+// "principal_disabled", which clears if the SSF disable is lifted); a
+// `valid: true` verdict is point-in-time — cache it briefly (minutes) and
+// never past `not_after`.
+message ValidateOperatorCertificateRequest {
+  // DER of the operator leaf to validate. For a signed request this is
+  // exactly x5c[0]/x5chain[0], passed through verbatim. The full certificate
+  // (not a fingerprint) so pki-core performs every derivation itself — chain
+  // verification against the tenant's Operator-Authority CA, SPIFFE SAN
+  // extraction, SHA-256 fingerprint — and the caller never parses X.509.
+  // Presented intermediates are deliberately NOT accepted: pki-core validates
+  // against the CA material it owns, not against what the requester supplied.
+  bytes certificate = 1;
+}
+
+message ValidateOperatorCertificateResponse {
+  // True only when every check passes: the leaf parses, chains to the
+  // authenticated tenant's Operator-Authority CA, is inside its validity
+  // window, has a certificate_ledger row without revoked_at, and its SPIFFE
+  // principal has no disabled_principals record.
+  bool valid = 1;
+  // Machine-readable cause when !valid — the FIRST failure in check order:
+  //   "malformed"          — leaf does not parse as an X.509 certificate
+  //   "untrusted"          — does not chain to the tenant's Operator-Authority
+  //                          CA (also covers a leaf of a DIFFERENT tenant:
+  //                          anchors are strictly per-tenant)
+  //   "not_operator"       — chains, but the SPIFFE SAN is not an operator
+  //                          principal of the tenant
+  //   "not_yet_valid"      — NotBefore is in the future
+  //   "expired"            — NotAfter has passed (no roll-forward: an expired
+  //                          operator re-onboards via wendy-auth)
+  //   "not_issued"         — no certificate_ledger row: pki-core never minted
+  //                          this leaf (definite refusal, not a lookup miss)
+  //   "revoked"            — certificate_ledger revoked_at is set
+  //   "principal_disabled" — sticky SSF-driven disabled_principals kill switch
+  // Empty when valid.
+  string reason = 2;
+  // Server-derived SPIFFE URI of the operator principal, set only when valid.
+  // This is the identity the caller should authorize against — returned so it
+  // never extracts SANs from the leaf itself.
+  string principal = 3;
+  // RFC3339 leaf NotAfter, set only when valid. Hard upper bound for any
+  // caller-side caching of this verdict.
+  string not_after = 4;
 }
