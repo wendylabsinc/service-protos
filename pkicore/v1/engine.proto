@@ -134,6 +134,42 @@ service CAEngine {
   // rejected. Authority is the SIGNED envelope, never the transport (D7).
   rpc RequestOverDurationIssuance(RequestOverDurationIssuanceRequest)         returns (RequestOverDurationIssuanceResponse);
   rpc ApproveOverDurationIssuance(ApproveOverDurationIssuanceRequest)         returns (ApproveOverDurationIssuanceResponse);
+
+  // Collection of an over-duration issuance. The certificate is minted HERE,
+  // at pickup, for EVERY outcome — a request within the tenant ceiling is
+  // auto-approved (it needed no second signature) and waits here like any
+  // other, rather than being minted inline at submit.
+  //
+  // Uniform on purpose: cloud must never have to know pki-core's duration
+  // ceiling, and must never branch on outcome to find its collection handle.
+  // One path always — submit, read collection_id, collect. The extra round
+  // trip lands only on MINTED, which on THIS endpoint means a caller who did
+  // not need four-eyes and arguably should have used ordinary issuance; the
+  // common four-eyes path pays nothing for the uniformity.
+  //
+  // Because nothing mints before pickup, no issued-but-undelivered certificate
+  // ever sits at rest: an uncollected request is only an uncollected
+  // authorization, reaped by the existing sweeper.
+  //
+  // NOT IDEMPOTENT (WDY-2728). A second pickup is REFUSED, never replayed.
+  // No minted certificate is stored at rest anywhere in this flow — migration
+  // 021 dropped certificate_ledger.certificate and the ledger row carries
+  // metadata only — so there are no bytes to re-serve. A "replay" could
+  // therefore only RE-MINT: a second certificate, with a new serial and a new
+  // (shorter) validity, issued under a single approval. That breaks
+  // one-approval-one-certificate, which is the entire accountability claim
+  // four-eyes makes, so replay is impossible by construction rather than
+  // merely refused.
+  //
+  // The mint and the approved->consumed transition share one transaction, so
+  // one approval yields at most one certificate and two concurrent pickups
+  // serialize on the row. A repeat is AlreadyExists.
+  //
+  // A transport failure on this RPC is therefore NOT retryable: a response lost
+  // in transit costs the collector a second four-eyes ceremony. That price is
+  // deliberate — the alternatives are storing minted certificates at rest, or
+  // issuing two certificates for one approval.
+  rpc PickupOverDurationCertificate(PickupOverDurationCertificateRequest)     returns (PickupOverDurationCertificateResponse);
   rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
   rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
 
@@ -847,7 +883,9 @@ message RenewCertificateResponse {
 
 enum OverDurationOutcome {
   OVER_DURATION_OUTCOME_UNSPECIFIED = 0;
-  // Requested validity was within the tenant ceiling: minted immediately.
+  // Requested validity was within the tenant ceiling, so no second signature
+  // is required. The certificate is still collected over
+  // PickupOverDurationCertificate rather than returned inline.
   OVER_DURATION_OUTCOME_MINTED = 1;
   // Over the tenant ceiling (but within the platform cap): held pending a
   // second signature. certificate/chain are empty.
@@ -873,6 +911,22 @@ message RequestOverDurationIssuanceResponse {
   string pending_request_id = 4;         // ADDITIONAL_VERIFICATION_REQUIRED only
   bytes request_hash = 5;                // the value an approver must sign over
   string device_authorization_id = 6;    // AUTHORIZATION_RECORDED only
+  // The handle for PickupOverDurationCertificate, and the engine-side half of
+  // FabricManagementService.OverDurationRequestResponse.collection_id: present
+  // whenever there IS something to collect, WHATEVER the outcome — MINTED
+  // included, which is why one field answers "what do I collect?" without the
+  // caller ever branching on outcome.
+  //
+  // certificate/chain above are vestigial now the mint happens at pickup, and
+  // pending_request_id carries this same value for the four-eyes outcome; both
+  // are kept rather than renumbered.
+  //
+  // A fabric handler MUST relay collection_id, never pending_request_id. Both
+  // hold the handle for ADDITIONAL_VERIFICATION_REQUIRED, but only this one is
+  // populated for MINTED — so relaying pending_request_id passes every
+  // four-eyes test and silently returns empty for MINTED, reintroducing the
+  // outcome-branch this field exists to remove.
+  string collection_id = 7;
 }
 
 message ApproveOverDurationIssuanceRequest {
@@ -888,6 +942,48 @@ message ApproveOverDurationIssuanceResponse {
   bytes certificate = 2;              // operator_cert kind
   repeated bytes chain = 3;           // operator_cert kind
   string device_authorization_id = 4; // device_duration kind
+}
+
+// PickupOverDurationCertificateRequest presents the collection handle, the
+// collecting operator's leaf, and the operator's SIGNED INTENT to collect this
+// specific request now. The handle alone grants nothing: the engine derives the
+// collector's identity from the certificate it verified and requires it to
+// equal the principal that made the request.
+message PickupOverDurationCertificateRequest {
+  string collection_id = 1;              // RequestOverDurationIssuanceResponse.collection_id
+  bytes presented_cert = 2;              // DER of the collecting operator's leaf
+  // Operator-signed JWS (compact) whose payload is the pickup descriptor:
+  //   {"op":"over_duration_pickup","tenant":<uuid>,"collection_id":<handle>,
+  //    "iat":<unix>,"exp":<unix>,"jti":<unique>}
+  //
+  // REQUIRED (WDY-2691). Without it the presented certificate proves only
+  // POSSESSION of a key, never INTENT to collect: any earlier JWS from that
+  // operator would satisfy a possession check, so a relaying caller holding one
+  // could collect at a moment of its choosing and burn the one-shot
+  // authorization. This descriptor binds the signature to THIS collection_id,
+  // within a bounded window, once — the jti is claimed single-use.
+  //
+  // Not optional and not phased: the RPC has no callers to break, and an
+  // "enforce only when present" guard would leave the gap open to anyone who
+  // simply omits the field.
+  //
+  // op, tenant and collection_id are all cross-checked (tenant additionally
+  // against the transport-authenticated tenant, which must be non-empty — an
+  // empty tenant is refused, never treated as matching an empty claim).
+  bytes signed_pickup = 3;
+}
+
+// A second pickup is an ERROR, never an idempotent replay (WDY-2728). Nothing
+// stores the minted certificate, so a repeat could only issue a SECOND
+// certificate under one approval. The approved->consumed transition rides the
+// mint's own transaction, so one approval yields exactly one certificate and a
+// repeat is AlreadyExists.
+//
+// There is no recovery path: a collector that loses this response must go
+// through four-eyes again.
+message PickupOverDurationCertificateResponse {
+  bytes certificate = 1;                 // DER leaf
+  repeated bytes chain = 2;              // DER intermediates (not root)
 }
 
 message PendingOverDurationRequest {
