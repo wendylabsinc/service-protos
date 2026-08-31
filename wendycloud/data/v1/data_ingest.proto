@@ -93,9 +93,16 @@ message EpisodeManifest {
   // identifier minted by the cloud, and it is not unique over time; the
   // (campaign, campaign_revision) pair is what identifies an exact plan.
   string campaign = 4;
-  // Lowercase hex SHA-256 of the canonical campaign plan (64 characters).
-  // Content digest, not a sequence number: it identifies the exact plan that
-  // produced the episode, and it does not order two revisions.
+  // Lowercase hex SHA-256 of the canonical campaign plan, so always exactly
+  // 64 characters. The device computes it in WendyOS at
+  // go/internal/agent/data/campaign.go:219, as
+  // hex(sha256(json(campaign.planOnly()))), where planOnly() strips deployment
+  // state so only author-declared plan fields feed the digest.
+  //
+  // String, not an integer: 256 bits of digest do not fit in a uint64, and no
+  // truncation of a hash preserves it as an identifier. It is a content
+  // digest rather than a sequence number, so it identifies the exact plan
+  // that produced this episode but does not order two revisions.
   string campaign_revision = 5;
   // Trigger reason (e.g. "manual", "campaign-trigger", or the fired
   // expression such as "model.uncertainty > 0.65").
@@ -181,8 +188,13 @@ message EpisodeChunk {
   // that budget covers the whole encoded EpisodeChunk, not just this field.
   // 1 MiB leaves room for path, offset and framing while staying well inside
   // the default on every runtime, so neither end has to raise its limit to
-  // speak this protocol. It is also the device transfer worker's buffer size,
-  // so the cap and the sender agree by construction rather than by luck.
+  // speak this protocol. It also bounds what one failed chunk costs to send
+  // again, which is what makes a retry cheap on a slow uplink. It is the
+  // device transfer worker's buffer size too, so cap and sender agree by
+  // construction rather than by luck.
+  //
+  // The cloud enforces this: an oversized chunk is INVALID_ARGUMENT naming
+  // the limit and the size received. The cap is a rule, not a request.
   bytes data = 4;
   // True on the last chunk of the file; the server then persists the file
   // to object storage.
