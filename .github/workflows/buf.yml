@@ -12,6 +12,11 @@ jobs:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          # Without a token the action resolves its download URL over the
+          # unauthenticated GitHub API and fails the whole job whenever the
+          # runner's shared IP is rate-limited.
+          github_token: ${{ github.token }}
       - name: Lint every changed proto
         env:
           EVENT_NAME: ${{ github.event_name }}

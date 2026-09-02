@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package wendycloud.v2;
+
+import "google/protobuf/timestamp.proto";
+import "opentelemetry/proto/logs/v1/logs.proto";
+import "opentelemetry/proto/metrics/v1/metrics.proto";
+import "opentelemetry/proto/trace/v1/trace.proto";
+
+// TelemetryQueryService serves historical telemetry stored in GCP
+// (Cloud Logging / Monitoring / Trace) to the dashboard. Distinct from the
+// live tail-from-device services. Authenticated via Firebase JWT.
+service TelemetryQueryService {
+  rpc QueryLogs(QueryLogsRequest) returns (QueryLogsResponse);
+  rpc QueryMetrics(QueryMetricsRequest) returns (QueryMetricsResponse);
+  rpc QueryTraces(QueryTracesRequest) returns (QueryTracesResponse);
+}
+
+message TelemetryQueryFilter {
+  string organization_id = 1;
+  string asset_id = 2;
+  string app_id = 3;
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+  int32 page_size = 6;
+  string page_token = 7;
+}
+
+message QueryLogsRequest { TelemetryQueryFilter filter = 1; }
+message QueryLogsResponse {
+  repeated opentelemetry.proto.logs.v1.ResourceLogs resource_logs = 1;
+  string next_page_token = 2;
+}
+
+message QueryMetricsRequest {
+  TelemetryQueryFilter filter = 1;
+  string metric_name_prefix = 2;
+}
+message QueryMetricsResponse {
+  repeated opentelemetry.proto.metrics.v1.ResourceMetrics resource_metrics = 1;
+  string next_page_token = 2;
+}
+
+message QueryTracesRequest { TelemetryQueryFilter filter = 1; }
+message QueryTracesResponse {
+  repeated opentelemetry.proto.trace.v1.ResourceSpans resource_spans = 1;
+  string next_page_token = 2;
+}
