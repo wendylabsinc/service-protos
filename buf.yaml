@@ -27,6 +27,27 @@ lint:
       # change that generated output, so the root path is load-bearing.
       - org_invites.proto
       - telemetry_query.proto
+      # WDY-2808 touches every root-level proto that carries an int identifier.
+      # CI lints only the files a PR changes, so these paths had never been in
+      # scope before and their long-standing root location surfaced as new lint
+      # failures. Same reason as the four above — Cloud's codegen passes bare
+      # basenames and its generated modules record `// Source: <basename>`.
+      - apps.proto
+      - assets.proto
+      - certificates.proto
+      - deployments.proto
+      - hackathon_cert.proto
+      - invite_links.proto
+      - leaderboard.proto
+      - logtailing.proto
+      - maps.proto
+      - oauth.proto
+      - org_teams.proto
+      - public_routing.proto
+      - schedule.proto
+      - teams.proto
+      - telemetry.proto
+      - tunnel.proto
 breaking:
   use:
     - FILE
