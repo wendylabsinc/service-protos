@@ -1,6 +1,10 @@
 name: buf
 on:
   pull_request:
+    # `labeled` and `unlabeled` are needed for the breaking-change gate below:
+    # the default trigger list does not re-run on a label change, so a label
+    # applied at review time would never get a fresh run to turn green.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [master]
 jobs:
@@ -41,6 +45,17 @@ jobs:
           buf lint "${lint_args[@]}"
       # Breaking-change guard for ALL cross-service protos — the drift guard,
       # caught in one place. Runs on PRs against master.
+      #
+      # A PR that is deliberately breaking carries the `breaking-change` label,
+      # which skips this step. The gate is per-PR on purpose: a per-rule
+      # `except` in buf.yaml would blind the guard permanently, for every PR.
       - name: Breaking change check (vs master)
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          !contains(github.event.pull_request.labels.*.name, 'breaking-change')
         run: buf breaking --against "https://github.com/wendylabsinc/service-protos.git#branch=master"
+      - name: Breaking change check skipped
+        if: >-
+          github.event_name == 'pull_request' &&
+          contains(github.event.pull_request.labels.*.name, 'breaking-change')
+        run: echo "buf breaking skipped — this PR carries the 'breaking-change' label"
