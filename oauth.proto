@@ -34,7 +34,7 @@ service OAuthService {
 // OAuth client metadata (without secret)
 message OAuthClient {
   string id = 1;  // Client ID (UUID)
-  int32 organization_id = 2;
+  string organization_id = 2;
 
   string name = 3;
   string description = 4;
@@ -93,7 +93,7 @@ enum OAuthScope {
 
 // Request to create a new OAuth client
 message CreateOAuthClientRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
 
   string name = 2;
   string description = 3;
@@ -110,7 +110,7 @@ message CreateOAuthClientRequest {
 
 // Request to list OAuth clients
 message ListOAuthClientsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
 
   // Include revoked clients in the response
   bool include_revoked = 2;

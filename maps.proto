@@ -19,8 +19,8 @@ service MapService {
 
 // Map message
 message Map {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
   string name = 3;
   string description = 4;
   double default_latitude = 5;
@@ -35,7 +35,7 @@ message Map {
 
 // Map CRUD requests/responses
 message CreateMapRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string name = 2;
   optional string description = 3;
   optional double default_latitude = 4;
@@ -47,11 +47,11 @@ message CreateMapRequest {
 }
 
 message GetMapRequest {
-  int32 id = 1;
+  string id = 1;
 }
 
 message UpdateMapRequest {
-  int32 id = 1;
+  string id = 1;
   optional string name = 2;
   optional string description = 3;
   optional double default_latitude = 4;
@@ -63,7 +63,7 @@ message UpdateMapRequest {
 }
 
 message DeleteMapRequest {
-  int32 id = 1;
+  string id = 1;
 }
 
 message DeleteMapResponse {
@@ -71,7 +71,7 @@ message DeleteMapResponse {
 }
 
 message ListMapsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   optional int32 offset = 2;
   optional int32 limit = 3;
   optional string filter = 4;
@@ -90,15 +90,15 @@ enum MapEventType {
 }
 
 message SubscribeToMapEventsRequest {
-  int32 map_id = 1;
+  string map_id = 1;
 }
 
 message MapEvent {
   MapEventType event_type = 1;
-  int32 map_id = 2;
+  string map_id = 2;
   // For map update events
   optional Map map = 3;
   // ID of deleted entity
-  optional int32 deleted_id = 4;
+  optional string deleted_id = 4;
   google.protobuf.Timestamp timestamp = 5;
 }

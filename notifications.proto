@@ -52,7 +52,7 @@ message NotificationAudience {
   // Cloud resolves the selectors as a deduplicated union, with at most 100 raw
   // selectors across all three lists and at most 10,000 resolved users.
   repeated string user_ids = 1;
-  repeated int32 team_ids = 2;
+  repeated string team_ids = 2;
   repeated OrganizationRole roles = 3;
 }
 
@@ -168,9 +168,9 @@ message NotificationControl {
 message Notification {
   // Fields 1 through 8 are the legacy Companion contract and must remain stable.
   // MIGRATION(wendycloud.v2): Migrate the read model to canonical UUID APIs; see API_V2_MIGRATION.md.
-  int32 id = 1;
+  string id = 1;
   string user_id = 2;
-  int32 organization_id = 3;
+  string organization_id = 3;
   string body = 4;
   NotificationSeverity severity = 5;
   google.protobuf.Struct related_entities = 6;
@@ -186,7 +186,7 @@ message Notification {
   google.protobuf.Struct metadata = 12;
   optional NotificationAudience audience = 13;
   optional string created_by_user_id = 14;
-  optional int32 created_by_asset_id = 15;
+  optional string created_by_asset_id = 15;
   optional string created_by_app_id = 16;
   // Independent per-recipient read state. Deletion remains represented by deleted_at.
   optional google.protobuf.Timestamp read_at = 17;
@@ -206,7 +206,7 @@ message CreateNotificationRequest {
   option deprecated = true;
 
   string user_id = 1;
-  int32 organization_id = 2;
+  string organization_id = 2;
   string body = 3;
   NotificationSeverity severity = 4;
   google.protobuf.Struct related_entities = 5;
@@ -215,7 +215,7 @@ message CreateNotificationRequest {
 message CreateNotificationV2Request {
   // Required for user-authenticated callers. Provisioned devices omit it because Cloud
   // derives the organization from their certificate.
-  optional int32 organization_id = 1;
+  optional string organization_id = 1;
   NotificationAudience audience = 2;
   // REFACTOR: Request content intentionally duplicates Notification content because
   // Notification must retain legacy flat fields 1-8 for Companion wire compatibility.
@@ -257,7 +257,7 @@ message CreateNotificationV2Response {
 }
 
 message ListNotificationsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string user_id = 2;
   // Offset/limit based pagination
   optional int32 offset = 3;
@@ -278,7 +278,7 @@ enum NotificationReadStatus {
 }
 
 message ListNotificationsV2Request {
-  int32 organization_id = 1;
+  string organization_id = 1;
   optional string before_notification_id = 2;
   optional string after_notification_id = 3;
   int32 limit = 4;
@@ -296,7 +296,7 @@ message ListNotificationsV2Response {
 
 message GetNotificationRequest {
   // Legacy recipient projection ID.
-  int32 id = 1;
+  string id = 1;
   // Canonical UUID. New clients use this field instead of id.
   optional string notification_id = 2;
 }
@@ -329,7 +329,7 @@ message PerformNotificationControlActionResponse {}
 
 message DeleteNotificationRequest {
   // Legacy recipient projection ID.
-  int32 id = 1;
+  string id = 1;
   // Canonical UUID. New clients use this field instead of id.
   optional string notification_id = 2;
 }
@@ -340,7 +340,7 @@ message DeleteNotificationResponse {
 
 message MarkAsReadRequest {
   // Legacy recipient projection IDs.
-  repeated int32 notification_ids = 1;
+  repeated string notification_ids = 1;
   // Canonical UUIDs. New clients use this field instead of notification_ids.
   repeated string canonical_notification_ids = 2;
 }
@@ -361,7 +361,7 @@ message SetNotificationReadStatusResponse {
 }
 
 message CountNotificationsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   optional NotificationSeverity severity_filter = 2;
   // Omitted means no read-status filtering. Explicit UNSPECIFIED is invalid.
   optional NotificationReadStatus read_status = 3;
@@ -372,7 +372,7 @@ message CountNotificationsResponse {
 }
 
 message GetUnreadCountRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string user_id = 2;
 }
 

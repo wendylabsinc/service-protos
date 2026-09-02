@@ -29,7 +29,7 @@ enum OrganizationRole {
 }
 
 message Organization {
-  int32 id = 1;
+  string id = 1;
   string name = 2;
   string details = 3;
   optional string domain = 4;
@@ -40,8 +40,8 @@ message Organization {
 }
 
 message OrganizationMember {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
   string user_id = 3;
   OrganizationRole role = 4;
   google.protobuf.Timestamp created_at = 5;
@@ -55,11 +55,11 @@ message CreateOrganizationRequest {
 }
 
 message GetOrganizationRequest {
-  int32 id = 1;
+  string id = 1;
 }
 
 message UpdateOrganizationRequest {
-  int32 id = 1;
+  string id = 1;
   optional string name = 2;
   optional string details = 3;
   optional string domain = 4;
@@ -67,7 +67,7 @@ message UpdateOrganizationRequest {
 }
 
 message DeleteOrganizationRequest {
-  int32 id = 1;
+  string id = 1;
 }
 
 message DeleteOrganizationResponse {
@@ -90,19 +90,19 @@ message ListOrganizationsResponse {
 }
 
 message AddMemberRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string user_id = 2;
   OrganizationRole role = 3;
 }
 
 message UpdateMemberRoleRequest {
   string user_id = 1;
-  int32 organization_id = 2;
+  string organization_id = 2;
   OrganizationRole role = 3;
 }
 
 message RemoveMemberRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string user_id = 2;
 }
 
@@ -111,7 +111,7 @@ message RemoveMemberResponse {
 }
 
 message ListMembersRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
 }
 
 message ListMembersResponse {
@@ -124,7 +124,7 @@ message EmailWithRole {
 }
 
 message AddMembersByEmailsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   repeated EmailWithRole members = 2;
 }
 
@@ -140,7 +140,7 @@ message AddMembersByEmailsResponse {
 }
 
 message TransferOwnershipRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string new_owner_user_id = 2;
 }
 

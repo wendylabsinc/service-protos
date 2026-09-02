@@ -9,9 +9,9 @@ service HackathonCertService {
 }
 
 message IssueUploadCertificateRequest {
-  int32 slot_id = 1;
-  int32 asset_id = 2;
-  int32 organization_id = 3;
+  string slot_id = 1;
+  string asset_id = 2;
+  string organization_id = 3;
 }
 
 message IssueUploadCertificateResponse {

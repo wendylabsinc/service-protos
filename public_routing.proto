@@ -10,18 +10,18 @@ service PublicRoutingService {
 }
 
 message OrgPublicRouting {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string slug = 2;
   bool enabled = 3;
   repeated int32 port_denylist = 4;
 }
 
 message GetOrgPublicRoutingRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
 }
 
 message SetOrgPublicRoutingRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   optional bool enabled = 2;
   // When set, replaces the org port denylist wholesale.
   repeated int32 port_denylist = 3;
@@ -29,8 +29,8 @@ message SetOrgPublicRoutingRequest {
 }
 
 message DevicePublicRouting {
-  int32 asset_id = 1;
-  int32 organization_id = 2;
+  string asset_id = 1;
+  string organization_id = 2;
   bool enabled = 3;
   optional string hostname_label = 4;
   repeated int32 port_denylist = 5;
@@ -42,11 +42,11 @@ message DevicePublicRouting {
 }
 
 message GetDevicePublicRoutingRequest {
-  int32 asset_id = 1;
+  string asset_id = 1;
 }
 
 message SetDevicePublicRoutingRequest {
-  int32 asset_id = 1;
+  string asset_id = 1;
   optional bool enabled = 2;
   optional string hostname_label = 3;
   repeated int32 port_denylist = 4;

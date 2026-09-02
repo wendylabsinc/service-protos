@@ -23,8 +23,8 @@ service OrganizationInviteService {
 }
 
 message OrganizationInvite {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
   string role = 3;
   google.protobuf.Timestamp expires_at = 4;
   bool revoked = 5;
@@ -33,7 +33,7 @@ message OrganizationInvite {
 }
 
 message CreateOrganizationInviteRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string role = 2;
   google.protobuf.Timestamp expires_at = 3;
 }
@@ -44,12 +44,12 @@ message CreateOrganizationInviteResponse {
 }
 
 message ListOrganizationInvitesRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
 }
 
 message RevokeOrganizationInviteRequest {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
 }
 
 message AcceptOrganizationInviteRequest {
@@ -59,6 +59,6 @@ message AcceptOrganizationInviteRequest {
 }
 
 message AcceptOrganizationInviteResponse {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string role = 2;
 }

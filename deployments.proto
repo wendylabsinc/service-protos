@@ -29,8 +29,8 @@ service DeploymentService {
 
 // ==================== App Releases ====================
 message AppRelease {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
   string app_id = 3;
   string name = 4;
   string details = 5;
@@ -42,7 +42,7 @@ message AppRelease {
 
 message CreateAppReleaseRequest {
   string app_id = 1;
-  int32 organization_id = 2;
+  string organization_id = 2;
   string name = 3;
   string details = 4;
   ReleaseType release_type = 5;
@@ -51,14 +51,14 @@ message CreateAppReleaseRequest {
 // Use this to assign a image_digest to an app_release after it has been pushed to the registry
 // Note, verify that the image_digest exists in the registry before updating the app_release
 message UpdateAppReleaseRequest {
-  int32 id = 1;
+  string id = 1;
   string name = 2;
   string details = 3;
   string image_digest = 4;
 }
 
 message ListAppReleasesRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string app_id = 2;
   int32 offset = 3;
   int32 limit = 4;
@@ -71,7 +71,7 @@ message ListAppReleasesResponse {
 }
 
 message GetPushImageCredentialsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string app_id = 2;
 }
 
@@ -86,10 +86,10 @@ message GetPushImageCredentialsResponse {
 // ==================== Deployments ====================
 
 message Deployment {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
   string jq_filter = 3;
-  int32 app_release_id = 4;
+  string app_release_id = 4;
   string details = 5;
   string created_by_user_id = 6;
   google.protobuf.Timestamp created_at = 7;
@@ -97,19 +97,19 @@ message Deployment {
 
 // infer the created_by_user_id from the authService
 message CreateDeploymentRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   optional string jq_filter = 2;
-  int32 app_release_id = 3;
+  string app_release_id = 3;
   string details = 4;
   Running running = 5;
 } 
 
 message GetDeploymentRequest {
-  int32 id = 1;
+  string id = 1;
 }
 
 message ListDeploymentsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string app_id = 2;
   int32 offset = 3;
   int32 limit = 4;
@@ -130,7 +130,7 @@ message UpdateReportedStateRequest {
 
 message CurrentState {
   string app_id = 1;
-  optional int32 app_release_id = 2;
+  optional string app_release_id = 2;
   Running reported_state = 3;
   int32 reported_restart_count = 4;
   uint32 reported_last_exit_signal = 5;
@@ -145,7 +145,7 @@ message DesiredStateResponse {
 
 message DesiredAppState {
   string app_id = 1;
-  optional int32 app_release_id = 2;
+  optional string app_release_id = 2;
   Running desired_state = 3;
   optional string image_digest = 4;
   ReleaseType release_type = 5;
@@ -164,21 +164,21 @@ enum ReleaseType {
 
 // ==================== List Asset Apps ====================
 message ListAssetAppsRequest {
-  int32 asset_id = 1;
-  int32 organization_id = 2;
+  string asset_id = 1;
+  string organization_id = 2;
 }
 
 message AssetApp {
   string app_id = 1;
   string app_name = 2;
-  optional int32 app_release_id = 3;
+  optional string app_release_id = 3;
   optional string app_release_name = 4;
   Running desired_state = 5;
   optional Running reported_state = 6;
   optional google.protobuf.Timestamp reported_at = 7;
   optional int32 reported_restart_count = 8;
   // Convenience: most recent deployment that targeted this app release in the org
-  optional int32 deployment_id = 9;
+  optional string deployment_id = 9;
   optional string deployment_details = 10;
   optional google.protobuf.Timestamp deployment_created_at = 11;
   ReleaseType release_type = 12;
@@ -190,7 +190,7 @@ message ListAssetAppsResponse {
 
 // ==================== Pull Credentials (wendy-agent / microcontrollers) ====================
 message GetPullCredentialsRequest {
-  int32 app_release_id = 1;
+  string app_release_id = 1;
 }
 
 message GetPullCredentialsResponse {
@@ -205,8 +205,8 @@ message GetPullCredentialsResponse {
 // ==================== Device Container Control ====================
 
 message ListDeviceContainersRequest {
-  int32 asset_id = 1;
-  int32 organization_id = 2;
+  string asset_id = 1;
+  string organization_id = 2;
 }
 
 message DeviceContainer {
@@ -229,8 +229,8 @@ enum AppRunningState {
 }
 
 message ControlContainerRequest {
-  int32 asset_id = 1;
-  int32 organization_id = 2;
+  string asset_id = 1;
+  string organization_id = 2;
   // "myapp" for whole app; "myapp.web" for one service container
   string container_name = 3;
   ContainerAction action = 4;

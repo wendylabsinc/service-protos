@@ -16,10 +16,10 @@ service ScheduleService {
 }
 
 message Slot {
-  int32 id = 1;
-  int32 organization_id = 2;
-  int32 team_id = 3;
-  int32 asset_id = 4;
+  string id = 1;
+  string organization_id = 2;
+  string team_id = 3;
+  string asset_id = 4;
   google.protobuf.Timestamp starts_at = 5;
   google.protobuf.Timestamp ends_at = 6;
   string status = 7;
@@ -29,34 +29,34 @@ message Slot {
 }
 
 message CreateSlotRequest {
-  int32 organization_id = 1;
-  int32 team_id = 2;
-  int32 asset_id = 3;
+  string organization_id = 1;
+  string team_id = 2;
+  string asset_id = 3;
   google.protobuf.Timestamp starts_at = 4;
   google.protobuf.Timestamp ends_at = 5;
 }
 
 message GetSlotRequest {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
 }
 
 message UpdateSlotRequest {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
   optional google.protobuf.Timestamp starts_at = 3;
   optional google.protobuf.Timestamp ends_at = 4;
 }
 
 message DeleteSlotRequest {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
 }
 
 message ListSlotsRequest {
-  int32 organization_id = 1;
-  optional int32 asset_id = 2;
-  optional int32 team_id = 3;
+  string organization_id = 1;
+  optional string asset_id = 2;
+  optional string team_id = 3;
 }
 
 message ListSlotsResponse {
@@ -64,8 +64,8 @@ message ListSlotsResponse {
 }
 
 message GetActiveSlotRequest {
-  int32 asset_id = 1;
-  int32 organization_id = 2;
+  string asset_id = 1;
+  string organization_id = 2;
 }
 
 message GetActiveSlotResponse {
@@ -73,14 +73,14 @@ message GetActiveSlotResponse {
 }
 
 message ForceEndSlotRequest {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
 }
 
 message TeamQuota {
-  int32 id = 1;
-  int32 organization_id = 2;
-  int32 team_id = 3;
+  string id = 1;
+  string organization_id = 2;
+  string team_id = 3;
   int32 quota_minutes = 4;
   int32 used_minutes = 5;
 }

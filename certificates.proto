@@ -41,8 +41,8 @@ service CertificateService {
 message GetCertificateMetadataRequest {}
 
 message GetCertificateMetadataResponse {
-  int32 organization_id = 1;              // Always present for all certificate types
-  optional int32 asset_id = 2;            // Set if this is an asset certificate
+  string organization_id = 1;              // Always present for all certificate types
+  optional string asset_id = 2;            // Set if this is an asset certificate
   optional string user_id = 3;            // Set if this is a user certificate
 }
 
@@ -53,9 +53,9 @@ message GetCertificateMetadataResponse {
 // If there is a certificate for `wendy-agent`, it will have an asset_id and organization_id.
 // If there is a certificate for a user, it will have a user_id and organization_id.
 message Certificate {
-  int32 id = 1;
-  int32 organization_id = 2;
-  optional int32 asset_id = 3;        // Set if this is an asset certificate
+  string id = 1;
+  string organization_id = 2;
+  optional string asset_id = 3;        // Set if this is an asset certificate
   optional string user_id = 14;       // Set if this is a user certificate
 
   string serial_number = 4;
@@ -99,10 +99,10 @@ message IssueCertificateResponse {
   repeated string warnings = 3;
 
   // Organization that owns this certificate
-  int32 organization_id = 4;
+  string organization_id = 4;
 
   // Asset this certificate was issued for (populated when using asset enrollment token)
-  optional int32 asset_id = 5;
+  optional string asset_id = 5;
 
   // User this certificate was issued for (populated when using user enrollment token)
   optional string user_id = 6;
@@ -129,7 +129,7 @@ message RefreshCertificateResponse {
 }
 
 message RevokeCertificateRequest {
-  int32 certificate_id = 1;
+  string certificate_id = 1;
   string reason = 2;
 }
 
@@ -138,11 +138,11 @@ message RevokeCertificateResponse {
 }
 
 message GetCertificateRequest {
-  int32 certificate_id = 1;
+  string certificate_id = 1;
 }
 
 message ListCertificatesRequest {
-  int32 asset_id = 1;
+  string asset_id = 1;
   // Offset/limit based pagination
   optional int32 offset = 2;
   optional int32 limit = 3;
@@ -164,7 +164,7 @@ message GetCaBundleResponse {
 // Asset Enrollment Token RPCs
 // This DOES use the Authorization: Bearer token since it's generated primarily by a user logged into the dashboard
 message CreateAssetEnrollmentTokenRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string name = 2;
   // Lifetime in seconds (default server policy, e.g., 600s)
   int32 ttl_seconds = 3;
@@ -174,8 +174,8 @@ message CreateAssetEnrollmentTokenResponse {
   string enrollment_token = 1;   // Opaque signed token the agent will use
   string jti = 2;                // Token id for auditing
   google.protobuf.Timestamp expires_at = 3;
-  int32 organization_id = 4;     // Organization this token belongs to
-  int32 asset_id = 5;            // Asset this token is for
+  string organization_id = 4;     // Organization this token belongs to
+  string asset_id = 5;            // Asset this token is for
 }
 
 // User Enrollment Token RPCs
@@ -184,7 +184,7 @@ message CreateAssetEnrollmentTokenResponse {
 message CreateUserEnrollmentTokenRequest {
   // Lifetime in seconds (default server policy, e.g., 600s)
   int32 ttl_seconds = 2;
-  int32 organization_id = 3;
+  string organization_id = 3;
 }
 
 message CreateUserEnrollmentTokenResponse {

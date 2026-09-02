@@ -131,7 +131,7 @@ message IssuePresenceLeaseResponse {
 // parameters MUST agree exactly; fallback, downgrade, supplied verifier keys,
 // and ES256 are forbidden.
 message TunnelPrincipalRequestBody {
-  int64 target_asset_id = 1; // Positive Cloud policy input.
+  string target_asset_id = 1; // Positive Cloud policy input.
   string service = 2; // Cloud-defined symbolic service, 1..128 ASCII bytes.
   // Frozen v1 canonical P-256 SPKI: strict DER AlgorithmIdentifier
   // id-ecPublicKey + named curve prime256v1 and a BIT STRING with zero unused

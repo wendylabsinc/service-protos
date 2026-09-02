@@ -28,9 +28,9 @@ service AssetService {
 }
 
 message Asset {
-  int32 id = 1;
-  int32 organization_id = 2;
-  optional int32 parent_asset_id = 3;
+  string id = 1;
+  string organization_id = 2;
+  optional string parent_asset_id = 3;
   string name = 4;
   string details = 5;
   string asset_type = 6;
@@ -79,8 +79,8 @@ message Asset {
 }
 
 message CreateAssetRequest {
-  int32 organization_id = 1;
-  optional int32 parent_asset_id = 2;
+  string organization_id = 1;
+  optional string parent_asset_id = 2;
   string name = 3;
   string details = 4;
   string asset_type = 5;
@@ -109,11 +109,11 @@ message CreateAssetRequest {
 }
 
 message GetAssetRequest {
-  int32 id = 1;
+  string id = 1;
 }
 
 message UpdateAssetRequest {
-  int32 id = 1;
+  string id = 1;
   optional string name = 2;
   optional string details = 3;
   optional string blob_storage_url = 4;
@@ -139,7 +139,7 @@ message UpdateAssetRequest {
 }
 
 message DeleteAssetRequest {
-  int32 id = 1;
+  string id = 1;
 }
 
 message DeleteAssetResponse {
@@ -147,7 +147,7 @@ message DeleteAssetResponse {
 }
 
 message ListAssetsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   optional bool is_compute_device = 2;
   // Offset/limit based pagination (offset = starting row, limit = page size)
   optional int32 offset = 3;
@@ -166,7 +166,7 @@ message ListAssetsResponse {
 }
 
 message ListAssetChildrenRequest {
-  int32 parent_asset_id = 1;
+  string parent_asset_id = 1;
   // Offset/limit based pagination
   optional int32 offset = 2;
   optional int32 limit = 3;
@@ -178,7 +178,7 @@ message ListAssetChildrenResponse {
 }
 
 message GetAssetLineageRequest {
-  int32 asset_id = 1;
+  string asset_id = 1;
 }
 
 message GetAssetLineageResponse {
@@ -187,11 +187,11 @@ message GetAssetLineageResponse {
   // All assets in the lineage tree (including root and all descendants)
   repeated Asset all_assets = 2;
   // The asset ID that was requested (for highlighting)
-  int32 requested_asset_id = 3;
+  string requested_asset_id = 3;
 }
 
 message ListAssetsByAppRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string app_id = 2;
   optional bool is_compute_device = 3;
   // Offset/limit based pagination (offset = starting row, limit = page size)
@@ -207,7 +207,7 @@ message ListAssetsByAppResponse {
 }
 
 message FilterAssetsRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   optional string jq_filter = 2;  // JQ filter expression (e.g., ".asset_type == \"compute_device\"")
   // Offset/limit based pagination
   optional int32 offset = 3;

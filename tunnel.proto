@@ -116,7 +116,7 @@ message TunnelData {
 // session_id upon receiving this message and delivers it to the target agent
 // as a DialRequest via the agent's RegisterPresence stream.
 message ClientTunnelOpen {
-  int32  asset_id = 1;
+  string  asset_id = 1;
   string host     = 2;
   uint32 port     = 3;
   TunnelProtocol protocol = 4;  // port is ignored when DATAGRAM
@@ -134,7 +134,7 @@ message ClientTunnelMessage {
 // Sent by the services backend to open a tunnel. Carries the target asset and
 // endpoint; the broker generates a session and dispatches a DialRequest to the agent.
 message ServiceTunnelOpen {
-  int32  asset_id = 1;
+  string  asset_id = 1;
   string host     = 2;
   uint32 port     = 3;
   TunnelProtocol protocol = 4;

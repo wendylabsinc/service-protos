@@ -14,10 +14,10 @@ service InviteLinkService {
 }
 
 message InviteLink {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
   string role = 3;
-  optional int32 team_id = 4;
+  optional string team_id = 4;
   google.protobuf.Timestamp expires_at = 5;
   bool revoked = 6;
   optional string created_by_user_id = 7;
@@ -25,9 +25,9 @@ message InviteLink {
 }
 
 message CreateInviteLinkRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
   string role = 2;
-  optional int32 team_id = 3;
+  optional string team_id = 3;
   google.protobuf.Timestamp expires_at = 4;
 }
 
@@ -37,8 +37,8 @@ message CreateInviteLinkResponse {
 }
 
 message GetInviteLinkRequest {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
 }
 
 message UseInviteLinkRequest {
@@ -54,12 +54,12 @@ message UseInviteLinkResponse {
 }
 
 message RevokeInviteLinkRequest {
-  int32 id = 1;
-  int32 organization_id = 2;
+  string id = 1;
+  string organization_id = 2;
 }
 
 message ListInviteLinksRequest {
-  int32 organization_id = 1;
+  string organization_id = 1;
 }
 
 message ListInviteLinksResponse {

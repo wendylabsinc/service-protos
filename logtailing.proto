@@ -38,8 +38,8 @@ service DeviceLogStreamService {
 
 // Request to tail logs for a specific app on an asset (dashboard only).
 message TailLogEntriesRequest {
-  int32 organization_id = 1;
-  int32 asset_id = 2;
+  string organization_id = 1;
+  string asset_id = 2;
   string app_id = 3;
 
   // Optional start time for the tail window; defaults to 'now - 2m'.
@@ -52,7 +52,7 @@ message TailLogEntriesRequest {
   optional int32 page_size = 6;
 
   // Optional deployment filter; when set, only entries matching this deployment_id are returned.
-  optional int32 deployment_id = 7;
+  optional string deployment_id = 7;
 }
 
 message TailLogEntriesResponse {
@@ -64,8 +64,8 @@ message TailLogEntriesResponse {
 }
 
 message StreamDeviceLogsRequest {
-  int32 organization_id = 1;
-  int32 asset_id = 2;
+  string organization_id = 1;
+  string asset_id = 2;
   optional string app_name = 3;
   optional int32 min_severity = 4;
 }
