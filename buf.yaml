@@ -30,3 +30,13 @@ lint:
 breaking:
   use:
     - FILE
+  ignore_only:
+    FILE_NO_DELETE:
+      # wendycloud/v2/teams.proto was a hackathon-only service that rode the
+      # v2 pin unexamined: no handler in 2.0, no callers, a mechanical copy of
+      # the v1 file. OrgTeamService is the general-purpose replacement and is
+      # explicitly independent of it. Deleted under WDY-2859; v1 teams.proto
+      # stays untouched per the hackathon-protos ruling. This entry is only
+      # needed for the PR that removes the file; once master no longer carries
+      # it, nothing compares against it and the entry can be dropped.
+      - wendycloud/v2/teams.proto
