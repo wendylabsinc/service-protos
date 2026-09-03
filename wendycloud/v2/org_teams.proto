@@ -12,8 +12,9 @@ import "google/protobuf/timestamp.proto";
 // This service is intentionally separate from the hackathon TeamService and
 // its teams/team_members tables. It is backed by the org_teams,
 // org_team_members, and team_permissions tables. All message names carry the
-// OrgTeam prefix because the hackathon teams.proto already occupies the
-// unprefixed names in the wendycloud.v1 package.
+// OrgTeam prefix to match the v1 spelling of this service. The unprefixed
+// names are free in wendycloud.v2 now that the hackathon copy is gone
+// (WDY-2859); they remain taken in wendycloud.v1 by teams.proto.
 service OrgTeamService {
   rpc CreateTeam(CreateOrgTeamRequest) returns (OrgTeam);
   rpc GetTeam(GetOrgTeamRequest) returns (OrgTeam);
