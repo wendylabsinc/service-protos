@@ -6,6 +6,11 @@ It fixes the identity-blind broker boundary, canonical proof inputs, ephemeral
 principal request, pki-core attestation, HPKE envelope, session admission, and
 presence ownership rules.
 
+`wendycloud.tunnel.v2` carries the same contract with a string target identity;
+see [Tunnel v2 wire conformance](#tunnel-v2-wire-conformance) at the end of this
+document. Everything between here and there is the v1 contract, and v2 inherits
+all of it.
+
 Implementations must test these invariants before enabling the v1 services:
 
 - `tunnel.proto` in the repository root remains the unchanged legacy API.
@@ -204,3 +209,98 @@ implementation verify the proposed replacement before committing it.
 All private test material represented by the JSON is public fixture data. It MUST NOT be used
 for production, development credentials, examples that might be copied into a
 deployment, or any purpose beyond conformance testing.
+
+## Tunnel v2 wire conformance
+
+The authoritative contract is
+[`wendycloud/tunnel/v2/tunnel.proto`](../../wendycloud/tunnel/v2/tunnel.proto).
+It differs from v1 in exactly two lines: the package, and
+
+```
+string target_asset_id = 1;   // was int64
+```
+
+`assets.id` has been a `uuid` since Cloud migration 000073. A uuid does not fit
+in an int64 and no truncation preserves identity, so v1's field could not be
+filled at all. Every other message, field number, rule, and domain string above
+applies to v2 unchanged.
+
+### What v2 does not change
+
+The HPKE and proof domain-separation strings keep their `wendycloud.tunnel.v1/`
+spelling in v2:
+
+- `wendycloud.tunnel.v1/hpke-info/1`
+- `wendycloud.tunnel.v1/hpke-aad/1`
+- `wendycloud.tunnel.v1/hpke-envelope/1`
+- `wendycloud.tunnel.v1/presence-proof/1`
+- `wendycloud.tunnel.v1/join-proof/1`
+
+These are frozen GrantKit constants, not package names. Re-spelling them would
+be a separate, breaking change to every signer and verifier in the fabric, and
+it is deliberately not part of the identity flip.
+
+### Target identity rule
+
+v1's `target_asset_id` rule was "positive". For v2 the equivalent rule over a
+string identity is:
+
+- present — a non-empty string; proto3 omits the field at its default, so an
+  absent field and an empty string are the same rejection;
+- well-formed — the 8-4-4-4-12 hyphenated form, hex digits only;
+- canonically spelled — **lowercase**. Postgres renders `uuid` lowercase and
+  Swift's `uuidString` renders it uppercase, so the canonical spelling is
+  pinned here rather than left to whichever side serializes last. An uppercase
+  but otherwise valid uuid is a rejection, not a normalization;
+- equal to the signed descriptor's `target.asset_id`, byte for byte, exactly as
+  v1 required the integers to be equal.
+
+### Vector file
+
+[`blind-attestation-vectors-v2.json`](blind-attestation-vectors-v2.json) is the
+authoritative cross-language golden fixture for v2. Its organization, field
+naming, base64 conventions, and every section are identical to
+[`blind-attestation-vectors-v1.json`](blind-attestation-vectors-v1.json); read
+the v1 sections above for the layout. The verification requirements are the same
+list, plus the target identity rule.
+
+The two identity-shaped negative cases are restated for a string:
+
+- `principal-request-target-asset` mutates the descriptor's `target.asset_id` to
+  a different, equally well-formed uuid (was `descriptor_asset_id_to_43`);
+- `principal-request-body-nonpositive-target` is replaced by three cases —
+  `principal-request-body-empty-target`,
+  `principal-request-body-malformed-uuid-target` (a truncated uuid), and
+  `principal-request-body-uppercase-uuid-target` — each of which must reach the
+  `target_asset_id` rule.
+
+Everything else in `negative_cases` and every `malformed_protobuf_cases` recipe
+is carried across unchanged; the dial-instruction fixture is byte-identical to
+v1's, so all 18 dial recipes and the 4096/4112-byte sizes are untouched.
+
+### What necessarily moved, and what did not
+
+`target_asset_id` sits inside the protobuf body that the §4.1 signature covers,
+so the flip propagates: body bytes -> `canonical_body_sha256` -> descriptor ->
+`request_hash` -> the ML-DSA-65 principal signature -> the audited Envelope ->
+the pki attestation -> its hash -> the HPKE AAD (it binds `request_hash`) -> a
+new seal -> `dial_instruction_hash` -> the Cloud session grants -> the two join
+proofs (they bind the session-grant bytes). Bit-identical to v1: every private
+scalar, the presence lease and its proof, the 4096-byte dial plaintext with its
+padding sample, the HPKE `info`, and all five domain strings.
+
+### ML-DSA test material
+
+The ML-DSA-65 principal key and its test chain — root, leaf, and the
+swapped-key leaf used by `principal-request-swapped-leaf-signing-key` — are
+freshly minted for this set. The v1 private key was never checked in, so no v2
+signature could be produced under it. The new chain mirrors v1's exactly: same
+subjects, same SPIFFE SAN (and therefore the same tenant as the audited
+Envelope), same serials, same validity windows, same extensions, and DER
+lengths identical to v1's. This costs nothing in coverage, because these
+vectors are verified against the `x5c` and root the file itself carries, as
+v1's always were.
+
+All private test material represented by the JSON is public fixture data. It
+MUST NOT be used for production, development credentials, examples that might be
+copied into a deployment, or any purpose beyond conformance testing.
