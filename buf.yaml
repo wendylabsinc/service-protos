@@ -20,6 +20,7 @@ lint:
     - RPC_REQUEST_RESPONSE_UNIQUE
   ignore_only:
     PACKAGE_DIRECTORY_MATCH:
+      - app_settings.proto # V1 Cloud codegen requires the historical root import path.
       - notifications.proto # Legacy import path used by existing clients.
       - organizations.proto # Legacy import path used by existing clients.
       # Cloud's codegen passes bare basenames, and its already-generated modules
