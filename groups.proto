@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// GroupService manages Cloud-owned groups within an organization.
+//
+// Groups were called org teams until RBAC v2 (WDY-2453). "Team" and "group"
+// named the same thing from two directions -- cloud's own collection-of-users,
+// and the wendy-auth realm group that maps onto it -- and group is the word
+// that won. Cloud's tables were renamed in its migration 000070; this is the
+// wire half of the same change.
+//
+// The old OrgTeam prefix existed only because the hackathon teams.proto already
+// occupies the unprefixed team names in wendycloud.v1. Group does not collide
+// with anything, so the prefix is gone with the name.
+//
+// This service stays intentionally separate from the hackathon TeamService and
+// its teams/team_members tables: no shared rows, no shared cascades.
+//
+// BREAKING. Every symbol here is renamed and GroupPermission changes shape; see
+// the note on it. Cloud is the only consumer.
+service GroupService {
+  rpc CreateGroup(CreateGroupRequest) returns (Group);
+  rpc GetGroup(GetGroupRequest) returns (Group);
+  rpc UpdateGroup(UpdateGroupRequest) returns (Group);
+  rpc DeleteGroup(DeleteGroupRequest) returns (DeleteGroupResponse);
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
+
+  rpc AddGroupMember(AddGroupMemberRequest) returns (GroupMember);
+  rpc RemoveGroupMember(RemoveGroupMemberRequest) returns (RemoveGroupMemberResponse);
+  rpc ListGroupMembers(ListGroupMembersRequest) returns (ListGroupMembersResponse);
+
+  rpc GrantGroupPermission(GrantGroupPermissionRequest) returns (GroupPermission);
+  rpc RevokeGroupPermission(RevokeGroupPermissionRequest) returns (RevokeGroupPermissionResponse);
+  rpc ListGroupPermissions(ListGroupPermissionsRequest) returns (ListGroupPermissionsResponse);
+}
+
+// Whether a grant permits or forbids. Deny wins over allow at the same level,
+// and outranks any allow below it, so this is not a cosmetic flag.
+//
+// The third state is the ABSENCE of a row: no grant at this level, defer to the
+// next one down. It is spelled as the unspecified zero value rather than a
+// third enum case, because a stored grant is never "unspecified" -- revoking is
+// what removes the row.
+enum PermissionEffect {
+  PERMISSION_EFFECT_UNSPECIFIED = 0;
+  PERMISSION_EFFECT_ALLOW = 1;
+  PERMISSION_EFFECT_DENY = 2;
+}
+
+message Group {
+  int32 id = 1;
+  int32 organization_id = 2;
+  string name = 3;
+  optional string description = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message GroupMember {
+  int32 id = 1;
+  int32 group_id = 2;
+  string user_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// A grant of one catalog permission to one group.
+//
+// SHAPE CHANGE, not just a rename. The old OrgTeamPermission carried a
+// free-form `permission` string with no referent, so a typo was
+// indistinguishable from a grant, plus a row id, a granted_by and a timestamp.
+// The grant now names a permission by its catalog id -- a foreign key, so an
+// unknown permission is refused rather than silently stored -- and carries an
+// effect, because allow-only cannot express a deny.
+//
+// The dropped fields are dropped deliberately: the grant is identified by
+// (group_id, permission_id), which is its primary key, so a separate row id
+// names nothing. granted_by and created_at belong to the audit trail rather
+// than to the grant; if the console needs to show who granted what, that is a
+// query against the audit log, not a field here.
+message GroupPermission {
+  int32 group_id = 1;
+  string permission_id = 2;
+  PermissionEffect effect = 3;
+}
+
+message CreateGroupRequest {
+  int32 organization_id = 1;
+  string name = 2;
+  optional string description = 3;
+}
+
+message GetGroupRequest {
+  int32 id = 1;
+}
+
+message UpdateGroupRequest {
+  int32 id = 1;
+  string name = 2;
+  optional string description = 3;
+}
+
+message DeleteGroupRequest {
+  int32 id = 1;
+}
+
+message DeleteGroupResponse {
+  bool success = 1;
+}
+
+message ListGroupsRequest {
+  int32 organization_id = 1;
+}
+
+message ListGroupsResponse {
+  repeated Group groups = 1;
+}
+
+message AddGroupMemberRequest {
+  int32 group_id = 1;
+  string user_id = 2;
+}
+
+message RemoveGroupMemberRequest {
+  int32 group_id = 1;
+  string user_id = 2;
+}
+
+message RemoveGroupMemberResponse {
+  bool success = 1;
+}
+
+message ListGroupMembersRequest {
+  int32 group_id = 1;
+}
+
+message ListGroupMembersResponse {
+  repeated GroupMember members = 1;
+}
+
+// effect is REQUIRED in practice: granting with the unspecified value is a
+// caller that has not decided, and the handler refuses it rather than picking
+// allow on its behalf.
+message GrantGroupPermissionRequest {
+  int32 group_id = 1;
+  string permission_id = 2;
+  PermissionEffect effect = 3;
+}
+
+// Revoking removes the grant entirely, returning the group to "no opinion at
+// this level". It is not the same as granting a deny, which actively forbids.
+message RevokeGroupPermissionRequest {
+  int32 group_id = 1;
+  string permission_id = 2;
+}
+
+message RevokeGroupPermissionResponse {
+  bool success = 1;
+}
+
+message ListGroupPermissionsRequest {
+  int32 group_id = 1;
+}
+
+message ListGroupPermissionsResponse {
+  repeated GroupPermission permissions = 1;
+}
