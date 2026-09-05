@@ -94,6 +94,28 @@ service CAEngine {
   // token's ability to be redeemed, never grants.
   rpc RecordEnrollmentTokenRevoke(RecordEnrollmentTokenRevokeRequest)             returns (RecordEnrollmentTokenRevokeResponse);
 
+  // Cloud grant-issuer JWKS relay (WDY-2929). The engine verifies cloud grants
+  // against the issuer's rotating JWKS, but the engine has NO route to the
+  // public internet by design — it sits in a private VPC reached only over PSC,
+  // and WDY-2864 removes the last path out. The private-only fabric frontend,
+  // which already fetches the realm JWKS for the SET relay above, fetches the
+  // grant issuer's JWKS too and relays the document here.
+  //
+  // This moves KEY DISTRIBUTION only. Every policy decision stays in the
+  // engine: signature verification, CSR-key thumbprint binding, tenant match,
+  // lifetime binding and the entitlement cap chain (grant is subset of tenant
+  // ceiling is subset of platform cap) all run engine-side against engine
+  // state, exactly as before. The fabric relays keys, never a verdict — which
+  // is the smallest trust delta that removes the egress.
+  //
+  // The engine stamps its OWN receipt time rather than trusting a timestamp in
+  // the request, and refuses grant verification once the freshest accepted
+  // document is older than its staleness horizon: fail CLOSED, so a fabric that
+  // stops pushing degrades grant-bearing issuance rather than silently serving
+  // keys that may have been rotated away. Ordinary issuance is unaffected —
+  // the grant path is only entered when a request actually carries a grant.
+  rpc RecordGrantJWKS(RecordGrantJWKSRequest)                                     returns (RecordGrantJWKSResponse);
+
   // Postbox head notarization (AAA contract §5.3 / D8, W8). pki-core holds NO
   // postbox — the log is cloud's. This RPC notarizes a head cloud ASSERTS,
   // binding it to pki-core's own clock inside an RFC 3161-timestamped
@@ -774,6 +796,20 @@ message RecordEnrollmentTokenRevokeRequest {
   string source_jti = 5; // the SET jti — idempotency key
 }
 message RecordEnrollmentTokenRevokeResponse {}
+
+// RecordGrantJWKSRequest carries a grant issuer's JWKS document as fetched by
+// the fabric frontend (WDY-2929). The document is relayed VERBATIM: the engine
+// parses and validates it itself, so the fabric cannot narrow, reorder or
+// reinterpret the key set on the way through.
+//
+// There is deliberately no timestamp field. Staleness is measured from the
+// engine's own receipt time, so a fabric with a wrong or hostile clock cannot
+// extend the freshness horizon.
+message RecordGrantJWKSRequest {
+  string issuer    = 1; // grant issuer URL; MUST match a configured grant.issuers key, else refused
+  bytes  jwks_json = 2; // the JWKS document exactly as fetched from the issuer
+}
+message RecordGrantJWKSResponse {}
 
 // NotarizePostboxHeadRequest is cloud's ASSERTION about its postbox head (W8).
 // pki-core cannot verify max_id/head_hash — it holds no log — so a checkpoint
