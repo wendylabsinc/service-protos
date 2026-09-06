@@ -305,7 +305,7 @@ message QueryEpisodesRequest {
   string org_id = 1;
 
   // Optional filters; zero values mean "no filter".
-  uint64 asset_id = 2;
+  string asset_id = 2;
   string campaign = 3;
   EpisodeState state = 4;
   int64 started_after_unix_nanos = 5;
@@ -350,7 +350,7 @@ message Episode {
   // no asset filter spans assets, and a reader that cannot tell the rows
   // apart would have to reach into attributes_json to do it.
   string org_id = 2;
-  uint64 asset_id = 3;
+  string asset_id = 3;
   // Campaign name and its trigger, as recorded at capture time.
   string campaign = 4;
   string trigger = 5;
