@@ -97,6 +97,13 @@ message OverDurationRequestPayload {
 message OverDurationApprovalPayload {
   string pending_request_id = 1;
   bytes  timestamp_token    = 2; // DER RFC 3161 TimeStampResp over the signed approval
+  // Cloud-signed rights attestation for the approver, relayed verbatim to the
+  // engine's ApproveOverDurationIssuanceRequest.signed_rights. This does not
+  // weaken the rule above that nothing cloud can alter in the payload carries
+  // authority: the attestation's authority is its own signature, re-verified at
+  // the edge like the signed_artifact, so the payload stays an untrusted
+  // courier envelope. Cloud altering or omitting it can only cause a refusal.
+  bytes  signed_rights      = 3;
 }
 
 // OverDurationRequestResponse mirrors the engine's

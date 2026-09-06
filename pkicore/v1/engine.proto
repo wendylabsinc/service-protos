@@ -971,6 +971,17 @@ message ApproveOverDurationIssuanceRequest {
   // binding this approval to the pending request's hash.
   bytes signed_approval = 2;
   bytes timestamp_token = 3;
+  // Cloud-signed rights attestation (compact JWS, "cloud-rights+jws") stating
+  // that the approver holds pki:approve-over-duration at approval time, per
+  // cloud's own RBAC resolver. Its authority is its OWN signature, verified
+  // against the grant issuer JWKS — not its position in this message, and not
+  // the transport. Distinct audience from a grant, single-use jti, short
+  // lifetime; subject and request_id are re-derived engine-side and compared.
+  //
+  // Second signature and rights attestation answer different questions and
+  // neither substitutes for the other: the approver's JWS proves WHO approved,
+  // this proves that WHO is currently permitted to.
+  bytes signed_rights = 4;
 }
 
 message ApproveOverDurationIssuanceResponse {
