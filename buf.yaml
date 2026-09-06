@@ -20,6 +20,7 @@ lint:
     - RPC_REQUEST_RESPONSE_UNIQUE
   ignore_only:
     PACKAGE_DIRECTORY_MATCH:
+      - apps.proto # Legacy import path used by existing clients.
       - notifications.proto # Legacy import path used by existing clients.
       - organizations.proto # Legacy import path used by existing clients.
       # Cloud's codegen passes bare basenames, and its already-generated modules
