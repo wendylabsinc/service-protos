@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+// EntitlementService projects namespaced entitlements that apply to the
+// authenticated caller in an organization. Entitlements advertise product
+// eligibility; receiving one on a client is not proof that an operation is
+// authorized. Services must enforce their own authorization independently.
+service EntitlementService {
+  rpc ListEntitlements(ListEntitlementsRequest) returns (ListEntitlementsResponse);
+}
+
+// A consumer-owned entitlement. Keys use lowercase colon-separated namespaces
+// such as "companion:experimental:operator-viewer". Consumers match exact keys
+// and ignore keys they do not recognize.
+message Entitlement {
+  string key = 1;
+
+  // Optional activation default for consumers that expose a local choice.
+  // Presence grants eligibility regardless of this value. Consumers for which
+  // local activation is not meaningful may ignore this field.
+  optional bool enabled_by_default = 2;
+}
+
+message ListEntitlementsRequest {
+  int32 organization_id = 1;
+}
+
+message ListEntitlementsResponse {
+  repeated Entitlement entitlements = 1;
+}
