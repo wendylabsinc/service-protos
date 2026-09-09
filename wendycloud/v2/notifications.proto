@@ -30,10 +30,12 @@ service NotificationService {
   rpc PerformNotificationControlAction(PerformNotificationControlActionRequest) returns (PerformNotificationControlActionResponse);
   rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
   rpc DeleteNotifications(DeleteNotificationsRequest) returns (DeleteNotificationsResponse);
+  rpc DeleteAllNotifications(DeleteAllNotificationsRequest) returns (DeleteAllNotificationsResponse);
   rpc MarkAsRead(MarkAsReadRequest) returns (MarkAsReadResponse) {
     option deprecated = true;
   }
   rpc SetNotificationReadStatus(SetNotificationReadStatusRequest) returns (SetNotificationReadStatusResponse);
+  rpc SetAllNotificationReadStatus(SetAllNotificationReadStatusRequest) returns (SetAllNotificationReadStatusResponse);
   rpc CountNotifications(CountNotificationsRequest) returns (CountNotificationsResponse);
   rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse) {
     option deprecated = true;
@@ -352,6 +354,15 @@ message DeleteNotificationsResponse {
   int32 deleted_count = 1;
 }
 
+message DeleteAllNotificationsRequest {
+  string organization_id = 1;
+  optional NotificationSeverity severity_filter = 2;
+}
+
+message DeleteAllNotificationsResponse {
+  int32 deleted_count = 1;
+}
+
 message MarkAsReadRequest {
   // Legacy recipient projection IDs.
   repeated string notification_ids = 1;
@@ -371,6 +382,17 @@ message SetNotificationReadStatusRequest {
 }
 
 message SetNotificationReadStatusResponse {
+  int32 updated_count = 1;
+}
+
+message SetAllNotificationReadStatusRequest {
+  string organization_id = 1;
+  optional NotificationSeverity severity_filter = 2;
+  // Required; NOTIFICATION_READ_STATUS_UNSPECIFIED is invalid.
+  NotificationReadStatus read_status = 3;
+}
+
+message SetAllNotificationReadStatusResponse {
   int32 updated_count = 1;
 }
 
