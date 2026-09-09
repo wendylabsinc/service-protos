@@ -29,6 +29,7 @@ service NotificationService {
   // canonical control and derives publisher routing; the caller supplies no payload.
   rpc PerformNotificationControlAction(PerformNotificationControlActionRequest) returns (PerformNotificationControlActionResponse);
   rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
+  rpc DeleteNotifications(DeleteNotificationsRequest) returns (DeleteNotificationsResponse);
   rpc MarkAsRead(MarkAsReadRequest) returns (MarkAsReadResponse) {
     option deprecated = true;
   }
@@ -336,6 +337,17 @@ message DeleteNotificationRequest {
 
 message DeleteNotificationResponse {
   bool success = 1;
+}
+
+message DeleteNotificationsRequest {
+  // Canonical UUIDs; at most 200. Unknown or unauthorized IDs fail the entire request.
+  repeated string notification_ids = 1;
+}
+
+message DeleteNotificationsResponse {
+  // Number of previously active recipient projections deleted. Duplicate and
+  // already-deleted IDs do not increase this count.
+  int32 deleted_count = 1;
 }
 
 message MarkAsReadRequest {
