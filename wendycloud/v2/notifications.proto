@@ -357,6 +357,9 @@ message DeleteNotificationsResponse {
 message DeleteAllNotificationsRequest {
   string organization_id = 1;
   optional NotificationSeverity severity_filter = 2;
+  // Required canonical UUID of the newest Notification in the caller's current view.
+  // The mutation includes this Notification and all older matching Notifications.
+  string through_notification_id = 3;
 }
 
 message DeleteAllNotificationsResponse {
@@ -390,6 +393,9 @@ message SetAllNotificationReadStatusRequest {
   optional NotificationSeverity severity_filter = 2;
   // Required; NOTIFICATION_READ_STATUS_UNSPECIFIED is invalid.
   NotificationReadStatus read_status = 3;
+  // Required canonical UUID of the newest Notification in the caller's current view.
+  // The mutation includes this Notification and all older matching Notifications.
+  string through_notification_id = 4;
 }
 
 message SetAllNotificationReadStatusResponse {
