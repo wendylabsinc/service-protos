@@ -28,7 +28,9 @@ service NotificationService {
   // Performs one stored custom control for the authenticated recipient. Cloud loads the
   // canonical control and derives publisher routing; the caller supplies no payload.
   rpc PerformNotificationControlAction(PerformNotificationControlActionRequest) returns (PerformNotificationControlActionResponse);
-  rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
+  rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse) {
+    option deprecated = true;
+  }
   rpc DeleteNotifications(DeleteNotificationsRequest) returns (DeleteNotificationsResponse);
   rpc DeleteAllNotifications(DeleteAllNotificationsRequest) returns (DeleteAllNotificationsResponse);
   rpc MarkAsRead(MarkAsReadRequest) returns (MarkAsReadResponse) {
