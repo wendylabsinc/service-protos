@@ -32,12 +32,12 @@ service NotificationService {
     option deprecated = true;
   }
   rpc DeleteNotifications(DeleteNotificationsRequest) returns (DeleteNotificationsResponse);
-  rpc DeleteAllNotifications(DeleteAllNotificationsRequest) returns (DeleteAllNotificationsResponse);
+  rpc DeleteNotificationsThrough(DeleteNotificationsThroughRequest) returns (DeleteNotificationsThroughResponse);
   rpc MarkAsRead(MarkAsReadRequest) returns (MarkAsReadResponse) {
     option deprecated = true;
   }
   rpc SetNotificationReadStatus(SetNotificationReadStatusRequest) returns (SetNotificationReadStatusResponse);
-  rpc SetAllNotificationReadStatus(SetAllNotificationReadStatusRequest) returns (SetAllNotificationReadStatusResponse);
+  rpc SetNotificationReadStatusThrough(SetNotificationReadStatusThroughRequest) returns (SetNotificationReadStatusThroughResponse);
   rpc CountNotifications(CountNotificationsRequest) returns (CountNotificationsResponse);
   rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse) {
     option deprecated = true;
@@ -354,7 +354,7 @@ message DeleteNotificationsResponse {
   int32 deleted_count = 1;
 }
 
-message DeleteAllNotificationsRequest {
+message DeleteNotificationsThroughRequest {
   int32 organization_id = 1;
   optional NotificationSeverity severity_filter = 2;
   // Required canonical UUID of the newest Notification in the caller's current view.
@@ -362,7 +362,7 @@ message DeleteAllNotificationsRequest {
   string through_notification_id = 3;
 }
 
-message DeleteAllNotificationsResponse {
+message DeleteNotificationsThroughResponse {
   int32 deleted_count = 1;
 }
 
@@ -388,7 +388,7 @@ message SetNotificationReadStatusResponse {
   int32 updated_count = 1;
 }
 
-message SetAllNotificationReadStatusRequest {
+message SetNotificationReadStatusThroughRequest {
   int32 organization_id = 1;
   optional NotificationSeverity severity_filter = 2;
   // Required; NOTIFICATION_READ_STATUS_UNSPECIFIED is invalid.
@@ -398,7 +398,7 @@ message SetAllNotificationReadStatusRequest {
   string through_notification_id = 4;
 }
 
-message SetAllNotificationReadStatusResponse {
+message SetNotificationReadStatusThroughResponse {
   int32 updated_count = 1;
 }
 
