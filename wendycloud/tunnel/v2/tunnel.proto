@@ -170,8 +170,9 @@ message AttestTunnelPrincipalRequest {
 }
 
 message AttestTunnelPrincipalResponse {
-  // Compact ES256 JWS signed by a dedicated pki-core key, published through a
-  // purpose-separated pki-core JWKS. Protected typ is exactly
+  // Compact RFC 9964 pure/empty-context ML-DSA-65 JWS signed by a dedicated
+  // pki-core key, published through a purpose-separated pki-core JWKS.
+  // Protected typ is exactly
   // "tunnel-principal-attestation+jwt". Claims are exactly iss, aud, iat, exp,
   // jti, request_hash, and caller_key_binding; no identity or policy fields.
   // Pki-core constrains iat/exp to the intersection of its issuance window and
