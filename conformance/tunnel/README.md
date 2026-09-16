@@ -93,16 +93,24 @@ a complete protobuf request body and cert-bound request signature, the mandatory
 audited Cloud-to-pki Envelope, an identity-free pki-core attestation, a Cloud KMS
 session grant, a real HPKE seal, role proofs, attestation consumption/retry, and
 negative cases that prove neither signer can substitute for the other.
-The pki-core attestation protected `typ` is exactly
+The pki-core attestation is a compact JWS whose protected `alg` is exactly
+`ML-DSA-65` (RFC 9964 pure, empty context) and whose protected `typ` is exactly
 `tunnel-principal-attestation+jwt`; the Cloud session grant is a compact JWS
-whose protected `typ` is exactly `tunnel-session-grant+jws`.
+whose protected `typ` is exactly `tunnel-session-grant+jws` and whose `alg`
+remains `ES256`. The attestation signer is a dedicated pki-core key that is
+purpose-separated from both the Cloud signing key and the principal's request
+key; in production its public half is published through
+`CAEngine.GetTunnelAttestationJWKS`.
 
 The authoritative blind-attestation fixture is organized as:
 
-- `keys`: fixed test-only P-256 private scalars plus a pinned ML-DSA-65 key,
-  DER SubjectPublicKeyInfo values, and the raw-hex plus unpadded-base64url
-  SHA-256 SPKI bindings. Signing, key-agreement, Cloud signing, and HPKE sender
-  keys are distinct.
+- `keys`: fixed test-only P-256 private scalars plus two ML-DSA-65 keys — the
+  pinned principal key, and the pki-core attestation key given as its 32-byte
+  `seed_hex` with the `public_jwk` served by the attestation JWKS — with DER
+  SubjectPublicKeyInfo values and the raw-hex plus unpadded-base64url SHA-256
+  SPKI bindings. Signing, key-agreement, Cloud signing, and HPKE sender keys are
+  distinct. The attestation seed is SHA-256 of the ASCII `kid`, so the key pair
+  is reproducible from the file alone.
 - `principal_request`: the complete policy-bearing protobuf body, cert-bound
   request descriptor, root/leaf test chain, exact protected header and ML-DSA-65
   signature, request/key hashes, and the boundary marking runtime certificate
@@ -115,8 +123,10 @@ The authoritative blind-attestation fixture is organized as:
   proto3 defaults, no unknown/duplicate/non-ascending fields), the same strict
   decode/re-encode rule verification step 1 applies to every payload.
 - `cloud_to_pki_envelope` and `pki_attestation`: the exact audited Envelope,
-  principal request in `signed_artifact`, payload bytes, dedicated pki signing
-  key, identity-free claims, and alternate valid attestation signature.
+  principal request in `signed_artifact`, payload bytes, dedicated ML-DSA-65 pki
+  signing key, identity-free claims, and alternate valid attestation signature.
+  Both attestation signatures are minted by pki-core's own serializer; this
+  repository does not hand-mint them.
 - `dial_instruction`: the exact 4096-byte canonical protobuf plaintext,
   authenticated padding from one fixed, one-time CSPRNG sample (never a
   repeated-byte pattern), two ordered authorized DATAGRAM mappings, and the
@@ -176,9 +186,10 @@ signature verification is not conformance. In particular, a receiver should:
    varints, and every named semantic violation by reconstructing the malformed
    recipes. Confirm that every semantic mutation other than the dedicated size
    failure is still exactly 4096 bytes and reaches its declared rule.
-2. Derive classical public keys from fixed scalars, parse the ML-DSA leaf,
-   reproduce each SPKI binding, and verify the principal request, pki
-   attestation, Cloud artifacts, and join
+2. Derive classical public keys from fixed scalars, derive the attestation
+   ML-DSA-65 key pair from its seed and confirm it reproduces the published
+   `public_jwk`, parse the ML-DSA leaf, reproduce each SPKI binding, and verify
+   the principal request, pki attestation, Cloud artifacts, and join
    signatures,
    including every `alternate_valid*` signature over its declared payload or
    claims.
