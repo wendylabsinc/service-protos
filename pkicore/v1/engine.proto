@@ -58,6 +58,14 @@ service CAEngine {
   // at-most-once: a claimed nonce that then fails to mint is permanently burned.
   rpc MintTunnelAttestation(MintTunnelAttestationRequest) returns (MintTunnelAttestationResponse);
 
+  // GetTunnelAttestationJWKS returns the tunnel principal attestation signing
+  // JWKS (WDY-2708): the public halves of the dedicated ML-DSA-65 signer key(s),
+  // as an application/json JWKS document, for the codesign public frontend to
+  // serve at /.well-known/tunnel-attestation-jwks.json. Public keys only;
+  // includes retired-but-not-yet-expired kids so in-flight attestations still
+  // verify during rotation.
+  rpc GetTunnelAttestationJWKS(GetTunnelAttestationJWKSRequest) returns (GetTunnelAttestationJWKSResponse);
+
   // CA lifecycle (admin-API):
   rpc BootstrapPlatformCodeSigningRoot(BootstrapPlatformCodeSigningRootRequest)   returns (BootstrapPlatformCodeSigningRootResponse);
   rpc ProvisionPlatformCodeSigningActive(ProvisionPlatformCodeSigningActiveRequest) returns (ProvisionPlatformCodeSigningActiveResponse);
@@ -625,6 +633,11 @@ message MintTunnelAttestationRequest {
 message MintTunnelAttestationResponse {
   bytes  attestation_jws = 1; // compact ML-DSA-65 JWS, typ "tunnel-principal-attestation+jwt"
   string kid             = 2; // signing key id, also in the JWS protected header
+}
+
+message GetTunnelAttestationJWKSRequest {}
+message GetTunnelAttestationJWKSResponse {
+  bytes jwks = 1; // {"keys":[<AKP JWK>...]} — public keys only, served verbatim
 }
 
 message BootstrapPlatformCodeSigningRootRequest {
