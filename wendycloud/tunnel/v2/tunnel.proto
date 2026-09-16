@@ -120,7 +120,18 @@ message IssuePresenceLeaseResponse {
 // Exact body covered by the §4.1 request signature's body_sha256. It is sent to
 // Cloud and pki-core, never to the broker. The reqsig descriptor MUST use
 // operation "create_tunnel", aud "pki-core/tunnel-attestation", and a target
-// object that binds the same target asset and symbolic service as this body.
+// object with exactly two members, {asset_id, service}: asset_id is this
+// body's target_asset_id (v1 int64, v2 the lowercase-uuid string) and service
+// is this body's service, byte-for-byte. The descriptor target carries no
+// tenant member; tenant is bound by the leaf SPIFFE SAN and the audited
+// Envelope, never restated here.
+// The descriptor's body_sha256 is unpadded base64url(SHA-256(...)) over the
+// canonical strict proto3 encoding of THIS TunnelPrincipalRequestBody: fields
+// ascending by number, minimal-length varints, proto3 defaults omitted, and no
+// unknown, duplicate, or non-ascending fields. Every ingress strictly decodes
+// then re-encodes and requires byte-for-byte equality before hashing, exactly
+// as the caller SPKI field below is canonicalized; a non-canonical body is
+// rejected, not normalized.
 // Descriptor nonce is pki-core's sole single-use replay key: first use is
 // consumed and every duplicate is rejected even when the request is identical.
 // Pki-core retains that replay record through descriptor expiry plus verifier

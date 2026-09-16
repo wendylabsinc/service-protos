@@ -106,7 +106,14 @@ The authoritative blind-attestation fixture is organized as:
 - `principal_request`: the complete policy-bearing protobuf body, cert-bound
   request descriptor, root/leaf test chain, exact protected header and ML-DSA-65
   signature, request/key hashes, and the boundary marking runtime certificate
-  status as authoritative.
+  status as authoritative. The cert-bound descriptor's `target` object has
+  exactly two members, `{asset_id, service}` — `asset_id` is the body's
+  `target_asset_id` (int in v1, the lowercase-uuid string in v2) and `service`
+  is the body's `service`, with no `tenant` member — and its `body_sha256` is
+  unpadded base64url(SHA-256()) over the canonical strict proto3 encoding of
+  `TunnelPrincipalRequestBody` (ascending fields, minimal varints, omitted
+  proto3 defaults, no unknown/duplicate/non-ascending fields), the same strict
+  decode/re-encode rule verification step 1 applies to every payload.
 - `cloud_to_pki_envelope` and `pki_attestation`: the exact audited Envelope,
   principal request in `signed_artifact`, payload bytes, dedicated pki signing
   key, identity-free claims, and alternate valid attestation signature.
