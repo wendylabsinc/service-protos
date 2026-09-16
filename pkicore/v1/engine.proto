@@ -51,6 +51,13 @@ service CAEngine {
   // RFC 3161 timestamp issuance. Routed by /v1/timestamp.
   rpc IssueTimestamp(IssueTimestampRequest) returns (IssueTimestampResponse);
 
+  // MintTunnelAttestation atomically consumes the single-use §4.1 request nonce
+  // and mints the tunnel principal attestation JWS (WDY-2708). Called by the
+  // fabric TunnelPrincipalAttestationService after the edge has verified the
+  // device signature and the §4.1 descriptor. Consume-then-mint is atomic and
+  // at-most-once: a claimed nonce that then fails to mint is permanently burned.
+  rpc MintTunnelAttestation(MintTunnelAttestationRequest) returns (MintTunnelAttestationResponse);
+
   // CA lifecycle (admin-API):
   rpc BootstrapPlatformCodeSigningRoot(BootstrapPlatformCodeSigningRootRequest)   returns (BootstrapPlatformCodeSigningRootResponse);
   rpc ProvisionPlatformCodeSigningActive(ProvisionPlatformCodeSigningActiveRequest) returns (ProvisionPlatformCodeSigningActiveResponse);
@@ -603,6 +610,21 @@ message IssueTimestampRequest {
 }
 message IssueTimestampResponse {
   bytes tsr_response = 1; // DER RFC 3161 TimeStampResp
+}
+
+message MintTunnelAttestationRequest {
+  string tenant_id            = 1; // injected from gRPC metadata x-tenant-id
+  string correlation_id       = 2; // Envelope.correlation_id, for audit
+  string nonce                = 3; // §4.1 descriptor nonce; single-use claim key
+  string broker_audience      = 4; // AttestTunnelPrincipalRequest.broker_audience -> aud claim
+  bytes  request_hash         = 5; // SHA-256 of the raw decoded request-JWS payload segment
+  bytes  caller_key_binding   = 6; // SHA-256 of caller_signing_public_key_spki_der
+  int64  requested_not_before = 7; // descriptor iat, unix seconds
+  int64  requested_not_after  = 8; // descriptor expiry, unix seconds
+}
+message MintTunnelAttestationResponse {
+  bytes  attestation_jws = 1; // compact ML-DSA-65 JWS, typ "tunnel-principal-attestation+jwt"
+  string kid             = 2; // signing key id, also in the JWS protected header
 }
 
 message BootstrapPlatformCodeSigningRootRequest {
