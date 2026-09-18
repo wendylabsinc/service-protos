@@ -457,7 +457,11 @@ enum CARole {
 message CAInfo {
   string ca_id       = 1;
   string label       = 2;
-  string status      = 3;  // "active" | "revoked"
+  // pki-core passes ca_hierarchy.status through verbatim (migration 034 check
+  // constraint): "active_issuing" | "active_revocation_only" | "retired" |
+  // "revoked" | "expired" | "pending_import". A never-rotated CA is
+  // "active_issuing". WDY-3114.
+  string status      = 3;
   string not_after   = 4;  // RFC3339
   bytes  certificate = 5; // DER
   CARole role        = 6;  // WDY-3144; UNSPECIFIED until pki-core populates it (hop 2)
