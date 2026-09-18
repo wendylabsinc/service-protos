@@ -426,12 +426,41 @@ message GetTenantPolicyResponse {
 message ListCAsRequest {
   string tenant_id = 1; // injected from gRPC metadata x-tenant-id
 }
+
+// CARole is the structured role/kind of a CA, so consumers no longer infer it
+// from the label suffix (WDY-3144, follow-up from WDY-3114). pki-core is the
+// producer and populates this from its CA creation record, NEVER from label
+// text — the label stays only as a human-readable name.
+//
+// The tenant tier is three distinct CAs that pki-core creates for distinct
+// purposes; today only the label carries which is which. pki-core's own
+// ca_role column leaves tenant CAs empty/NULL, so these three values are the
+// structured form of that per-tenant creation intent, not new roles.
+enum CARole {
+  // Never emitted by pki-core: the role was not set (e.g. an old producer).
+  // This is NOT the marker for a tenant CA — those carry an explicit
+  // CA_ROLE_TENANT_* value below.
+  CA_ROLE_UNSPECIFIED = 0;
+
+  // Tenant tier (per-tenant CAs; pki-core's empty/NULL ca_role today).
+  CA_ROLE_TENANT_INTERMEDIATE       = 1;
+  CA_ROLE_TENANT_DEVICE_IDENTITY    = 2;
+  CA_ROLE_TENANT_OPERATOR_AUTHORITY = 3;
+
+  // Platform tier (pki-core's ca_role string constants).
+  CA_ROLE_ROOT                  = 4; // "root"
+  CA_ROLE_CUSTOMER_INTERMEDIATE = 5; // "customer_intermediate"
+  CA_ROLE_CODE_SIGNING_CA       = 6; // "code_signing_ca"
+  CA_ROLE_TSA                   = 7; // "tsa"
+}
+
 message CAInfo {
   string ca_id       = 1;
   string label       = 2;
   string status      = 3;  // "active" | "revoked"
   string not_after   = 4;  // RFC3339
   bytes  certificate = 5; // DER
+  CARole role        = 6;  // WDY-3144; UNSPECIFIED until pki-core populates it (hop 2)
 }
 message ListCAsResponse {
   repeated CAInfo cas = 1;
