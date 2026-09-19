@@ -9,9 +9,6 @@ service DiagnosticsService {
   rpc SubmitReport(SubmitReportRequest) returns (SubmitReportResponse);
   rpc GetReportStatus(GetReportStatusRequest) returns (GetReportStatusResponse);
   rpc Subscribe(SubscribeRequest) returns (SubscribeResponse);
-
-  // Cloud-only: mark a report fixed and notify subscribers. Not in the CLI contract.
-  rpc ResolveReport(ResolveReportRequest) returns (ResolveReportResponse);
 }
 
 message PlatformInfo {
@@ -64,13 +61,4 @@ message SubscribeRequest {
 
 message SubscribeResponse {
   string subscription_id = 1;
-}
-
-message ResolveReportRequest {
-  string tracking_id = 1;
-  string fixed_in_release = 2;
-}
-
-message ResolveReportResponse {
-  int32 notified_count = 1;
 }
