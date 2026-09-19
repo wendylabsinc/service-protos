@@ -30,17 +30,3 @@ lint:
 breaking:
   use:
     - FILE
-  # WDY-3167: intentional removal of zero-caller wendycloud.v2 platform surfaces
-  # (UserService.ListUsers, DiagnosticsService.ResolveReport,
-  # UpdateUserRequest.is_super_admin). Scoped to exactly the rules/paths that
-  # fire so the rest of the tree still breaks unscoped. Lift in the follow-up PR
-  # once the deletion is on master.
-  ignore_only:
-    FIELD_NO_DELETE:
-      - wendycloud/v2/users.proto
-    MESSAGE_NO_DELETE:
-      - wendycloud/v2/diagnostics.proto
-      - wendycloud/v2/users.proto
-    RPC_NO_DELETE:
-      - wendycloud/v2/diagnostics.proto
-      - wendycloud/v2/users.proto
