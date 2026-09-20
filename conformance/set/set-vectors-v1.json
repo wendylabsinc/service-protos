@@ -93,6 +93,73 @@
         "subject" : "svc-1"
       },
       "name" : "pki-account-purged-service-sub-id"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f636c6f75642e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e77656e64792e73685c2f7365636576656e745c2f74656e616e742d64656c65746564223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a2274656e616e745f707572676564227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f73797374656d222c226a7469223a226a74692d66697865642d31222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a5c2f5c2f77656e64792e73685c2f74656e616e745c2f31323334353637382d313233342d313233342d313233342d313233343536373839616263227d2c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/cloud.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.wendy.sh\\\/secevent\\\/tenant-deleted\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"tenant_purged\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/system\",\"jti\":\"jti-fixed-1\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe:\\\/\\\/wendy.sh\\\/tenant\\\/12345678-1234-1234-1234-123456789abc\"},\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/cloud.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.wendy.sh\/secevent\/tenant-deleted",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/system",
+        "jti" : "jti-fixed-1",
+        "reason" : "tenant_purged",
+        "sub_id_uri" : "spiffe:\/\/wendy.sh\/tenant\/12345678-1234-1234-1234-123456789abc"
+      },
+      "name" : "cloud-tenant-deleted-sub-id",
+      "expect" : "accept"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f706b692e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e77656e64792e73685c2f7365636576656e745c2f74656e616e742d64656c65746564223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a2274656e616e745f707572676564227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f73797374656d222c226a7469223a226a74692d66697865642d31222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a5c2f5c2f77656e64792e73685c2f74656e616e745c2f31323334353637382d313233342d313233342d313233342d313233343536373839616263227d2c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/pki.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.wendy.sh\\\/secevent\\\/tenant-deleted\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"tenant_purged\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/system\",\"jti\":\"jti-fixed-1\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe:\\\/\\\/wendy.sh\\\/tenant\\\/12345678-1234-1234-1234-123456789abc\"},\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/pki.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.wendy.sh\/secevent\/tenant-deleted",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/system",
+        "jti" : "jti-fixed-1",
+        "reason" : "tenant_purged",
+        "sub_id_uri" : "spiffe:\/\/wendy.sh\/tenant\/12345678-1234-1234-1234-123456789abc"
+      },
+      "name" : "pki-tenant-deleted-sub-id",
+      "expect" : "accept"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f636c6f75642e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e77656e64792e73685c2f7365636576656e745c2f74656e616e742d64656c65746564223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a2274656e616e745f707572676564227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c226a7469223a226a74692d66697865642d31222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a5c2f5c2f77656e64792e73685c2f74656e616e745c2f31323334353637382d313233342d313233342d313233342d313233343536373839616263227d2c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/cloud.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.wendy.sh\\\/secevent\\\/tenant-deleted\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"tenant_purged\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"jti\":\"jti-fixed-1\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe:\\\/\\\/wendy.sh\\\/tenant\\\/12345678-1234-1234-1234-123456789abc\"},\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/cloud.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.wendy.sh\/secevent\/tenant-deleted",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/acme",
+        "jti" : "jti-fixed-1",
+        "reason" : "tenant_purged",
+        "sub_id_uri" : "spiffe:\/\/wendy.sh\/tenant\/12345678-1234-1234-1234-123456789abc"
+      },
+      "name" : "cloud-tenant-deleted-wrong-issuer-reject",
+      "expect" : "reject",
+      "reject_reason" : "tenant-lifecycle event-type requires iss=system realm; a tenant realm may not emit tenant-deleted"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f706b692e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e6f70656e69642e6e65745c2f7365636576656e745c2f726973635c2f6576656e742d747970655c2f6163636f756e742d707572676564223a7b226576656e745f74696d657374616d70223a313735333030303030302c22726561736f6e5f61646d696e223a7b22656e223a226d656d6265725f72656d6f766564227d2c227375626a656374223a7b22666f726d6174223a226973735f737562222c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f61636d65222c22737562223a227376632d31227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f73797374656d222c226a7469223a226a74692d66697865642d31222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a5c2f5c2f77656e64792e73685c2f74656e616e745c2f31323334353637382d313233342d313233342d313233342d3132333435363738396162635c2f736572766963655c2f7376632d31227d2c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/pki.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.openid.net\\\/secevent\\\/risc\\\/event-type\\\/account-purged\":{\"event_timestamp\":1753000000,\"reason_admin\":{\"en\":\"member_removed\"},\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/acme\",\"sub\":\"svc-1\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/system\",\"jti\":\"jti-fixed-1\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe:\\\/\\\/wendy.sh\\\/tenant\\\/12345678-1234-1234-1234-123456789abc\\\/service\\\/svc-1\"},\"txn\":\"jti-fixed-1\"}",
+      "inputs" : {
+        "audience" : "https:\/\/pki.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.openid.net\/secevent\/risc\/event-type\/account-purged",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/system",
+        "jti" : "jti-fixed-1",
+        "reason" : "member_removed",
+        "sub_id_uri" : "spiffe:\/\/wendy.sh\/tenant\/12345678-1234-1234-1234-123456789abc\/service\/svc-1",
+        "subject" : "svc-1"
+      },
+      "name" : "pki-account-purged-system-issuer-reject",
+      "expect" : "reject",
+      "reject_reason" : "system-realm issuer is authorized ONLY for tenant-lifecycle event-types; principal events must be signed by the subject's own realm"
     }
   ],
   "version" : "set-vectors-v1"

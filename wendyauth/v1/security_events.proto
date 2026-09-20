@@ -11,6 +11,21 @@ service SecurityEventService {
   // The SET rides in Envelope.signed_artifact { kind:"set+jwt", value:<compact JWS> }.
   // Receiver MUST: verify the JWS against the realm JWKS (iss->realm), enforce aud==self,
   // dedup on the SET jti, dispatch on the 'events' claim, and act REVOKE-ONLY.
+  //
+  // Tenant-lifecycle carve-out (event-type https://schemas.wendy.sh/secevent/tenant-deleted):
+  // these SETs are realm-scoped, not principal-scoped, and MUST be signed by the `system`
+  // realm (iss = .../realms/system) — the tenant realm's keys are gone post-purge, so its
+  // JWKS can never resolve. Receiver MUST, for this event-type ONLY: accept iss = system
+  // realm, and NOT gate on subject-realm == issuer (the sub_id tenant belongs to the
+  // deleted realm, not the system issuer). The subject is the top-level
+  // sub_id {format:"uri", uri:"spiffe://wendy.sh/tenant/<tenant_uuid>"}; there is no
+  // per-event iss_sub subject. The binding is bidirectional: tenant-lifecycle types
+  // REQUIRE iss = system (reject a tenant-realm-signed tenant-deleted), and a system
+  // issuer is rejected for any non-tenant-lifecycle (principal) event. This SET alone
+  // authorizes the receiver's tenant offboard — there is no operator signature in this
+  // path (AAA §5.9: wendy-auth initiates, cloud/pki-core are notified-only). See
+  // conformance/set/README.md. All other event-types keep the iss->realm and
+  // subject-realm==issuer rules unchanged.
   rpc PushSecurityEvent(Envelope) returns (PushSecurityEventAck);
 }
 
