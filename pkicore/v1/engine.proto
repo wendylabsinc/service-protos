@@ -452,6 +452,15 @@ enum CARole {
   CA_ROLE_CUSTOMER_INTERMEDIATE = 5; // "customer_intermediate"
   CA_ROLE_CODE_SIGNING_CA       = 6; // "code_signing_ca"
   CA_ROLE_TSA                   = 7; // "tsa"
+
+  // Code-signing markers (WDY-3151 item 9), appended out of tier order to keep
+  // the numbers above wire-stable. The platform Code-Signing Active CA and the
+  // per-tenant Code-Signing CA carried no ca_role and were told apart only by
+  // their label suffixes until pki-core began stamping ca_role at creation and
+  // backfilled pre-existing rows. CA_ROLE_CODE_SIGNING_ACTIVE is platform-tier
+  // (tenant="system"); CA_ROLE_TENANT_CODE_SIGNING is tenant-tier.
+  CA_ROLE_TENANT_CODE_SIGNING = 8; // "tenant_code_signing"
+  CA_ROLE_CODE_SIGNING_ACTIVE = 9; // "code_signing_active"
 }
 
 message CAInfo {
