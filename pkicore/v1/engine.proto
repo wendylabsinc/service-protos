@@ -98,6 +98,22 @@ service CAEngine {
   // it only ever removes a principal's ability to renew, never grants.
   rpc RecordPrincipalDisable(RecordPrincipalDisableRequest)                       returns (RecordPrincipalDisableResponse);
 
+  // SSF/CAEP tenant-lifecycle receiver relay (AAA contract §5.9/§6, WDY-3177).
+  // Realm-scoped sibling of RecordPrincipalDisable, for the tenant-deleted event.
+  // The private-only fabric frontend verifies an inbound wendyauth.v1
+  // tenant-deleted SET — issued by the SYSTEM realm (iss=.../realms/system),
+  // subject a bare tenant URI spiffe://wendy.sh/tenant/<uuid> — against the
+  // system-realm JWKS, then relays the already-verified fact to the key-holding
+  // engine over the internal hop via this RPC (a fabric-surface / SurfaceFabric
+  // engine-internal call, never operator-facing, like the SSF relays above).
+  // The system-signed SET is the SOLE authority: there is no operator signature,
+  // so this path does NOT run the operator-signed OffboardTenant management gate.
+  // The engine idempotently offboards the tenant (keyed on the SET jti) via the
+  // existing OffboardTenant semantics — revoke the tenant's CAs, mark it
+  // offboarded, retain audit rows (WDY-3177 v1: delete nothing). Fail-safe /
+  // revoke-only. The raw SET is never relayed, persisted, or logged.
+  rpc RecordTenantDeleted(RecordTenantDeletedRequest)                             returns (RecordTenantDeletedResponse);
+
   // Enrollment-token revoke relay (AAA contract §5.4, W18). The private-only
   // fabric frontend verifies an inbound cloud-origin token-revoke security-event
   // token (cloud KMS signer — a distinct trust domain from the realm-signed
@@ -860,6 +876,20 @@ message RecordPrincipalDisableRequest {
   int64  set_exp_unix  = 5; // the SET exp (unix seconds) — bounds the replay-cache row TTL
 }
 message RecordPrincipalDisableResponse {}
+
+// RecordTenantDeletedRequest carries the fact extracted from a verified
+// system-realm-signed wendyauth.v1 tenant-deleted SET by the fabric frontend
+// (WDY-3177). It is the realm-scoped sibling of RecordPrincipalDisableRequest:
+// the subject is the tenant itself (SET sub_id spiffe://wendy.sh/tenant/<uuid>),
+// so the target tenant arrives as tenant_id and there is no principal_uri or
+// event_type. The token itself (the raw SET) is NEVER relayed to the engine —
+// only this extracted fact — and is never persisted or logged (secret-free).
+message RecordTenantDeletedRequest {
+  string tenant_id    = 1; // injected from gRPC metadata x-tenant-id (the deleted tenant, from the verified SET sub_id)
+  string source_jti   = 2; // the SET jti — idempotency key for the replay cache
+  int64  set_exp_unix = 3; // the SET exp (unix seconds) — bounds the replay-cache row TTL
+}
+message RecordTenantDeletedResponse {}
 
 // RecordEnrollmentTokenRevokeRequest carries the fact extracted from a verified
 // cloud-origin token-revoke security-event token by the fabric frontend. The
