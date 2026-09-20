@@ -23,6 +23,9 @@ Each `vectors[]` entry:
   (Foundation `JSONSerialization .sortedKeys`; note forward slashes are escaped as
   `\/`, which is valid JSON and canonical for THESE bytes). Receivers verify the
   signed bytes as-is — do not re-serialize and compare structurally.
+- `expect` (optional) — `accept` or `reject` for the receiver's verification gate.
+  Absent ⇒ `accept` (the v1 payload-determinism vectors). `reject_reason` accompanies
+  a `reject`. Used by the tenant-lifecycle rule (see below).
 
 ## Wire contract pinned by these vectors
 
@@ -47,6 +50,66 @@ Each `vectors[]` entry:
     with `<kind>` ∈ {`operator`, `service`} — byte-matching the SAN pki-core mints
     via `spiffeid.BuildTenantURI`.
 
+## Tenant-lifecycle events (WDY-3177)
+
+Event-type `https://schemas.wendy.sh/secevent/tenant-deleted` — the **first
+Wendy-minted (non-standard) SSF event type**; no RISC/CAEP type fits tenant
+deletion. Signals that a tenant/realm was purged in wendy-auth so cloud and
+pki-core run offboarding. Fan-out = **[cloud, pki-core]** (both are direct
+receivers, one aud-specific vector each).
+
+These are the **first realm-scoped SETs** (subject is the tenant, not a
+principal). Shape difference from principal events:
+
+- **Issuer = the `system` realm** (`iss = https://auth.wendy.sh/realms/system`),
+  NOT the tenant realm. The purge deletes the tenant realm's signing keys, so a
+  receiver fetching that realm's JWKS post-purge (async delivery may arrive after
+  purge) could never verify — the system realm's JWKS persists (it is mechanically
+  undeletable). Signed at emit time with the system-realm key.
+- **Subject = top-level `sub_id: {format:"uri", uri:"spiffe://wendy.sh/tenant/<tenant_uuid>"}`**
+  — the tenant URI with no `<kind>/<sub>` suffix (realm-scoped truncation of the
+  principal SPIFFE form). There is **no per-event `iss_sub` subject** (no principal).
+  `<tenant_uuid>` is the stable/global UUID (== cloud `organizations.id` since
+  WDY-2808), never the reclaimable slug.
+- Event body carries only `event_timestamp` and `reason_admin`.
+
+### Receiver verification rule (tenant-lifecycle only)
+
+**Net gate — the cross-realm exemption is bidirectional, not a one-way relaxation.**
+The exemption alone would let *any* tenant realm emit a `tenant-deleted` for another
+tenant, or let the system realm act on a principal event. So the rule is an
+`iss ⇔ event-type` binding, verified in both directions:
+
+- **`iss == system` AND event-type ∈ {tenant-lifecycle}** → accept. For this class
+  ONLY: verify the JWS against the **system realm** JWKS, and **do NOT** gate on
+  subject-realm == issuer (the `sub_id` tenant belongs to the purged realm, not the
+  system issuer). Then map `sub_id` `<tenant_uuid>` → the receiver's own tenant/org
+  record and run **tenant offboarding** (cloud: org offboard; pki-core:
+  `OffboardTenant`), idempotent on the SET `jti`; ack `accepted=true` on already-seen
+  or unknown/never-provisioned tenant.
+- **tenant-lifecycle event-type REQUIRES `iss == system`** → a `tenant-deleted`
+  signed by a *tenant* realm MUST be **rejected**. (A tenant realm cannot delete
+  itself or another tenant via this channel.)
+- **`iss == system` with a principal/subject event-type** → **rejected**. The system
+  realm's authority is scoped to tenant-lifecycle types only.
+- **all other (principal/subject) event-types** stay realm-bound: issuer MUST equal
+  the subject's realm (`iss->realm`), exactly as before.
+
+The `expect` field on each vector pins this: `accept` / `reject` (absent ⇒ `accept`,
+for the v1 payload-determinism vectors); `reject_reason` states why. Pinned cases:
+
+| vector | iss | event-type | expect |
+|---|---|---|---|
+| `{cloud,pki}-tenant-deleted-sub-id` | system | tenant-deleted | accept |
+| `cloud-tenant-deleted-wrong-issuer-reject` | tenant realm | tenant-deleted | reject |
+| `pki-account-purged-system-issuer-reject` | system | account-purged (principal) | reject |
+
+**Receiver authority.** The system-signed SET is the **sole authority** for the
+offboard — there is no operator signature in this path (the cloud-initiated
+`DeleteOrganization` is retired; wendy-auth is the initiator, cloud/pki-core are
+notified-only per AAA §5.9). pki-core offboards directly on its own SET copy, no
+cloud in the loop (wendy-self-hosted no-SaaS-dependency rule).
+
 ## Coverage (v1)
 
 | name | what it pins |
@@ -57,6 +120,10 @@ Each `vectors[]` entry:
 | `cloud-account-disabled-iss-sub` | RISC account-disabled as cloud sees it |
 | `pki-account-disabled-operator-sub-id` | RISC account-disabled, top-level SPIFFE sub_id, kind `operator` |
 | `pki-account-purged-service-sub-id` | RISC account-purged, kind `service` |
+| `cloud-tenant-deleted-sub-id` | tenant-deleted, system-realm iss, tenant sub_id, cloud aud (accept) |
+| `pki-tenant-deleted-sub-id` | tenant-deleted, system-realm iss, tenant sub_id, pki aud (accept) |
+| `cloud-tenant-deleted-wrong-issuer-reject` | tenant-deleted signed by a tenant realm — MUST reject |
+| `pki-account-purged-system-issuer-reject` | principal event signed by system realm — MUST reject |
 
 ## Notes / limitations
 
