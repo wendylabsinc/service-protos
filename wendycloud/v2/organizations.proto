@@ -9,7 +9,12 @@ service OrganizationService {
   rpc GetOrganization(GetOrganizationRequest) returns (Organization);
   rpc UpdateOrganization(UpdateOrganizationRequest) returns (Organization);
   rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
-  rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse);
+  // Legacy server-streamed offset pagination. New clients use ListOrganizationsV2.
+  rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse) {
+    option deprecated = true;
+  }
+  // Stable, canonical-ID-relative traversal for durable organization clients.
+  rpc ListOrganizationsV2(ListOrganizationsV2Request) returns (ListOrganizationsV2Response);
 
   rpc AddMember(AddMemberRequest) returns (OrganizationMember);
   rpc AddMembersByEmails(AddMembersByEmailsRequest) returns (AddMembersByEmailsResponse);
@@ -48,6 +53,13 @@ message OrganizationMember {
   google.protobuf.Timestamp updated_at = 6;
 }
 
+// An organization together with the authenticated caller's explicit membership.
+// V2 discovery is membership-scoped, so member is always present.
+message OrganizationAccess {
+  Organization organization = 1;
+  OrganizationMember member = 2;
+}
+
 message CreateOrganizationRequest {
   string name = 1;
   string details = 2;
@@ -75,6 +87,8 @@ message DeleteOrganizationResponse {
 }
 
 message ListOrganizationsRequest {
+  option deprecated = true;
+
   optional int32 offset = 1;
   optional int32 limit = 2;
   // Free-text search over organization name and domain, case-insensitive
@@ -85,8 +99,31 @@ message ListOrganizationsRequest {
 }
 
 message ListOrganizationsResponse {
+  option deprecated = true;
+
   Organization organization = 1;
   int32 total = 2;
+}
+
+message ListOrganizationsV2Request {
+  // Return organizations with canonical UUIDs lower than this anchor. Continue
+  // the initial highest-ID-first traversal using the final ID from each page.
+  optional string before_organization_id = 1;
+  // Return organizations with canonical UUIDs higher than this anchor. before
+  // and after are mutually exclusive.
+  optional string after_organization_id = 2;
+  // Required. The server accepts values from 1 through 200.
+  int32 limit = 3;
+  // Case-insensitive substring match over organization name and domain. Clients
+  // retain the same query while traversing pages.
+  optional string query = 4;
+}
+
+message ListOrganizationsV2Response {
+  // Always ordered by canonical organization UUID descending.
+  repeated OrganizationAccess organization_accesses = 1;
+  // Whether more organizations exist in the requested traversal direction.
+  bool more_available = 2;
 }
 
 message AddMemberRequest {
