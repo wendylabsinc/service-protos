@@ -30,3 +30,9 @@ lint:
 breaking:
   use:
     - FILE
+  ignore_only:
+    FILE_NO_DELETE:
+      # wendycloud/v2/org_teams.proto: cloud retired its own groups (WDY-3294);
+      # groups live in wendy-auth. No other consumer. v1 org_teams.proto stays
+      # (legacy prod contract). Drop this entry once master no longer has the file.
+      - wendycloud/v2/org_teams.proto
