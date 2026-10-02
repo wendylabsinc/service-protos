@@ -19,7 +19,11 @@ service OrganizationService {
   rpc TransferOwnership(TransferOwnershipRequest) returns (TransferOwnershipResponse);
 }
 
+// Deprecated: assign roles by role_id (RoleService). Kept until WDY-3351
+// drops the enum.
 enum OrganizationRole {
+  option deprecated = true;
+
   ORGANIZATION_ROLE_UNSPECIFIED = 0;
   ORGANIZATION_ROLE_OWNER = 1;
   ORGANIZATION_ROLE_ADMIN = 2;
@@ -43,9 +47,12 @@ message OrganizationMember {
   string id = 1;
   string organization_id = 2;
   string user_id = 3;
-  OrganizationRole role = 4;
+  // Mirrors role_id for built-in roles; UNSPECIFIED for a tenant role.
+  OrganizationRole role = 4 [deprecated = true];
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp updated_at = 6;
+  // Always set by the server.
+  string role_id = 7;
 }
 
 message CreateOrganizationRequest {
@@ -92,13 +99,17 @@ message ListOrganizationsResponse {
 message AddMemberRequest {
   string organization_id = 1;
   string user_id = 2;
-  OrganizationRole role = 3;
+  OrganizationRole role = 3 [deprecated = true];
+  // Wins over role when set.
+  optional string role_id = 4;
 }
 
 message UpdateMemberRoleRequest {
   string user_id = 1;
   string organization_id = 2;
-  OrganizationRole role = 3;
+  OrganizationRole role = 3 [deprecated = true];
+  // Wins over role when set.
+  optional string role_id = 4;
 }
 
 message RemoveMemberRequest {
@@ -120,7 +131,9 @@ message ListMembersResponse {
 
 message EmailWithRole {
   string email = 1;
-  OrganizationRole role = 2;
+  OrganizationRole role = 2 [deprecated = true];
+  // Wins over role when set.
+  optional string role_id = 3;
 }
 
 message AddMembersByEmailsRequest {
