@@ -30,3 +30,10 @@ lint:
 breaking:
   use:
     - FILE
+  ignore_only:
+    FILE_NO_DELETE:
+      # wendycloud/v2/oauth.proto: OAuthService generated client secrets it never
+      # stored or verified; no caller (WDY-3365). Machine credentials are
+      # wendy-auth service accounts. v1 oauth.proto stays (legacy prod contract).
+      # Drop this entry once master no longer has the file.
+      - wendycloud/v2/oauth.proto
