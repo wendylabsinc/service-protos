@@ -112,24 +112,28 @@ cloud in the loop (wendy-self-hosted no-SaaS-dependency rule).
 
 ## Certificate-revoked events (WDY-3409)
 
-Event-type `https://schemas.wendy.sh/secevent/certificate-revoked`, the second
-Wendy-minted type. It is not CAEP `credential-change`: cloud already receives that
-from wendy-auth for realm credentials, and a distinct URI keeps the two issuers
-apart at dispatch. **Transmitter = pki-core**, not wendy-auth.
+Event-type CAEP `https://schemas.openid.net/secevent/caep/event-type/credential-change`
+with `credential_type: "x509"`, `change_type: "revoke"`. **Transmitter = pki-core**,
+not wendy-auth. Cloud already receives `credential-change` from wendy-auth for realm
+credentials; the issuer and `credential_type` keep the two apart at dispatch.
 
-- **Issuer** `https://pki.wendy.sh`. Signed ML-DSA-65 with a pki-core key; pki-core
-  publishes the JWKS (key and endpoint land with WDY-3410). The binding is
-  bidirectional, like tenant-lifecycle: this event-type REQUIRES `iss == pki-core`,
-  and a pki-core issuer is rejected for any other event-type.
-- **Audience** cloud `https://cloud.wendy.sh/fabric/ssf`. wendy-auth and devices join
-  when they have a receiver (WDY-3403); each gets its own aud-specific SET.
+- **Issuer** = pki-core's public hostname per env: dev `https://dev.pki.wendy.sh`,
+  prod `https://pki.wendy.dev`. pki-core publishes the JWKS on that host.
+- **Signing key** = a dedicated ML-DSA-65 event-signing key, never a CA key.
+- **Binding** is bidirectional, like tenant-lifecycle: an x509 `credential-change`
+  REQUIRES `iss == pki-core`, and a pki-core issuer is rejected for any other
+  event-type or `credential_type`. Realm SETs keep the `iss->realm` rule.
+- **Audience** cloud `https://cloud.wendy.sh/fabric/ssf`, the same cloud fabric aud
+  wendy-auth uses. wendy-auth and devices join when they have a receiver (WDY-3403);
+  each gets its own aud-specific SET.
 - **One SET per revoked serial.** A by-principal revoke of N leaves emits N SETs.
 - **Subject** top-level `sub_id: {format:"uri", uri:<leaf SPIFFE principal>}`; for a
   leaf with no SPIFFE SAN, the tenant URI `spiffe://wendy.sh/tenant/<tenant_uuid>`.
   No per-event `iss_sub` (pki-core holds no realm subject).
-- **Event body** `{event_timestamp, ca_id, x509_serial, reason}`: `ca_id` is the
-  issuing CA (as in `CertMetadata.ca_id`), `x509_serial` lowercase hex without
-  separators, `reason` the RFC 5280 reason code.
+- **Event body** `{event_timestamp, credential_type, change_type, ca_id, x509_serial,
+  reason}`: `x509_serial` is the CAEP claim, lowercase hex without separators;
+  `ca_id` (the issuing CA, as in `CertMetadata.ca_id`) and `reason` (the RFC 5280
+  reason code) are Wendy extension claims.
 - `exp = iat + 300`, as above. The SET is a notification; CRL/OCSP stay the
   revocation authority for relying parties.
 
