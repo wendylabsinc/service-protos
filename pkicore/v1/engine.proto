@@ -225,6 +225,19 @@ service CAEngine {
   rpc PickupOverDurationCertificate(PickupOverDurationCertificateRequest)     returns (PickupOverDurationCertificateResponse);
   rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
   rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
+  // Refuses a pending over-duration request before it expires (WDY-3409).
+  // Mints nothing and records nothing but the denial; the request moves to a
+  // terminal state and can no longer be approved or collected. Authority is
+  // the operator-signed management request (op "deny_over_duration") plus
+  // signed_rights; the transport grants nothing.
+  rpc DenyOverDurationIssuance(DenyOverDurationIssuanceRequest)               returns (DenyOverDurationIssuanceResponse);
+
+  // Revokes every live (unexpired, unrevoked) leaf whose SPIFFE principal is
+  // exactly `principal`, in the authenticated tenant only (WDY-3409). The
+  // operator-facing face of the cascade the SSF account-disabled/purged path
+  // already runs; the member stays a member. Authority is the operator-signed
+  // management request (op "revoke_principal") plus signed_rights.
+  rpc RevokeByPrincipal(RevokeByPrincipalRequest)                             returns (RevokeByPrincipalResponse);
 
   // Operator-authority status (WDY-2217). Answers "has this operator leaf's
   // authority been withdrawn?" from the revocation state pki-core ALREADY owns
@@ -283,6 +296,15 @@ message RevokeCertificateRequest {
   string ca_id  = 1;
   bytes  serial = 2;
   int32  reason = 3; // RFC 5280 reason code
+  // WDY-3409: the operator's management-request JWS (op "revoke_certificate"),
+  // relayed verbatim from Envelope.signed_artifact. The engine verifies it and
+  // takes ca_id/serial/reason and the single-use jti from its payload; the
+  // unsigned fields above must match. Empty on the admin path.
+  bytes signed_request = 4;
+  // WDY-3409: cloud-signed rights attestation ("cloud-rights+jws") that the
+  // signing operator holds pki:cert-revoke now. Same shape and verification as
+  // ApproveOverDurationIssuanceRequest.signed_rights.
+  bytes signed_rights = 5;
 }
 message RevokeCertificateResponse {}
 
@@ -304,7 +326,24 @@ message ListCertMetadataRequest {
   // enforces single-use of the signed request (empty on the admin path => no
   // replay check). Same posture as RotateCARequest.source_jti.
   string source_jti = 4;
+  // WDY-3409 filters; empty/UNSPECIFIED = no filter, all set filters AND.
+  // On the fabric they are read from the signed management request, like
+  // page_size/page_token.
+  string   principal     = 5; // exact SPIFFE URI SAN
+  string   status_filter = 6; // "active" | "revoked" | "expired" | "" (all)
+  CertType cert_type     = 7;
+  bytes    serial        = 8; // exact serial: a single-certificate read
 }
+
+// CertType is derived by pki-core from the leaf's SPIFFE principal kind
+// (WDY-3409). UNSPECIFIED = any other leaf (no SAN, code signing, TSA, ...).
+enum CertType {
+  CERT_TYPE_UNSPECIFIED = 0;
+  CERT_TYPE_OPERATOR    = 1;
+  CERT_TYPE_DEVICE      = 2;
+  CERT_TYPE_SERVICE     = 3;
+}
+
 message CertMetadata {
   bytes  serial      = 1;
   string principal   = 2; // SPIFFE URI SAN ("" when the leaf had none)
@@ -312,6 +351,12 @@ message CertMetadata {
   string expires_at  = 4; // RFC3339
   bytes  fingerprint = 5; // SHA-256 of the leaf DER
   int32  revoke_reason = 6; // RFC 5280; 0 and status!="revoked" ⇒ not revoked
+  // WDY-3409: inventory fields.
+  string   ca_id      = 7;  // issuing CA
+  string   profile    = 8;  // issuance profile name
+  string   issued_at  = 9;  // RFC3339
+  string   not_before = 10; // RFC3339, from the leaf
+  CertType cert_type  = 11;
 }
 message ListCertMetadataResponse {
   repeated CertMetadata items           = 1;
@@ -490,6 +535,12 @@ message CAInfo {
   string not_after   = 4;  // RFC3339
   bytes  certificate = 5; // DER
   CARole role        = 6;  // WDY-3144; UNSPECIFIED until pki-core populates it (hop 2)
+  // WDY-3409: revocation publishing status. Empty when the CA publishes no
+  // CRL (e.g. the offline root).
+  string crl_url         = 7; // e.g. https://crl.pki.wendy.dev/<ca_id>/crl.der
+  string crl_this_update = 8; // RFC3339, last full CRL publish
+  string crl_next_update = 9; // RFC3339, next scheduled full CRL publish
+  string ocsp_url        = 10;
 }
 message ListCAsResponse {
   repeated CAInfo cas = 1;
@@ -1158,6 +1209,34 @@ message ListPendingOverDurationRequestsResponse {
   repeated PendingOverDurationRequest requests = 1;
 }
 message GetPendingOverDurationRequestRequest { string id = 1; }
+
+message DenyOverDurationIssuanceRequest {
+  string pending_request_id = 1;
+  // Originating tier-3 management-request jti; single-use enforced.
+  string source_jti         = 2;
+  // Cloud-signed rights attestation that the signing operator holds
+  // pki:approve-over-duration now (denying is the approver's call). Same shape
+  // as ApproveOverDurationIssuanceRequest.signed_rights.
+  bytes  signed_rights      = 3;
+}
+message DenyOverDurationIssuanceResponse {}
+
+message RevokeByPrincipalRequest {
+  string tenant_id     = 1; // injected from gRPC metadata x-tenant-id
+  string principal     = 2; // SPIFFE URI; must belong to tenant_id
+  int32  reason        = 3; // RFC 5280 reason code, applied to every leaf
+  // The operator's management-request JWS (op "revoke_principal"), relayed
+  // verbatim from Envelope.signed_artifact. The engine verifies it and takes
+  // principal/reason and the single-use jti from its payload; the unsigned
+  // fields above must match.
+  bytes  signed_request = 4;
+  // Cloud-signed rights attestation that the signing operator holds
+  // pki:cert-revoke now. Same shape as RevokeCertificateRequest.signed_rights.
+  bytes  signed_rights  = 5;
+}
+message RevokeByPrincipalResponse {
+  int32 revoked_count = 1; // 0 is success: nothing live to revoke
+}
 message GetPendingOverDurationRequestResponse { PendingOverDurationRequest request = 1; }
 
 // --- Operator-authority status (WDY-2217) ---

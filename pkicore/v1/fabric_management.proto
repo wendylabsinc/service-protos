@@ -20,20 +20,38 @@ service FabricManagementService {
   rpc GetTenantPolicy(wendyauth.v1.Envelope)       returns (GetTenantPolicyResponse);
   rpc ListEABKeys(wendyauth.v1.Envelope)           returns (ListEABKeysResponse);      // payload = ListEABKeysRequest
   rpc ListEnrollmentTokens(wendyauth.v1.Envelope)  returns (ListEnrollmentTokensResponse); // payload = ListEnrollmentTokensRequest
-  rpc RevokeCertificate(wendyauth.v1.Envelope)     returns (RevokeCertificateResponse);// payload = RevokeCertificateRequest
   rpc RevokeEABKey(wendyauth.v1.Envelope)          returns (RevokeEABKeyResponse);     // payload = RevokeEABKeyRequest
   rpc RevokeEnrollmentToken(wendyauth.v1.Envelope) returns (RevokeEnrollmentTokenResponse); // payload = RevokeEnrollmentTokenRequest
   rpc RevokeCA(wendyauth.v1.Envelope)              returns (RevokeCAResponse);         // payload = RevokeCARequest
   rpc CreateTenant(wendyauth.v1.Envelope)          returns (CreateCustomerCAResponse); // payload = CreateCustomerCARequest (platform provisioning, no anchor at create time)
   rpc ValidateOperatorCertificate(wendyauth.v1.Envelope) returns (ValidateOperatorCertificateResponse); // payload = ValidateOperatorCertificateRequest
+  // WDY-3409: pending four-eyes requests of the envelope tenant, so an approver
+  // can see what to approve or deny. Tier 1 like ListEABKeys: a read that
+  // grants nothing. payload = ListPendingOverDurationRequestsRequest.
+  rpc ListPendingOverDurationRequests(wendyauth.v1.Envelope) returns (ListPendingOverDurationRequestsResponse);
 
   // -- tier 3: signed operator request (signed_artifact "management-request+jws") --
   rpc SetTenantPolicy(wendyauth.v1.Envelope)       returns (SetTenantPolicyResponse);
   rpc OffboardTenant(wendyauth.v1.Envelope)        returns (OffboardTenantResponse);
+  // payload = ListCertMetadataRequest. Paging and the WDY-3409 filters
+  // (principal, status_filter, cert_type, serial) are read from the signed
+  // request (op "list_cert_metadata"), never from the payload.
   rpc ListCertMetadata(wendyauth.v1.Envelope)      returns (ListCertMetadataResponse);
   rpc GetAuditLog(wendyauth.v1.Envelope)           returns (stream AuditLogEntry);
   rpc RotateCA(wendyauth.v1.Envelope)              returns (RotateCAResponse);        // payload = RotateCARequest
   rpc MigrateCA(wendyauth.v1.Envelope)             returns (MigrateCAResponse);       // payload = MigrateCARequest
+
+  // Revocation is a credential-class write (WDY-3409), so both revoke RPCs are
+  // tier 3 and also carry a cloud-signed rights attestation for pki:cert-revoke
+  // in the payload's signed_rights, verified like ApproveOverDurationIssuance's.
+  // Cloud sets only signed_rights in the payload; the edge copies the
+  // signed_artifact into signed_request. ca_id, serial, principal and reason
+  // are read from the signed request, never from the payload.
+  // RevokeCertificate was tier 1 until WDY-3409; pki-core enforces tier 3 from
+  // WDY-3410. Each revoked leaf emits the CAEP
+  // credential-change SET described in conformance/set/README.md.
+  rpc RevokeCertificate(wendyauth.v1.Envelope)     returns (RevokeCertificateResponse); // payload = RevokeCertificateRequest; op "revoke_certificate"
+  rpc RevokeByPrincipal(wendyauth.v1.Envelope)     returns (RevokeByPrincipalResponse); // payload = RevokeByPrincipalRequest; op "revoke_principal"
 
   // Over-duration issuance (four-eyes) over the fabric (WDY-2638). The operator
   // submits the request through cloud and collects the certificate at cloud;
@@ -49,6 +67,11 @@ service FabricManagementService {
   // pending request's hash. payload = OverDurationApprovalPayload;
   // signed_artifact = {kind:"over-duration-approval+jws", value:<approver JWS>}.
   rpc ApproveOverDurationIssuance(wendyauth.v1.Envelope) returns (OverDurationApprovalResponse);
+  // WDY-3409: refuses a pending request. Unlike approval it mints nothing, so it
+  // is an ordinary management request (op "deny_over_duration", no timestamp
+  // token) plus signed_rights for pki:approve-over-duration.
+  // payload = DenyOverDurationIssuanceRequest.
+  rpc DenyOverDurationIssuance(wendyauth.v1.Envelope) returns (DenyOverDurationIssuanceResponse);
 
   rpc GetCapabilities(GetCapabilitiesRequest)      returns (GetCapabilitiesResponse);  // reuse from fabric_relay.proto
 }
