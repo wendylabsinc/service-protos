@@ -110,6 +110,36 @@ offboard — there is no operator signature in this path (the cloud-initiated
 notified-only per AAA §5.9). pki-core offboards directly on its own SET copy, no
 cloud in the loop (wendy-self-hosted no-SaaS-dependency rule).
 
+## Certificate-revoked events (WDY-3409)
+
+Event-type CAEP `https://schemas.openid.net/secevent/caep/event-type/credential-change`
+with `credential_type: "x509"`, `change_type: "revoke"`. **Transmitter = pki-core**,
+not wendy-auth. Cloud already receives `credential-change` from wendy-auth for realm
+credentials; the issuer and `credential_type` keep the two apart at dispatch.
+
+- **Issuer** = pki-core's public hostname per env: dev `https://dev.pki.wendy.sh`,
+  prod `https://pki.wendy.dev`. pki-core publishes the JWKS on that host.
+- **Signing key** = a dedicated ML-DSA-65 event-signing key, never a CA key.
+- **Binding** is bidirectional, like tenant-lifecycle: an x509 `credential-change`
+  REQUIRES `iss == pki-core`, and a pki-core issuer is rejected for any other
+  event-type or `credential_type`. Realm SETs keep the `iss->realm` rule.
+- **Audience** cloud `https://cloud.wendy.sh/fabric/ssf`, the same cloud fabric aud
+  wendy-auth uses. wendy-auth and devices join when they have a receiver (WDY-3403);
+  each gets its own aud-specific SET.
+- **One SET per revoked serial.** A by-principal revoke of N leaves emits N SETs.
+- **Subject** top-level `sub_id: {format:"uri", uri:<leaf SPIFFE principal>}`; for a
+  leaf with no SPIFFE SAN, the tenant URI `spiffe://wendy.sh/tenant/<tenant_uuid>`.
+  No per-event `iss_sub` (pki-core holds no realm subject).
+- **Event body** `{event_timestamp, credential_type, change_type, ca_id, x509_serial,
+  reason}`: `x509_serial` is the CAEP claim, lowercase hex without separators;
+  `ca_id` (the issuing CA, as in `CertMetadata.ca_id`) and `reason` (the RFC 5280
+  reason code) are Wendy extension claims.
+- `exp = iat + 300`, as above. The SET is a notification; CRL/OCSP stay the
+  revocation authority for relying parties.
+
+Vectors for this type come from the producer (pki-core) with WDY-3410, the same way
+wendy-auth owns the payload bytes for its types.
+
 ## Coverage (v1)
 
 | name | what it pins |

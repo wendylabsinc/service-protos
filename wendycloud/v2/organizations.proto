@@ -15,6 +15,16 @@ service OrganizationService {
   rpc AddMembersByEmails(AddMembersByEmailsRequest) returns (AddMembersByEmailsResponse);
   rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (OrganizationMember);
   rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+  // Revokes all of a member's credentials and keeps the membership (WDY-3409):
+  // every live pki-core certificate of the member's operator principal
+  // (PKIAdminService.RevokePrincipalCertificates semantics) and every wendy-auth
+  // session and refresh token in the organization's realm (fabric
+  // ForceSignOut). Gate: `member:revoke-credentials`. Carries cloud's request
+  // signature and the operator's pki-core management request (op
+  // "revoke_principal"); cloud also attests `pki:cert-revoke`. Certificates are
+  // revoked first; on a later failure the call fails and a retry with a fresh
+  // management request completes it.
+  rpc RevokeAllCredentials(RevokeAllCredentialsRequest) returns (RevokeAllCredentialsResponse);
   rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
   rpc TransferOwnership(TransferOwnershipRequest) returns (TransferOwnershipResponse);
 }
@@ -120,6 +130,13 @@ message RemoveMemberRequest {
 message RemoveMemberResponse {
   bool success = 1;
 }
+
+message RevokeAllCredentialsRequest {
+  string organization_id = 1;
+  string user_id = 2;
+}
+
+message RevokeAllCredentialsResponse {}
 
 message ListMembersRequest {
   string organization_id = 1;

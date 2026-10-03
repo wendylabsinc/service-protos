@@ -4,7 +4,8 @@ package wendyauth.v1;
 import "wendyauth/v1/envelope.proto";  // Envelope, SignedArtifact
 
 // Fail-safe / revoke-only SSF/CAEP push channel (AAA contract §6).
-// Implemented by BOTH cloud and pki-core (receivers); wendy-auth is the sole transmitter.
+// Implemented by BOTH cloud and pki-core (receivers); wendy-auth is the transmitter, except
+// for the x509 credential-change (certificate revoked), which pki-core transmits to cloud (WDY-3409).
 // Proposed by wendy-auth (W4) — pending joint agreement with the cloud + pki-core
 // receiver teams before either wires it live.
 service SecurityEventService {
@@ -26,6 +27,12 @@ service SecurityEventService {
   // path (AAA §5.9: wendy-auth initiates, cloud/pki-core are notified-only). See
   // conformance/set/README.md. All other event-types keep the iss->realm and
   // subject-realm==issuer rules unchanged.
+  //
+  // Certificate revocation (WDY-3409) is CAEP credential-change with credential_type x509,
+  // change_type revoke, issued by pki-core (iss = pki-core's public host per env, verified
+  // against the JWKS published there), one SET per revoked serial, subject = leaf SPIFFE
+  // principal in sub_id. That issuer is valid for this event only, and an x509
+  // credential-change from any other issuer is rejected. See conformance/set/README.md.
   rpc PushSecurityEvent(Envelope) returns (PushSecurityEventAck);
 }
 
