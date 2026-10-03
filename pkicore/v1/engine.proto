@@ -312,6 +312,12 @@ message CertMetadata {
   string expires_at  = 4; // RFC3339
   bytes  fingerprint = 5; // SHA-256 of the leaf DER
   int32  revoke_reason = 6; // RFC 5280; 0 and status!="revoked" ⇒ not revoked
+  // Issuer-recorded purpose. "mcp" marks a delegated hosted MCP credential;
+  // empty means no purpose recorded, not proof of a human-held private key.
+  string credential_purpose = 7;
+  // Stable consent identifier across MCP certificate rotations. principal is
+  // the real enabling user's operator identity; fingerprint names this leaf.
+  string mcp_delegation_id = 8;
 }
 message ListCertMetadataResponse {
   repeated CertMetadata items           = 1;
