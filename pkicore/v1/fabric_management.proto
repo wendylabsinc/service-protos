@@ -69,7 +69,8 @@ service FabricManagementService {
   rpc ApproveOverDurationIssuance(wendyauth.v1.Envelope) returns (OverDurationApprovalResponse);
   // WDY-3409: refuses a pending request. Unlike approval it mints nothing, so it
   // is an ordinary management request (op "deny_over_duration", no timestamp
-  // token) plus signed_rights for pki:approve-over-duration.
+  // token) plus signed_rights for pki:approve-over-duration. pending_request_id
+  // is read from the signed request, never from the payload.
   // payload = DenyOverDurationIssuanceRequest.
   rpc DenyOverDurationIssuance(wendyauth.v1.Envelope) returns (DenyOverDurationIssuanceResponse);
 

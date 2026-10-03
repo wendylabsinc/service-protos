@@ -110,6 +110,32 @@ offboard — there is no operator signature in this path (the cloud-initiated
 notified-only per AAA §5.9). pki-core offboards directly on its own SET copy, no
 cloud in the loop (wendy-self-hosted no-SaaS-dependency rule).
 
+## Certificate-revoked events (WDY-3409)
+
+Event-type `https://schemas.wendy.sh/secevent/certificate-revoked`, the second
+Wendy-minted type. It is not CAEP `credential-change`: cloud already receives that
+from wendy-auth for realm credentials, and a distinct URI keeps the two issuers
+apart at dispatch. **Transmitter = pki-core**, not wendy-auth.
+
+- **Issuer** `https://pki.wendy.sh`. Signed ML-DSA-65 with a pki-core key; pki-core
+  publishes the JWKS (key and endpoint land with WDY-3410). The binding is
+  bidirectional, like tenant-lifecycle: this event-type REQUIRES `iss == pki-core`,
+  and a pki-core issuer is rejected for any other event-type.
+- **Audience** cloud `https://cloud.wendy.sh/fabric/ssf`. wendy-auth and devices join
+  when they have a receiver (WDY-3403); each gets its own aud-specific SET.
+- **One SET per revoked serial.** A by-principal revoke of N leaves emits N SETs.
+- **Subject** top-level `sub_id: {format:"uri", uri:<leaf SPIFFE principal>}`; for a
+  leaf with no SPIFFE SAN, the tenant URI `spiffe://wendy.sh/tenant/<tenant_uuid>`.
+  No per-event `iss_sub` (pki-core holds no realm subject).
+- **Event body** `{event_timestamp, ca_id, x509_serial, reason}`: `ca_id` is the
+  issuing CA (as in `CertMetadata.ca_id`), `x509_serial` lowercase hex without
+  separators, `reason` the RFC 5280 reason code.
+- `exp = iat + 300`, as above. The SET is a notification; CRL/OCSP stay the
+  revocation authority for relying parties.
+
+Vectors for this type come from the producer (pki-core) with WDY-3410, the same way
+wendy-auth owns the payload bytes for its types.
+
 ## Coverage (v1)
 
 | name | what it pins |
