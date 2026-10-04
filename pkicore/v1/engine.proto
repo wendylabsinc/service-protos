@@ -1105,7 +1105,7 @@ message RenewCertificateRequest {
   // can check). Required for a non-device (operator/service) renewal without a
   // grant; device lineages keep their attestation path (WDY-3437).
   // JWS Compact signed with presented_cert's key (alg per the key: ML-DSA-*,
-  // ES256/384/512, EdDSA), payload JSON:
+  // ES256, ES384, EdDSA), payload JSON:
   //   {"op":"renew","csr_sha256":"<base64url, no padding, SHA-256 of csr>",
   //    "jti":"<unique>","iat":<unix seconds>}
   // iat must be within the last 5 minutes (60s future skew); jti is single-use
