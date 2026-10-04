@@ -27,6 +27,8 @@ lint:
       # change that generated output, so the root path is load-bearing.
       - org_invites.proto
       - telemetry_query.proto
+      # Deprecated (WDY-2948); deleted outright by WDY-3423, never moved.
+      - personal_access_tokens.proto
 breaking:
   use:
     - FILE
