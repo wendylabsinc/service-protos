@@ -160,6 +160,94 @@
       "name" : "pki-account-purged-system-issuer-reject",
       "expect" : "reject",
       "reject_reason" : "system-realm issuer is authorized ONLY for tenant-lifecycle event-types; principal events must be signed by the subject's own realm"
+    },
+    {
+      "name" : "cloud-x509-revoke-spiffe-sub-id",
+      "producer" : "pki-core",
+      "inputs" : {
+        "audience" : "https://cloud.wendy.sh/fabric/ssf",
+        "ca_id" : "6c1e2a3b-4d5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "event_timestamp" : 1752999990,
+        "event_uri" : "https://schemas.openid.net/secevent/caep/event-type/credential-change",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https://pki.wendy.dev",
+        "jti" : "0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b",
+        "principal" : "spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1",
+        "reason" : 1,
+        "sub_id_uri" : "spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1",
+        "tenant_uuid" : "12345678-1234-1234-1234-123456789abc",
+        "x509_serial" : "018f3ac27b9e4410"
+      },
+      "canonical_payload_hex" : "7b22617564223a2268747470733a2f2f636c6f75642e77656e64792e73682f6661627269632f737366222c226576656e7473223a7b2268747470733a2f2f736368656d61732e6f70656e69642e6e65742f7365636576656e742f636165702f6576656e742d747970652f63726564656e7469616c2d6368616e6765223a7b2263615f6964223a2236633165326133622d346435662d346136622d386337642d396530663161326233633464222c226368616e67655f74797065223a227265766f6b65222c2263726564656e7469616c5f74797065223a2278353039222c226576656e745f74696d657374616d70223a313735323939393939302c22726561736f6e223a312c22783530395f73657269616c223a2230313866336163323762396534343130227d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a2f2f706b692e77656e64792e646576222c226a7469223a2230623666336432652d356131632d346538662d396237642d326334613665386630613162222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a2f2f77656e64792e73682f74656e616e742f31323334353637382d313233342d313233342d313233342d3132333435363738396162632f6f70657261746f722f752d31227d2c2274786e223a2230623666336432652d356131632d346538662d396237642d326334613665386630613162227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https://cloud.wendy.sh/fabric/ssf\",\"events\":{\"https://schemas.openid.net/secevent/caep/event-type/credential-change\":{\"ca_id\":\"6c1e2a3b-4d5f-4a6b-8c7d-9e0f1a2b3c4d\",\"change_type\":\"revoke\",\"credential_type\":\"x509\",\"event_timestamp\":1752999990,\"reason\":1,\"x509_serial\":\"018f3ac27b9e4410\"}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https://pki.wendy.dev\",\"jti\":\"0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1\"},\"txn\":\"0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b\"}"
+    },
+    {
+      "name" : "cloud-x509-revoke-tenant-sub-id",
+      "producer" : "pki-core",
+      "inputs" : {
+        "audience" : "https://cloud.wendy.sh/fabric/ssf",
+        "ca_id" : "6c1e2a3b-4d5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "event_timestamp" : 1752999990,
+        "event_uri" : "https://schemas.openid.net/secevent/caep/event-type/credential-change",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https://pki.wendy.dev",
+        "jti" : "0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b",
+        "principal" : "",
+        "reason" : 9,
+        "sub_id_uri" : "spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc",
+        "tenant_uuid" : "12345678-1234-1234-1234-123456789abc",
+        "x509_serial" : "018f3ac27b9e4410"
+      },
+      "canonical_payload_hex" : "7b22617564223a2268747470733a2f2f636c6f75642e77656e64792e73682f6661627269632f737366222c226576656e7473223a7b2268747470733a2f2f736368656d61732e6f70656e69642e6e65742f7365636576656e742f636165702f6576656e742d747970652f63726564656e7469616c2d6368616e6765223a7b2263615f6964223a2236633165326133622d346435662d346136622d386337642d396530663161326233633464222c226368616e67655f74797065223a227265766f6b65222c2263726564656e7469616c5f74797065223a2278353039222c226576656e745f74696d657374616d70223a313735323939393939302c22726561736f6e223a392c22783530395f73657269616c223a2230313866336163323762396534343130227d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a2f2f706b692e77656e64792e646576222c226a7469223a2230623666336432652d356131632d346538662d396237642d326334613665386630613162222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a2f2f77656e64792e73682f74656e616e742f31323334353637382d313233342d313233342d313233342d313233343536373839616263227d2c2274786e223a2230623666336432652d356131632d346538662d396237642d326334613665386630613162227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https://cloud.wendy.sh/fabric/ssf\",\"events\":{\"https://schemas.openid.net/secevent/caep/event-type/credential-change\":{\"ca_id\":\"6c1e2a3b-4d5f-4a6b-8c7d-9e0f1a2b3c4d\",\"change_type\":\"revoke\",\"credential_type\":\"x509\",\"event_timestamp\":1752999990,\"reason\":9,\"x509_serial\":\"018f3ac27b9e4410\"}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https://pki.wendy.dev\",\"jti\":\"0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc\"},\"txn\":\"0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b\"}"
+    },
+    {
+      "name" : "cloud-x509-revoke-realm-issuer-reject",
+      "producer" : "pki-core",
+      "inputs" : {
+        "audience" : "https://cloud.wendy.sh/fabric/ssf",
+        "ca_id" : "6c1e2a3b-4d5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "event_timestamp" : 1752999990,
+        "event_uri" : "https://schemas.openid.net/secevent/caep/event-type/credential-change",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https://auth.wendy.sh/realms/acme",
+        "jti" : "0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b",
+        "principal" : "spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1",
+        "reason" : 1,
+        "sub_id_uri" : "spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1",
+        "tenant_uuid" : "12345678-1234-1234-1234-123456789abc",
+        "x509_serial" : "018f3ac27b9e4410"
+      },
+      "canonical_payload_hex" : "7b22617564223a2268747470733a2f2f636c6f75642e77656e64792e73682f6661627269632f737366222c226576656e7473223a7b2268747470733a2f2f736368656d61732e6f70656e69642e6e65742f7365636576656e742f636165702f6576656e742d747970652f63726564656e7469616c2d6368616e6765223a7b2263615f6964223a2236633165326133622d346435662d346136622d386337642d396530663161326233633464222c226368616e67655f74797065223a227265766f6b65222c2263726564656e7469616c5f74797065223a2278353039222c226576656e745f74696d657374616d70223a313735323939393939302c22726561736f6e223a312c22783530395f73657269616c223a2230313866336163323762396534343130227d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a2f2f617574682e77656e64792e73682f7265616c6d732f61636d65222c226a7469223a2230623666336432652d356131632d346538662d396237642d326334613665386630613162222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a2f2f77656e64792e73682f74656e616e742f31323334353637382d313233342d313233342d313233342d3132333435363738396162632f6f70657261746f722f752d31227d2c2274786e223a2230623666336432652d356131632d346538662d396237642d326334613665386630613162227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https://cloud.wendy.sh/fabric/ssf\",\"events\":{\"https://schemas.openid.net/secevent/caep/event-type/credential-change\":{\"ca_id\":\"6c1e2a3b-4d5f-4a6b-8c7d-9e0f1a2b3c4d\",\"change_type\":\"revoke\",\"credential_type\":\"x509\",\"event_timestamp\":1752999990,\"reason\":1,\"x509_serial\":\"018f3ac27b9e4410\"}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https://auth.wendy.sh/realms/acme\",\"jti\":\"0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1\"},\"txn\":\"0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b\"}",
+      "expect" : "reject",
+      "reject_reason" : "x509 credential-change REQUIRES iss == pki-core; a realm issuer is rejected"
+    },
+    {
+      "name" : "cloud-pki-issuer-session-revoked-reject",
+      "producer" : "pki-core",
+      "inputs" : {
+        "audience" : "https://cloud.wendy.sh/fabric/ssf",
+        "ca_id" : "6c1e2a3b-4d5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "event_timestamp" : 1752999990,
+        "event_uri" : "https://schemas.openid.net/secevent/caep/event-type/session-revoked",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https://pki.wendy.dev",
+        "jti" : "0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b",
+        "principal" : "spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1",
+        "reason" : 1,
+        "sub_id_uri" : "spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1",
+        "tenant_uuid" : "12345678-1234-1234-1234-123456789abc",
+        "x509_serial" : "018f3ac27b9e4410"
+      },
+      "canonical_payload_hex" : "7b22617564223a2268747470733a2f2f636c6f75642e77656e64792e73682f6661627269632f737366222c226576656e7473223a7b2268747470733a2f2f736368656d61732e6f70656e69642e6e65742f7365636576656e742f636165702f6576656e742d747970652f73657373696f6e2d7265766f6b6564223a7b226576656e745f74696d657374616d70223a313735323939393939307d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a2f2f706b692e77656e64792e646576222c226a7469223a2230623666336432652d356131632d346538662d396237642d326334613665386630613162222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a2f2f77656e64792e73682f74656e616e742f31323334353637382d313233342d313233342d313233342d3132333435363738396162632f6f70657261746f722f752d31227d2c2274786e223a2230623666336432652d356131632d346538662d396237642d326334613665386630613162227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https://cloud.wendy.sh/fabric/ssf\",\"events\":{\"https://schemas.openid.net/secevent/caep/event-type/session-revoked\":{\"event_timestamp\":1752999990}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https://pki.wendy.dev\",\"jti\":\"0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe://wendy.sh/tenant/12345678-1234-1234-1234-123456789abc/operator/u-1\"},\"txn\":\"0b6f3d2e-5a1c-4e8f-9b7d-2c4a6e8f0a1b\"}",
+      "expect" : "reject",
+      "reject_reason" : "the pki-core issuer is valid only for x509 credential-change"
     }
   ],
   "version" : "set-vectors-v1"

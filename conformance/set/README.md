@@ -137,8 +137,18 @@ credentials; the issuer and `credential_type` keep the two apart at dispatch.
 - `exp = iat + 300`, as above. The SET is a notification; CRL/OCSP stay the
   revocation authority for relying parties.
 
+- **JWKS** at `<iss>/.well-known/ssf-jwks.json` (AKP keys, `alg: ML-DSA-65`). The SET
+  header is `{alg: "ML-DSA-65", kid, typ: "secevent+jwt"}`; unlike the realm SETs above,
+  this type is never ES256.
+- `jti` (== `txn`) is stable across delivery retries; each retry is re-signed with a fresh
+  `iat`/`exp`. Receivers dedup on `jti`.
+- `x509_serial` is the hex of the certificate serial's big-endian integer bytes (Go
+  `big.Int.Bytes()`), so it can start with `0`.
+
 Vectors for this type come from the producer (pki-core) with WDY-3410, the same way
-wendy-auth owns the payload bytes for its types.
+wendy-auth owns the payload bytes for its types. They carry `"producer": "pki-core"`.
+Their canonical bytes are Go `encoding/json` (sorted keys, compact, no HTML escaping), so
+forward slashes are **not** escaped. As above, verify the signed bytes as-is.
 
 ## Coverage (v1)
 
@@ -154,6 +164,10 @@ wendy-auth owns the payload bytes for its types.
 | `pki-tenant-deleted-sub-id` | tenant-deleted, system-realm iss, tenant sub_id, pki aud (accept) |
 | `cloud-tenant-deleted-wrong-issuer-reject` | tenant-deleted signed by a tenant realm — MUST reject |
 | `pki-account-purged-system-issuer-reject` | principal event signed by system realm — MUST reject |
+| `cloud-x509-revoke-spiffe-sub-id` | pki-core x509 credential-change, leaf SPIFFE sub_id, cloud aud (accept) |
+| `cloud-x509-revoke-tenant-sub-id` | same, leaf without a SPIFFE SAN: tenant URI sub_id (accept) |
+| `cloud-x509-revoke-realm-issuer-reject` | x509 credential-change from a realm issuer — MUST reject |
+| `cloud-pki-issuer-session-revoked-reject` | pki-core issuer on a non-x509 event — MUST reject |
 
 ## Notes / limitations
 
@@ -165,5 +179,8 @@ wendy-auth owns the payload bytes for its types.
 ## Regenerating
 
 wendy-auth: `WENDY_AUTH_GENERATE_SET_VECTORS=<out.json> swift test --filter SETVectorGeneration`
-(then verify determinism by generating twice and diffing). Regeneration is only
+(then verify determinism by generating twice and diffing).
+pki-core (the `producer: pki-core` vectors): `PKICORE_GENERATE_SET_VECTORS=<out.json> go test
+-run TestSETVectors_MatchServiceProtos ./internal/ca/`. Without the variable, that test checks
+pki-core's bytes against this file. Regeneration is only
 legitimate when the CONTRACT changes — receivers conform to the committed bytes.
