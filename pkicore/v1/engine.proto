@@ -1218,6 +1218,11 @@ message DenyOverDurationIssuanceRequest {
   // pki:approve-over-duration now (denying is the approver's call). Same shape
   // as ApproveOverDurationIssuanceRequest.signed_rights.
   bytes  signed_rights      = 3;
+  // WDY-3411: the operator's management-request JWS (op "deny_over_duration"),
+  // relayed verbatim from Envelope.signed_artifact. The engine verifies it and
+  // derives the denier's principal and source_jti from it; that principal is
+  // the subject signed_rights must attest. The unsigned fields above must match.
+  bytes  signed_request     = 4;
 }
 message DenyOverDurationIssuanceResponse {}
 
