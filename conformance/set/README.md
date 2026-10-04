@@ -45,10 +45,16 @@ Each `vectors[]` entry:
 - **Subject shape, per receiver:**
   - cloud-bound: per-event `subject: {format:"iss_sub", iss, sub}`, no top-level
     `sub_id`.
-  - pki-core-bound (RISC account-disabled/purged): additionally top-level
+  - pki-core-bound (RISC account-disabled/purged, CAEP session-revoked): additionally
+    top-level
     `sub_id: {format:"uri", uri:"spiffe://wendy.sh/tenant/<tenant_uuid>/<kind>/<sub>"}`
     with `<kind>` ∈ {`operator`, `service`} — byte-matching the SAN pki-core mints
     via `spiffeid.BuildTenantURI`.
+- **pki-core effect, per event-type:** account-disabled / account-purged disable the
+  principal and revoke its live certificates. session-revoked (WDY-3448) is **audit
+  only**: one `ssf.session_revoked` row, no disable, no revocation — a session revoke
+  is not a certificate revoke. All three are verified the same way (realm-bound
+  issuer, system realm rejected).
 
 ## Tenant-lifecycle events (WDY-3177)
 
@@ -160,6 +166,7 @@ forward slashes are **not** escaped. As above, verify the signed bytes as-is.
 | `cloud-account-disabled-iss-sub` | RISC account-disabled as cloud sees it |
 | `pki-account-disabled-operator-sub-id` | RISC account-disabled, top-level SPIFFE sub_id, kind `operator` |
 | `pki-account-purged-service-sub-id` | RISC account-purged, kind `service` |
+| `pki-session-revoked-operator-sub-id` | CAEP session-revoked, kind `operator`, pki aud (accept; audit only, no revoke) |
 | `cloud-tenant-deleted-sub-id` | tenant-deleted, system-realm iss, tenant sub_id, cloud aud (accept) |
 | `pki-tenant-deleted-sub-id` | tenant-deleted, system-realm iss, tenant sub_id, pki aud (accept) |
 | `cloud-tenant-deleted-wrong-issuer-reject` | tenant-deleted signed by a tenant realm — MUST reject |
