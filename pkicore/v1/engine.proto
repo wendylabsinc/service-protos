@@ -109,11 +109,14 @@ service CAEngine {
 
   // SSF/CAEP receiver relay (AAA contract §6). The private-only fabric frontend
   // verifies an inbound wendyauth.v1 security-event token (RISC
-  // account-disabled / account-purged) against the realm JWKS, then relays the
-  // already-verified fact to the key-holding engine over the internal hop via
-  // this RPC. The engine idempotently records the disabled principal (keyed on
-  // the SET jti) and drives the renewal-refusal gate. Fail-safe / revoke-only:
-  // it only ever removes a principal's ability to renew, never grants.
+  // account-disabled / account-purged, CAEP session-revoked) against the realm
+  // JWKS, then relays the already-verified fact to the key-holding engine over
+  // the internal hop via this RPC. For account-disabled / account-purged the
+  // engine idempotently records the disabled principal (keyed on the SET jti)
+  // and drives the renewal-refusal gate. session-revoked (WDY-3448) is audit
+  // only: one ssf.session_revoked row, no disable, no revocation. Any other
+  // event_type is refused. Fail-safe / revoke-only: it only ever removes a
+  // principal's ability to renew, never grants.
   rpc RecordPrincipalDisable(RecordPrincipalDisableRequest)                       returns (RecordPrincipalDisableResponse);
 
   // SSF/CAEP tenant-lifecycle receiver relay (AAA contract §5.9/§6, WDY-3177).
@@ -968,7 +971,7 @@ message RecordCodeSignDenialResponse {}
 message RecordPrincipalDisableRequest {
   string tenant_id     = 1; // injected from gRPC metadata x-tenant-id
   string principal_uri = 2; // SPIFFE URI of the disabled principal (authority: from the verified SET sub_id)
-  string event_type    = 3; // RISC short form: "account-disabled" | "account-purged"
+  string event_type    = 3; // short form: "account-disabled" | "account-purged" (RISC; disable) | "session-revoked" (CAEP; audit only, WDY-3448)
   string source_jti    = 4; // the SET jti — idempotency key for the replay cache
   int64  set_exp_unix  = 5; // the SET exp (unix seconds) — bounds the replay-cache row TTL
 }
