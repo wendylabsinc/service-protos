@@ -93,7 +93,9 @@ service FabricManagementService {
 // (no enumeration, no inventory — unlike ListCertMetadata, which stays
 // tier 3), and the verdict reveals nothing about the tenant beyond the one
 // artifact cloud transported. A compromised cloud gains no authority from a
-// read-only validity oracle.
+// read-only validity oracle. Asking by leaf_sha256 (WDY-3463) does not change
+// that: the thumbprint is only known to someone who has seen the leaf, and the
+// lookup is scoped to the envelope tenant.
 //
 // Request/response messages and verdict semantics live in engine.proto next
 // to CheckOperatorAuthority — this RPC is the fabric-facing face of the same

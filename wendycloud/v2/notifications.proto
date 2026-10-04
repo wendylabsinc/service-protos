@@ -20,6 +20,10 @@ service NotificationService {
   // User credentials and provisioned-device credentials are both supported.
   // notification_id is the caller-chosen resource UUID. Any reuse of its canonical UUID,
   // including an otherwise identical request, fails with ALREADY_EXISTS.
+  // A provisioned device is authenticated by its devices-mTLS leaf alone. The
+  // x-wendy-device-uri, x-wendy-device-certificate-serial,
+  // x-wendy-device-timestamp and x-wendy-device-signature proof headers are
+  // retired with no body replacement (WDY-3464).
   rpc CreateNotificationV2(CreateNotificationV2Request) returns (CreateNotificationV2Response);
   // Legacy server-streamed offset pagination.
   rpc ListNotifications(ListNotificationsRequest) returns (stream ListNotificationsResponse);

@@ -1342,7 +1342,14 @@ message ValidateOperatorCertificateRequest {
   // extraction, SHA-256 fingerprint — and the caller never parses X.509.
   // Presented intermediates are deliberately NOT accepted: pki-core validates
   // against the CA material it owns, not against what the requester supplied.
+  // Set exactly one of certificate and leaf_sha256.
   bytes certificate = 1;
+  // The leaf by reference (WDY-3463): base64url, unpadded, of SHA-256 over the
+  // leaf DER (the RFC 7515 x5t#S256 value; the `kid` of a SignedRequest JWS).
+  // pki-core looks the leaf up in the authenticated tenant's
+  // certificate_ledger rows and runs the same checks on the stored DER. No row
+  // in that tenant, including a leaf of another tenant, is "not_issued".
+  string leaf_sha256 = 2;
 }
 
 message ValidateOperatorCertificateResponse {
@@ -1374,4 +1381,7 @@ message ValidateOperatorCertificateResponse {
   // RFC3339 leaf NotAfter, set only when valid. Hard upper bound for any
   // caller-side caching of this verdict.
   string not_after = 4;
+  // The ledger's leaf DER, set only when valid and the request named the leaf
+  // by leaf_sha256: the caller needs its public key to verify the signature.
+  bytes certificate = 5;
 }

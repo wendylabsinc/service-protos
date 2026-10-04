@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package wendycloud.v2;
 
+import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+
 // SignedRequest is the input of every operator-signed RPC, the ones marked
 // `option (wendy.signed_request) = true` (WDY-3458). The signature travels in
 // the body, not in headers; headers carry only the bearer token and DPoP proof.
@@ -24,9 +27,37 @@ message SignedRequest {
   // Fully-qualified name of the payload's message, e.g.
   // "wendycloud.v2.CreateAssetRequest".
   string payload_type = 2;
-  // Compact JWS whose claims bind `payload` by body_sha256.
+  // Compact JWS whose claims bind `payload` by body_sha256. Its protected
+  // header names the operator leaf by exactly one of `x5c` (the leaf DER) or
+  // `kid` (base64url, unpadded, of SHA-256 over the leaf DER: the RFC 7515
+  // x5t#S256 value).
   bytes signature = 3;
   // pki-core tier-3 operations only: the operator's "management-request+jws",
   // relayed verbatim as the fabric Envelope signed_artifact.
   optional bytes pki_management_request = 4;
+}
+
+// OperatorSessionService lets a client check its operator leaf once at session
+// start before it signs by `kid` (WDY-3463).
+service OperatorSessionService {
+  // The call is signed with `x5c`; that leaf is the one registered. The broker
+  // validates it with pki-core, caches it under its kid, and returns the kid.
+  // A kid also resolves without this call (the broker asks pki-core on a cache
+  // miss), so registering only moves a rejected leaf's failure to session
+  // start. Gate: the caller is an operator of organization_id's tenant.
+  // Signed; payload_type "wendycloud.v2.RegisterOperatorLeafRequest".
+  rpc RegisterOperatorLeaf(SignedRequest) returns (RegisterOperatorLeafResponse) {
+    option (wendy.signed_request) = true;
+  }
+}
+
+message RegisterOperatorLeafRequest {
+  string organization_id = 1;
+}
+
+message RegisterOperatorLeafResponse {
+  // base64url, unpadded, of SHA-256 over the registered leaf DER.
+  string kid = 1;
+  // The leaf's NotAfter. A revocation ends the kid earlier.
+  google.protobuf.Timestamp expires_at = 2;
 }

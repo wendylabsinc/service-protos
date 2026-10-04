@@ -34,12 +34,16 @@ Responses are unchanged.
 - JWS Compact Serialization: three non-empty segments in canonical unpadded
   base64url. The signing input is the exact received `header.payload` bytes.
 - Protected header: `alg` (`ML-DSA-65`, `ML-DSA-87`, `ES256`, `ES384`, `EdDSA`;
-  never `none`; must match the leaf key) and `x5c` (one entry: the operator
-  **leaf**, standard-base64 DER). `crit` is rejected. `kid` is logged only and
-  grants nothing.
-- **Reserved for the follow-up:** `kid` = leaf thumbprint after a once-per-session
-  registration, with `x5c` then omitted. Not part of this round. Until it lands,
-  `x5c` is required.
+  never `none`; must match the leaf key) and exactly one signer reference.
+  `crit` is rejected.
+  - `x5c`: one entry, the operator **leaf**, standard-base64 DER.
+  - `kid` (WDY-3463): `base64url(SHA-256(leaf DER))`, unpadded, 43 characters:
+    the RFC 7515 `x5t#S256` value of the leaf. Saves the leaf's size on every
+    call.
+  - Both or neither is rejected.
+- `OperatorSessionService.RegisterOperatorLeaf` (signed with `x5c`) checks the
+  leaf once at session start and returns its `kid`. It is optional: the broker
+  resolves any `kid` through pki-core on a cache miss.
 
 ### Claims (JCS, RFC 8785)
 
@@ -60,8 +64,14 @@ needs a fresh nonce and a fresh management request.
 ### Verification (one generic gate, before the handler)
 
 1. Parse the JWS and check the size cap, `alg` and the absence of `crit`.
-2. Get pki-core's verdict on `x5c[0]` (fail closed). Check `alg` against the
-   leaf key family, then verify the signature.
+2. Get pki-core's verdict on the leaf (fail closed):
+   `ValidateOperatorCertificate` with `certificate = x5c[0]`, or with
+   `leaf_sha256 = kid`, which also returns the leaf DER. Check `alg` against the
+   leaf key family, then verify the signature. The broker may cache a valid
+   verdict by `kid`, for minutes and never past `not_after`. It drops every
+   cached leaf whose serial matches the `x509_serial` of a pki-core x509
+   `credential-change` SET (`conformance/set/README.md`). The serial is enough,
+   so the SET carries no `kid`. The per-call authority checks still run.
 3. Check the principal kind and the tenant (principal = `target.tenant` = the
    organization's tenant = the token's tenant).
 4. Check `operation`, `aud`, `iat`/`expiry`, `body_sha256` and `correlation_id`.
@@ -69,13 +79,26 @@ needs a fresh nonce and a fresh management request.
    message.
 6. Claim the nonce last, then call the handler with the decoded message.
 7. For tier-3 methods, `pki_management_request` is required, and its `x5c` leaf
-   must be byte-equal to the `signature` leaf. Cloud does not verify its
+   must be byte-equal to the `signature` leaf (the resolved one, for `kid`). Cloud does not verify its
    signature; it relays it byte for byte and pki-core verifies it.
 
 Every rejection is one generic `PERMISSION_DENIED`, and the reason is only
-logged. A method whose input is `SignedRequest` is always verified, whether or
-not it carries the option. Each consumer should test that the option and the
+logged. That includes an unknown, revoked or expired `kid`. A method whose
+input is `SignedRequest` is always verified, whether or not it carries the
+option. Each consumer should test that the option and the
 input type agree.
+
+### What is signed, by whom, how the key is referenced
+
+| artifact | signer | key reference | carried in |
+|---|---|---|---|
+| `SignedRequest.signature` | operator leaf | `x5c` or `kid` | request body |
+| `SignedRequest.pki_management_request` (tier-3) | the same operator leaf | `x5c`, byte-equal to the resolved signature leaf | request body |
+| enrollment, over-duration request/approval/pickup JWS | operator leaf | its own format, verified by pki-core | a field of the signed payload |
+| device-originated calls (`CreateNotificationV2`) | device | the devices-mTLS leaf; nothing signed per request | TLS. `x-wendy-device-{uri,certificate-serial,timestamp,signature}` are retired with no replacement (WDY-3464) |
+
+No signature travels in a header. `x-wendy-request-signature` and
+`x-wendy-pki-management-request` are retired too.
 
 ### Vectors: `signed-request-vectors-v1.json`
 
