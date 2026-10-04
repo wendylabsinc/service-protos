@@ -38,6 +38,11 @@ message AuthContext {
   string   oidc_token    = 4; // set when mode=SERVICE_OIDC
   string   token        = 5; // plaintext token; set when mode=BOOTSTRAP_TOKEN
   bytes    device_cert  = 6; // DER device cert; set when mode=DEVICE_CERT
+  // Renewal proof of possession, mode=DEVICE_CERT: same shape and rules as
+  // RenewCertificateRequest.possession_proof. Required by the engine when
+  // device_cert is a non-device (operator/service) leaf and no grant is
+  // presented.
+  bytes    possession_proof = 9;
   // 7 and 8 are reserved (previously OIDCContext / PlatformServiceContext,
   // used by the Plan 22 signing frontend that has since been removed).
   reserved 7, 8;
