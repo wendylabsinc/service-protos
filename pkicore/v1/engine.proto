@@ -1349,6 +1349,9 @@ message ValidateOperatorCertificateRequest {
   // pki-core looks the leaf up in the authenticated tenant's
   // certificate_ledger rows and runs the same checks on the stored DER. No row
   // in that tenant, including a leaf of another tenant, is "not_issued".
+  // A ledger row without a stored DER (an operator leaf minted before pki-core
+  // stored leaf DER) is the gRPC error FAILED_PRECONDITION "leaf not stored;
+  // present the certificate", not a verdict: ask again with certificate.
   string leaf_sha256 = 2;
 }
 

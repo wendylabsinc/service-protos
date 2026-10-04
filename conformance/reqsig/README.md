@@ -83,7 +83,12 @@ needs a fresh nonce and a fresh management request.
    signature; it relays it byte for byte and pki-core verifies it.
 
 Every rejection is one generic `PERMISSION_DENIED`, and the reason is only
-logged. That includes an unknown, revoked or expired `kid`. A method whose
+logged. That includes an unknown, revoked or expired `kid`. The one exception
+is a `kid` whose leaf pki-core has not stored (leaves minted before it stored
+leaf DER, up to ~24 h after that deploy): pki-core answers
+`FAILED_PRECONDITION` "leaf not stored; present the certificate", and the
+broker returns that status unchanged. The client retries the call once, signed
+with `x5c` (fresh nonce), and fails loudly if that is refused too. A method whose
 input is `SignedRequest` is always verified, whether or not it carries the
 option. Each consumer should test that the option and the
 input type agree.
@@ -92,7 +97,7 @@ input type agree.
 
 | artifact | signer | key reference | carried in |
 |---|---|---|---|
-| `SignedRequest.signature` | operator leaf | `x5c` or `kid` | request body |
+| `SignedRequest.signature` | operator leaf | `x5c` or `kid`; `kid` → `FAILED_PRECONDITION` "leaf not stored" means retry once with `x5c`, then fail loudly | request body |
 | `SignedRequest.pki_management_request` (tier-3) | the same operator leaf | `x5c`, byte-equal to the resolved signature leaf | request body |
 | enrollment, over-duration request/approval/pickup JWS | operator leaf | its own format, verified by pki-core | a field of the signed payload |
 | device-originated calls (`CreateNotificationV2`) | device | the devices-mTLS leaf; nothing signed per request | TLS. `x-wendy-device-{uri,certificate-serial,timestamp,signature}` are retired with no replacement (WDY-3464) |
