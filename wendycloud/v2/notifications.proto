@@ -4,12 +4,16 @@ package wendycloud.v2;
 
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
 import "wendycloud/v2/organizations.proto";
+import "wendycloud/v2/signed_request.proto";
 
 service NotificationService {
   // Legacy single-user creation API. Kept for existing dashboard and legacy clients.
   // MIGRATION(wendycloud.v2): Remove this RPC and request; see API_V2_MIGRATION.md.
-  rpc CreateNotification(CreateNotificationRequest) returns (Notification) {
+  // Signed; payload_type "wendycloud.v2.CreateNotificationRequest".
+  rpc CreateNotification(SignedRequest) returns (Notification) {
+    option (wendy.signed_request) = true;
     option deprecated = true;
   }
   // Creates per-user Notifications for the union of users, organization teams, and roles.

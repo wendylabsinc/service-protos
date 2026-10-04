@@ -29,10 +29,29 @@ lint:
       - telemetry_query.proto
       # Deprecated (WDY-2948); deleted outright by WDY-3423, never moved.
       - personal_access_tokens.proto
+    PACKAGE_VERSION_SUFFIX:
+      # Custom-option package: the option name `(wendy.signed_request)` is what
+      # every annotated RPC spells, so it stays unversioned (like google.api).
+      - wendy/options.proto
 breaking:
   use:
     - FILE
   ignore_only:
+    # WDY-3458: operator-signed RPCs now take wendycloud.v2.SignedRequest (the
+    # signature moved from headers into the body). One intentional break,
+    # shipped in a coordinated merge round. Drop this entry in a follow-up PR
+    # once this lands on master.
+    RPC_SAME_REQUEST_TYPE:
+      - wendycloud/v2/apps.proto
+      - wendycloud/v2/assets.proto
+      - wendycloud/v2/certificates.proto
+      - wendycloud/v2/deployments.proto
+      - wendycloud/v2/maps.proto
+      - wendycloud/v2/notifications.proto
+      - wendycloud/v2/org_teams.proto
+      - wendycloud/v2/organizations.proto
+      - wendycloud/v2/pki_admin.proto
+      - wendycloud/v2/roles.proto
     FILE_NO_DELETE:
       # wendycloud/v2/oauth.proto: OAuthService generated client secrets it never
       # stored or verified; no caller (WDY-3365). Machine credentials are

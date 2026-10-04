@@ -2,15 +2,26 @@ syntax = "proto3";
 
 package wendycloud.v2;
 
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
 
 service MapService {
   // Map CRUD
-  rpc CreateMap(CreateMapRequest) returns (Map);
+  // Signed; payload_type "wendycloud.v2.CreateMapRequest".
+  rpc CreateMap(SignedRequest) returns (Map) {
+    option (wendy.signed_request) = true;
+  }
   rpc GetMap(GetMapRequest) returns (Map);
-  rpc UpdateMap(UpdateMapRequest) returns (Map);
-  rpc DeleteMap(DeleteMapRequest) returns (DeleteMapResponse);
+  // Signed; payload_type "wendycloud.v2.UpdateMapRequest".
+  rpc UpdateMap(SignedRequest) returns (Map) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.DeleteMapRequest".
+  rpc DeleteMap(SignedRequest) returns (DeleteMapResponse) {
+    option (wendy.signed_request) = true;
+  }
   rpc ListMaps(ListMapsRequest) returns (stream ListMapsResponse);
 
   // Real-time subscriptions

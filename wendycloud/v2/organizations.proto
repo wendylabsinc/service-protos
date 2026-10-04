@@ -3,18 +3,35 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
 
 service OrganizationService {
   rpc CreateOrganization(CreateOrganizationRequest) returns (Organization);
   rpc GetOrganization(GetOrganizationRequest) returns (Organization);
-  rpc UpdateOrganization(UpdateOrganizationRequest) returns (Organization);
+  // Signed; payload_type "wendycloud.v2.UpdateOrganizationRequest".
+  rpc UpdateOrganization(SignedRequest) returns (Organization) {
+    option (wendy.signed_request) = true;
+  }
   rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
   rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse);
 
-  rpc AddMember(AddMemberRequest) returns (OrganizationMember);
-  rpc AddMembersByEmails(AddMembersByEmailsRequest) returns (AddMembersByEmailsResponse);
-  rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (OrganizationMember);
-  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+  // Signed; payload_type "wendycloud.v2.AddMemberRequest".
+  rpc AddMember(SignedRequest) returns (OrganizationMember) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.AddMembersByEmailsRequest".
+  rpc AddMembersByEmails(SignedRequest) returns (AddMembersByEmailsResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.UpdateMemberRoleRequest".
+  rpc UpdateMemberRole(SignedRequest) returns (OrganizationMember) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.RemoveMemberRequest".
+  rpc RemoveMember(SignedRequest) returns (RemoveMemberResponse) {
+    option (wendy.signed_request) = true;
+  }
   // Revokes all of a member's credentials and keeps the membership (WDY-3409):
   // every live pki-core certificate of the member's operator principal
   // (PKIAdminService.RevokePrincipalCertificates semantics) and every wendy-auth
@@ -24,9 +41,15 @@ service OrganizationService {
   // "revoke_principal"); cloud also attests `pki:cert-revoke`. Certificates are
   // revoked first; on a later failure the call fails and a retry with a fresh
   // management request completes it.
-  rpc RevokeAllCredentials(RevokeAllCredentialsRequest) returns (RevokeAllCredentialsResponse);
+  // Signed; payload_type "wendycloud.v2.RevokeAllCredentialsRequest".
+  rpc RevokeAllCredentials(SignedRequest) returns (RevokeAllCredentialsResponse) {
+    option (wendy.signed_request) = true;
+  }
   rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
-  rpc TransferOwnership(TransferOwnershipRequest) returns (TransferOwnershipResponse);
+  // Signed; payload_type "wendycloud.v2.TransferOwnershipRequest".
+  rpc TransferOwnership(SignedRequest) returns (TransferOwnershipResponse) {
+    option (wendy.signed_request) = true;
+  }
 }
 
 // Deprecated: assign roles by role_id (RoleService). Kept until WDY-3351

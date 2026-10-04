@@ -3,6 +3,8 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
 
 // Role definitions as data (WDY-3348). A role is a named set of catalog
 // permissions. Built-in roles are system-owned and read-only; a tenant clones
@@ -35,19 +37,31 @@ service RoleService {
   // Gate: `role:create`. PERMISSION_DENIED if any permission is outside the
   // ceiling or not held by the caller; INVALID_ARGUMENT for an unknown
   // permission; ALREADY_EXISTS if the name is taken in the organization.
-  rpc CreateRole(CreateRoleRequest) returns (Role);
+  // Signed; payload_type "wendycloud.v2.CreateRoleRequest".
+  rpc CreateRole(SignedRequest) returns (Role) {
+    option (wendy.signed_request) = true;
+  }
   // Copies the source role's description and permissions into a new tenant
   // role. The source may be built-in or tenant-owned. Gate: `role:create`.
   // Same errors as CreateRole; the whole clone is refused, never clipped.
-  rpc CloneRole(CloneRoleRequest) returns (Role);
+  // Signed; payload_type "wendycloud.v2.CloneRoleRequest".
+  rpc CloneRole(SignedRequest) returns (Role) {
+    option (wendy.signed_request) = true;
+  }
   // Full replace of name, description and permissions; last write wins.
   // Gate: `role:update`. PERMISSION_DENIED for a built-in role and under the
   // CreateRole rules; ALREADY_EXISTS on a name clash.
-  rpc UpdateRole(UpdateRoleRequest) returns (Role);
+  // Signed; payload_type "wendycloud.v2.UpdateRoleRequest".
+  rpc UpdateRole(SignedRequest) returns (Role) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `role:delete`. PERMISSION_DENIED for a built-in role.
   // FAILED_PRECONDITION while any member or group mapping is assigned the
   // role; the caller reassigns them first. There is no force flag.
-  rpc DeleteRole(DeleteRoleRequest) returns (DeleteRoleResponse);
+  // Signed; payload_type "wendycloud.v2.DeleteRoleRequest".
+  rpc DeleteRole(SignedRequest) returns (DeleteRoleResponse) {
+    option (wendy.signed_request) = true;
+  }
   // What one member effectively holds in the organization, after deny-wins and
   // the ceiling. Gate: `permission:read`, except a member may always read
   // their own.
