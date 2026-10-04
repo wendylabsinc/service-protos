@@ -66,6 +66,24 @@ service CAEngine {
   // verify during rotation.
   rpc GetTunnelAttestationJWKS(GetTunnelAttestationJWKSRequest) returns (GetTunnelAttestationJWKSResponse);
 
+  // Security event transmitter (WDY-3410): pki-core signs CAEP credential-change
+  // (x509 revoke) SETs; see conformance/set/README.md. Every leaf revocation writes
+  // a durable outbox row in the same transaction. The engine has no internet
+  // egress, so the fabric frontend drains the outbox and pushes to the receivers.
+  //
+  // GetSecurityEventJWKS returns the public halves of the dedicated ML-DSA-65 SET
+  // signing key(s) as a JWKS document. The codesign public frontend serves it at
+  // <issuer>/.well-known/ssf-jwks.json.
+  rpc GetSecurityEventJWKS(GetSecurityEventJWKSRequest) returns (GetSecurityEventJWKSResponse);
+  // ClaimSecurityEvents leases up to `limit` due outbox rows (lease = the row's
+  // next retry time) and returns each as a freshly signed SET: fresh iat/exp,
+  // stable jti. A crashed caller loses nothing; the lease runs out and the row is
+  // claimed again. Receivers dedup on jti.
+  rpc ClaimSecurityEvents(ClaimSecurityEventsRequest) returns (ClaimSecurityEventsResponse);
+  // AckSecurityEvent records one push outcome: delivered marks the row done, and
+  // anything else is audited and retried with capped backoff. Rows are never dropped.
+  rpc AckSecurityEvent(AckSecurityEventRequest) returns (AckSecurityEventResponse);
+
   // CA lifecycle (admin-API):
   rpc BootstrapPlatformCodeSigningRoot(BootstrapPlatformCodeSigningRootRequest)   returns (BootstrapPlatformCodeSigningRootResponse);
   rpc ProvisionPlatformCodeSigningActive(ProvisionPlatformCodeSigningActiveRequest) returns (ProvisionPlatformCodeSigningActiveResponse);
@@ -748,6 +766,30 @@ message GetTunnelAttestationJWKSRequest {}
 message GetTunnelAttestationJWKSResponse {
   bytes jwks = 1; // {"keys":[<AKP JWK>...]} — public keys only, served verbatim
 }
+
+message GetSecurityEventJWKSRequest {}
+message GetSecurityEventJWKSResponse {
+  bytes jwks = 1; // {"keys":[<AKP JWK>...]} — public keys only, served verbatim
+}
+
+message ClaimSecurityEventsRequest {
+  int32 limit = 1; // 1..100; 0 = server default
+}
+message ClaimedSecurityEvent {
+  string jti       = 1; // SET jti == outbox row id; use as Envelope.correlation_id
+  string tenant_id = 2; // Envelope.tenant
+  bytes  set_jws   = 3; // compact JWS, typ secevent+jwt -> Envelope.signed_artifact{kind:"set+jwt"}
+}
+message ClaimSecurityEventsResponse {
+  repeated ClaimedSecurityEvent events = 1;
+}
+
+message AckSecurityEventRequest {
+  string jti       = 1;
+  bool   delivered = 2; // true = the receiver acked (accepted, or already seen)
+  string error     = 3; // when !delivered: why (transport error, or receiver rejected)
+}
+message AckSecurityEventResponse {}
 
 message BootstrapPlatformCodeSigningRootRequest {
   string label              = 1;
