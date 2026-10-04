@@ -63,6 +63,10 @@ message OrganizationMember {
   google.protobuf.Timestamp updated_at = 6;
   // Always set by the server.
   string role_id = 7;
+  // The member's wendy-auth subject (`sub`) under this organization's realm issuer: the
+  // operator name in the member's SPIFFE ID, which a RevokeAllCredentials request names
+  // (WDY-3442). Empty when the member has no identity, or more than one, under that realm.
+  string subject = 8;
 }
 
 message CreateOrganizationRequest {
