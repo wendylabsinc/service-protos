@@ -788,6 +788,10 @@ message AckSecurityEventRequest {
   string jti       = 1;
   bool   delivered = 2; // true = the receiver acked (accepted, or already seen)
   string error     = 3; // when !delivered: why (transport error, or receiver rejected)
+  // when !delivered: the receiver verified the SET and refused it (accepted=false,
+  // or InvalidArgument). The engine stops a row after 5 of these (failed_permanent);
+  // anything else is transient and retried forever.
+  bool   permanent = 4;
 }
 message AckSecurityEventResponse {}
 
