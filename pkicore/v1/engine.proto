@@ -1102,12 +1102,14 @@ message RenewCertificateRequest {
   string correlation_id = 5;
   // Proof that the caller holds presented_cert's private key, which the engine
   // verifies itself (the frontend's mTLS handshake is not evidence the engine
-  // can check). Required for a non-device (operator/service) renewal without a
-  // grant; device lineages keep their attestation path (WDY-3437).
-  // JWS Compact signed with presented_cert's key (alg per the key: ML-DSA-*,
-  // ES256, ES384, EdDSA), payload JSON:
-  //   {"op":"renew","csr_sha256":"<base64url, no padding, SHA-256 of csr>",
-  //    "jti":"<unique>","iat":<unix seconds>}
+  // can check). Required for every non-device (operator/service) renewal,
+  // with or without a grant (WDY-3437). Device lineages do not use it.
+  // JWS Compact signed with presented_cert's key (alg per the key: ML-DSA-44/
+  // 65/87, ES256, ES384, EdDSA), payload JSON, no other members:
+  //   {"op":"renew",
+  //    "cert_sha256":"<base64url, no padding, SHA-256 of presented_cert>",
+  //    "csr_sha256":"<base64url, no padding, SHA-256 of csr>",
+  //    "jti":"<unique, at most 128 bytes>","iat":<unix seconds>}
   // iat must be within the last 5 minutes (60s future skew); jti is single-use
   // per tenant.
   bytes  possession_proof = 6;
