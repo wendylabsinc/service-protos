@@ -6,17 +6,18 @@ package wendycloud.v2;
 // `option (wendy.signed_request) = true` (WDY-3458). The signature travels in
 // the body, not in headers; headers carry only the bearer token and DPoP proof.
 //
-// The server verifies `signature` over the exact `payload` bytes, checks that
-// `payload_type` is the method's request message (named in each RPC's
-// comment), then decodes `payload` as that message for the handler. Claims and
-// verification rules: conformance/reqsig/README.md.
+// The server verifies `signature` (a JWS over the exact `payload` bytes),
+// checks that `payload_type` is the fully-qualified name of the method's
+// request message (named in each RPC's comment), then decodes `payload` as
+// that message for the handler. The signed `correlation_id` claim is adopted
+// before any downstream call. Claims and verification rules:
+// conformance/reqsig/README.md.
+//
+// This body envelope is the only accepted form. The cutover is atomic: a
+// signature carried in the `x-wendy-request-signature` header, or a signed
+// method called with its bare request message, is refused.
 //
 // Responses are unchanged: there is no SignedResponse.
-//
-// Cutover: during the WDY-3458 merge round only, a server may still accept the
-// former call shape on the same method (the bare request message, signed by
-// the `x-wendy-request-signature` header). That form is deprecated and is
-// removed in the same round.
 message SignedRequest {
   // The serialized request message: the exact bytes that were signed.
   bytes payload = 1;

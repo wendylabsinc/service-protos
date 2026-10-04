@@ -8,7 +8,8 @@ verifier) confirm it agrees **byte-for-byte**.
 
 This directory has two files. `signed-request-vectors-v1.json` covers the body
 envelope that operator-signed RPCs use. `reqsig-vectors-v1.json` covers the
-same JWS in its original header-carried form.
+same JWS in its original header-carried form, which servers refuse once
+WDY-3458 lands.
 
 ## SignedRequest envelope (WDY-3458)
 
