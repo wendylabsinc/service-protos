@@ -3,6 +3,8 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
 
 // Service for issuing, refreshing, revoking, and querying X.509 certificates
 // for assets within an organization. Backed by Google Cloud Certificate
@@ -22,7 +24,9 @@ service CertificateService {
 
   // Revoke an issued certificate.
   // Deprecated: superseded by PKIAdminService.RevokeIssuedCertificate (WDY-3409).
-  rpc RevokeCertificate(RevokeCertificateRequest) returns (RevokeCertificateResponse) {
+  // Signed; payload_type "wendycloud.v2.RevokeCertificateRequest".
+  rpc RevokeCertificate(SignedRequest) returns (RevokeCertificateResponse) {
+    option (wendy.signed_request) = true;
     option deprecated = true;
   }
 

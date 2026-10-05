@@ -6,6 +6,8 @@ import "pkicore/v1/engine.proto";
 import "pkicore/v1/fabric_management.proto";
 import "pkicore/v1/fabric_relay.proto";
 import "pkicore/v1/types.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
 
 // PKIAdminService is cloud's relay to pki-core's FabricManagementService and
 // FabricRelayService for tenant PKI administration (WDY-3409). pki-core's
@@ -15,9 +17,9 @@ import "pkicore/v1/types.proto";
 // Each RPC comment names its gate: the catalog permission the caller must hold
 // in organization_id, checked before pki-core is called.
 //
-// "Signed, op X" means the call is a pki-core tier-3 operation: it carries
-// cloud's request signature AND the operator's pki-core management request
-// (metadata `x-wendy-pki-management-request`, op X), relayed verbatim as the
+// "Signed, op X" means the call is a pki-core tier-3 operation: its input is a
+// SignedRequest carrying cloud's request signature AND the operator's pki-core
+// management request (pki_management_request, op X), relayed verbatim as the
 // Envelope signed_artifact. The operation's parameters (paging, filters,
 // serial, principal, reason, policy, CA id) live in that signed request only,
 // so the request messages here carry just organization_id. Its jti is single
@@ -26,29 +28,52 @@ import "pkicore/v1/types.proto";
 // For the credential-class writes (both revokes, deny), cloud also attaches its
 // signed rights attestation for the gate permission, bound to the operator who
 // signed the management request, as it does for over-duration approval.
+//
+// Every mutation here is operator-signed (WDY-3458). The enrollment and
+// over-duration RPCs are not tier-3: they leave pki_management_request unset,
+// and the operator's own pki-core artifact (enrollment request, over-duration
+// request/approval/pickup JWS) stays a field of the signed payload.
 service PKIAdminService {
   // --- Certificates ---
 
   // Tenant-wide certificate inventory. Gate: `pki:cert-list`. Signed, op
   // "list_cert_metadata".
-  rpc ListIssuedCertificates(ListIssuedCertificatesRequest) returns (pkicore.v1.ListCertMetadataResponse);
+  // Signed; payload_type "wendycloud.v2.ListIssuedCertificatesRequest".
+  rpc ListIssuedCertificates(SignedRequest) returns (pkicore.v1.ListCertMetadataResponse) {
+    option (wendy.signed_request) = true;
+  }
   // One certificate by serial. Gate: `pki:cert-read`. Signed, op
   // "list_cert_metadata" with the serial filter. NOT_FOUND if no row matches.
-  rpc GetIssuedCertificate(GetIssuedCertificateRequest) returns (pkicore.v1.CertMetadata);
+  // Signed; payload_type "wendycloud.v2.GetIssuedCertificateRequest".
+  rpc GetIssuedCertificate(SignedRequest) returns (pkicore.v1.CertMetadata) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `pki:cert-revoke`. Signed, op "revoke_certificate"; rights attested.
-  rpc RevokeIssuedCertificate(RevokeIssuedCertificateRequest) returns (pkicore.v1.RevokeCertificateResponse);
+  // Signed; payload_type "wendycloud.v2.RevokeIssuedCertificateRequest".
+  rpc RevokeIssuedCertificate(SignedRequest) returns (pkicore.v1.RevokeCertificateResponse) {
+    option (wendy.signed_request) = true;
+  }
   // Every live certificate of one SPIFFE principal. Gate: `pki:cert-revoke`.
   // Signed, op "revoke_principal"; rights attested.
-  rpc RevokePrincipalCertificates(RevokePrincipalCertificatesRequest) returns (pkicore.v1.RevokeByPrincipalResponse);
+  // Signed; payload_type "wendycloud.v2.RevokePrincipalCertificatesRequest".
+  rpc RevokePrincipalCertificates(SignedRequest) returns (pkicore.v1.RevokeByPrincipalResponse) {
+    option (wendy.signed_request) = true;
+  }
 
   // --- Certificate authorities (CRL/OCSP status rides on CAInfo) ---
 
   // Gate: `pki:ca-list`.
   rpc ListCertificateAuthorities(ListCertificateAuthoritiesRequest) returns (pkicore.v1.ListCAsResponse);
   // Gate: `pki:ca-rotate`. Signed, op "rotate_ca".
-  rpc RotateCertificateAuthority(RotateCertificateAuthorityRequest) returns (pkicore.v1.RotateCAResponse);
+  // Signed; payload_type "wendycloud.v2.RotateCertificateAuthorityRequest".
+  rpc RotateCertificateAuthority(SignedRequest) returns (pkicore.v1.RotateCAResponse) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `pki:ca-migrate`. Signed, op "migrate_ca".
-  rpc MigrateCertificateAuthority(MigrateCertificateAuthorityRequest) returns (pkicore.v1.MigrateCAResponse);
+  // Signed; payload_type "wendycloud.v2.MigrateCertificateAuthorityRequest".
+  rpc MigrateCertificateAuthority(SignedRequest) returns (pkicore.v1.MigrateCAResponse) {
+    option (wendy.signed_request) = true;
+  }
 
   // --- Enrollment tokens and EAB keys ---
 
@@ -60,41 +85,73 @@ service PKIAdminService {
   // enrollment request decides which (FabricRelayService.RelayEnrollment).
   // Gate: `pki:enrollment-token-create` for both kinds. The secret in the
   // response is returned once only.
-  rpc CreateEnrollmentCredential(CreateEnrollmentCredentialRequest) returns (pkicore.v1.RelayEnrollmentResponse);
+  // Signed; payload_type "wendycloud.v2.CreateEnrollmentCredentialRequest".
+  rpc CreateEnrollmentCredential(SignedRequest) returns (pkicore.v1.RelayEnrollmentResponse) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `pki:enrollment-token-revoke`.
-  rpc RevokeEnrollmentToken(RevokeEnrollmentTokenRequest) returns (pkicore.v1.RevokeEnrollmentTokenResponse);
+  // Signed; payload_type "wendycloud.v2.RevokeEnrollmentTokenRequest".
+  rpc RevokeEnrollmentToken(SignedRequest) returns (pkicore.v1.RevokeEnrollmentTokenResponse) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `pki:eab-revoke`.
-  rpc RevokeEABKey(RevokeEABKeyRequest) returns (pkicore.v1.RevokeEABKeyResponse);
+  // Signed; payload_type "wendycloud.v2.RevokeEABKeyRequest".
+  rpc RevokeEABKey(SignedRequest) returns (pkicore.v1.RevokeEABKeyResponse) {
+    option (wendy.signed_request) = true;
+  }
 
   // --- Tenant policy ---
 
   // Gate: `pki:policy-read`.
   rpc GetTenantPolicy(GetTenantPolicyRequest) returns (pkicore.v1.GetTenantPolicyResponse);
   // Gate: `pki:policy-write`. Signed, op "set_policy".
-  rpc SetTenantPolicy(SetTenantPolicyRequest) returns (pkicore.v1.SetTenantPolicyResponse);
+  // Signed; payload_type "wendycloud.v2.SetTenantPolicyRequest".
+  rpc SetTenantPolicy(SignedRequest) returns (pkicore.v1.SetTenantPolicyResponse) {
+    option (wendy.signed_request) = true;
+  }
 
   // --- Over-duration issuance (four-eyes) ---
 
   // Gate: `pki:over-duration-request`.
-  rpc RequestOverDuration(RequestOverDurationRequest) returns (pkicore.v1.OverDurationRequestResponse);
+  // Signed; payload_type "wendycloud.v2.RequestOverDurationRequest".
+  rpc RequestOverDuration(SignedRequest) returns (pkicore.v1.OverDurationRequestResponse) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `pki:over-duration-list`.
   rpc ListPendingOverDuration(ListPendingOverDurationRequest) returns (pkicore.v1.ListPendingOverDurationRequestsResponse);
   // Gate: `pki:approve-over-duration`; rights attested. Supersedes cloud's own
-  // OverDurationApprovalService.ApproveOverDurationIssuance.
-  rpc ApproveOverDuration(ApproveOverDurationRequest) returns (pkicore.v1.OverDurationApprovalResponse);
+  // OverDurationApprovalService.ApproveOverDurationIssuance. The four-eyes
+  // approval JWS stays in the payload; cloud still attaches the rights
+  // attestation when it relays.
+  // Signed; payload_type "wendycloud.v2.ApproveOverDurationRequest".
+  rpc ApproveOverDuration(SignedRequest) returns (pkicore.v1.OverDurationApprovalResponse) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `pki:approve-over-duration`. Signed, op "deny_over_duration";
   // rights attested.
-  rpc DenyOverDuration(DenyOverDurationRequest) returns (pkicore.v1.DenyOverDurationIssuanceResponse);
+  // Signed; payload_type "wendycloud.v2.DenyOverDurationRequest".
+  rpc DenyOverDuration(SignedRequest) returns (pkicore.v1.DenyOverDurationIssuanceResponse) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `pki:over-duration-collect`. Not idempotent: a second collect is
   // ALREADY_EXISTS (see PickupOverDurationCertificate).
-  rpc CollectOverDuration(CollectOverDurationRequest) returns (pkicore.v1.RelayOverDurationPickupResponse);
+  // Signed; payload_type "wendycloud.v2.CollectOverDurationRequest".
+  rpc CollectOverDuration(SignedRequest) returns (pkicore.v1.RelayOverDurationPickupResponse) {
+    option (wendy.signed_request) = true;
+  }
 
   // --- Audit and offboarding ---
 
   // Gate: `pki:audit-read`. Signed, op "get_audit_log".
-  rpc ListAuditLog(ListAuditLogRequest) returns (stream pkicore.v1.AuditLogEntry);
+  // Signed; payload_type "wendycloud.v2.ListAuditLogRequest".
+  rpc ListAuditLog(SignedRequest) returns (stream pkicore.v1.AuditLogEntry) {
+    option (wendy.signed_request) = true;
+  }
   // Gate: `pki:tenant-offboard`. Signed, op "offboard_tenant".
-  rpc OffboardTenant(OffboardTenantRequest) returns (pkicore.v1.OffboardTenantResponse);
+  // Signed; payload_type "wendycloud.v2.OffboardTenantRequest".
+  rpc OffboardTenant(SignedRequest) returns (pkicore.v1.OffboardTenantResponse) {
+    option (wendy.signed_request) = true;
+  }
 }
 
 message ListIssuedCertificatesRequest { string organization_id = 1; }
