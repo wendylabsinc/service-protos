@@ -107,6 +107,15 @@ service CAEngine {
   // the resolved tenant.
   rpc RecordCodeSignDenial(RecordCodeSignDenialRequest)                           returns (RecordCodeSignDenialResponse);
 
+  // ACME account standing (WDY-3497). Before serving a kid-signed request the
+  // ACME frontend asks whether the account's lineage still stands. It does
+  // not when the account's latest leaf is revoked (RevokeByPrincipal, the
+  // principal-disable cascade, OffboardTenant, revoke-cert), its principal is
+  // disabled, the tenant is not active, or the latest leaf has expired on an
+  // account that does not re-attest each order. The frontend then marks the
+  // account revoked. The engine writes one audit row per revoked verdict.
+  rpc CheckACMEAccount(CheckACMEAccountRequest)                                   returns (CheckACMEAccountResponse);
+
   // SSF/CAEP receiver relay (AAA contract §6). The private-only fabric frontend
   // verifies an inbound wendyauth.v1 security-event token (RISC
   // account-disabled / account-purged, CAEP session-revoked) against the realm
@@ -963,6 +972,17 @@ message RecordCodeSignDenialRequest {
   string endpoint   = 5; // "sign_blob" | "sign_cert" | "timestamp"
 }
 message RecordCodeSignDenialResponse {}
+
+message CheckACMEAccountRequest {
+  string tenant_id            = 1; // injected from gRPC metadata x-tenant-id
+  string account_id           = 2; // ACME account UUID (audit only)
+  bytes  serial               = 3; // the account's latest issued leaf; empty before its first issuance
+  string device_id            = 4; // the account's device_id (EAB-bound); empty for non-device accounts
+  bool   attestation_required = 5; // the account re-attests every order, so expiry alone does not end its lineage
+}
+message CheckACMEAccountResponse {
+  bool revoked = 1; // true: the lineage is over; the account must not be served
+}
 
 // RecordPrincipalDisableRequest carries the fact extracted from a verified
 // wendyauth.v1 security-event token by the fabric frontend. The token itself
