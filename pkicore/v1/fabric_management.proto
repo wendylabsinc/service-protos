@@ -37,6 +37,9 @@ service FabricManagementService {
   // (principal, status_filter, cert_type, serial) are read from the signed
   // request (op "list_cert_metadata"), never from the payload.
   rpc ListCertMetadata(wendyauth.v1.Envelope)      returns (ListCertMetadataResponse);
+  // since/resource/page_size/page_token and (WDY-3508) before_id/order are
+  // read from the signed request (op "get_audit_log") and copied into the
+  // engine's GetAuditLogRequest.
   rpc GetAuditLog(wendyauth.v1.Envelope)           returns (stream AuditLogEntry);
   rpc RotateCA(wendyauth.v1.Envelope)              returns (RotateCAResponse);        // payload = RotateCARequest
   rpc MigrateCA(wendyauth.v1.Envelope)             returns (MigrateCAResponse);       // payload = MigrateCARequest

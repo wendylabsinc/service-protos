@@ -49,11 +49,43 @@ message AuthContext {
   reserved "oidc", "platform_svc";
 }
 
+// Every field is filled by the pki-core engine from its audit_log row; the
+// fabric and cloud pass entries through unchanged. Fields 7-10 are WDY-3508
+// (expand phase): an older engine leaves them zero, so readers fall back to
+// `actor` and cannot page by id.
 message AuditLogEntry {
   string tenant_id = 1;
   string timestamp = 2; // RFC3339
+  // Transport peer that wrote the row (mTLS leaf SPIFFE, or cn=<CN>,fp=<sha256>
+  // when the leaf has no tenant SAN). For fabric-routed requests this is the
+  // fabric, not the person: see actor_principal.
   string actor     = 3;
   string action    = 4;
   string resource  = 5;
   bytes  details   = 6; // JSON blob
+  // The engine's audit_log row id. Increases with insertion order within a
+  // deployment; pass the last entry's id as GetAuditLogRequest.before_id to
+  // fetch the next (older) page. 0 = older engine, no id.
+  int64  id             = 7;
+  // The row's correlation_id (the originating request's); empty when the row
+  // has none.
+  string correlation_id = 8;
+  // Verified principal behind the action: the operator SPIFFE that signed the
+  // management request (the fabric passes the signer through to the engine),
+  // or the device SPIFFE for device-authenticated calls. Empty when there is no
+  // verified principal (system sweeps, IdP signals, rows written before
+  // WDY-3508).
+  string actor_principal = 9;
+  ActorKind actor_kind   = 10;
+}
+
+// What kind of party actor_principal (or, when that is empty, the action)
+// belongs to. Set by the engine.
+enum ActorKind {
+  ACTOR_KIND_UNSPECIFIED       = 0; // older engine or legacy row; render from `actor`
+  ACTOR_KIND_OPERATOR          = 1; // a person; actor_principal = operator SPIFFE
+  ACTOR_KIND_DEVICE            = 2; // actor_principal = device SPIFFE
+  ACTOR_KIND_SERVICE           = 3; // a service/workload identity (service account, signer)
+  ACTOR_KIND_SYSTEM            = 4; // pki-core itself (sweeps, expiries); actor_principal empty
+  ACTOR_KIND_IDENTITY_PROVIDER = 5; // an SSF signal from wendy-auth/IdP; actor_principal empty
 }
