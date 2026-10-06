@@ -16,3 +16,7 @@ adds an optional, signed `mcp` object for FleetScope v2 credentials. Cloud, PKI 
 WendyOS must ship the dedicated authorization path together. The broker's opaque
 hash bindings and protobuf messages do not change. Generic tunnel entry points
 reject this delegated path, and ordinary operator certificates cannot claim it.
+
+WDY-3527: FleetScope v3 adds explicit time-limited all-app consent while retaining
+exact device, owner, key, audience, gateway and RPC constraints. See the
+[tunnel contract](../conformance/tunnel/README.md#blanket-app-consent-wdy-3527).

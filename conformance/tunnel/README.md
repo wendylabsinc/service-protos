@@ -341,7 +341,7 @@ exact bytes. No protobuf field or broker-visible identity is added.
 }
 ```
 
-This object is required for a FleetScope v2 operator leaf and forbidden for an
+This object is required for a FleetScope v2 or v3 operator leaf and forbidden for an
 ordinary leaf. PKI checks all four values against the critical certificate scope,
 requires the device to be in its exact device set, restricts the symbolic service
 to `wendy-agent`, and bounds descriptor expiry by leaf expiry. Cloud binds that
@@ -362,3 +362,20 @@ identity enrollment and renewal must not gain a blanket critical-extension
 exception. Existing non-MCP vectors remain unchanged; scoped positive and
 rejection cases are covered in the PKI and WendyOS implementation suites. The
 full cross-service rollout/conformance gate remains separate work.
+
+
+## Blanket app consent (WDY-3527)
+
+FleetScope version 3 adds `all_apps: true` to the signed JSON delegation and a
+trailing DER `allApps BOOLEAN OPTIONAL` after audience and gateway. Version 3
+requires true, an empty app-ID sequence, and the same exact nonempty device set,
+owner, audience and gateway bindings as version 2. Versions 1 and 2 forbid true.
+The optional false value is omitted in canonical DER, preserving existing encodings.
+The consent and issued scope must match exactly; a Cloud grant cannot expand a
+specific-app consent into all-app consent. Old verifiers reject the new version.
+
+The web UI defaults approval to 30 minutes. Consent still has a hard 24-hour cap,
+with leaves capped at five minutes and at the signed consent/owner/grant expiry.
+Refresh never renews consent. Devices are snapshotted at approval (maximum 128);
+new devices need new approval. All apps on those devices are covered only for
+supported, explicitly entitled RPCs. Live Cloud user/workload checks remain required.
