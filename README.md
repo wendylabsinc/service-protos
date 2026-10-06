@@ -16,3 +16,6 @@ Import these protobuf definitions into your projects to ensure consistent data s
 ## Structure
 
 The protobuf files are organized to support various service interactions and maintain backwards compatibility across different service versions.
+Hosted MCP implementers must also follow the
+[scoped tunnel descriptor contract](conformance/tunnel/README.md#hosted-mcp-delegation-binding)
+for FleetScope v2 credentials (WDY-3526).

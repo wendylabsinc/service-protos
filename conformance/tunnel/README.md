@@ -322,3 +322,43 @@ v1's always were.
 All private test material represented by the JSON is public fixture data. It
 MUST NOT be used for production, development credentials, examples that might be
 copied into a deployment, or any purpose beyond conformance testing.
+
+## Hosted MCP delegation binding
+
+WDY-3526 adds an optional `mcp` object to the decoded principal request descriptor
+for the dedicated hosted MCP authorization path. It is inside the existing JWS
+payload, so `request_hash`, the PKI attestation, HPKE AAD and Cloud grant bind its
+exact bytes. No protobuf field or broker-visible identity is added.
+
+```json
+{
+  "mcp": {
+    "delegation_id": "<canonical UUID>",
+    "device_principal": "spiffe://wendy.sh/tenant/<uuid>/device/<name>",
+    "audience": "https://<MCP origin>/orgs/<uuid>/mcp",
+    "gateway_principal": "spiffe://wendy.sh/tenant/<uuid>/service/<subject>"
+  }
+}
+```
+
+This object is required for a FleetScope v2 operator leaf and forbidden for an
+ordinary leaf. PKI checks all four values against the critical certificate scope,
+requires the device to be in its exact device set, restricts the symbolic service
+to `wendy-agent`, and bounds descriptor expiry by leaf expiry. Cloud binds that
+leaf to the forwarded user and the target asset's enrolled device identity.
+Generic Cloud tunnel entry points reject descriptors carrying `mcp`.
+
+The FleetScope OID `1.3.6.1.4.1.65441.1.4` remains critical. Its strict DER sequence
+is `version INTEGER`, `delegationID UTF8String`, `ownerPrincipal UTF8String`,
+`devicePrincipals SEQUENCE OF UTF8String`, `appIDs SEQUENCE OF UTF8String`, followed
+by `audience UTF8String OPTIONAL` and `gatewayPrincipal UTF8String OPTIONAL`.
+Version 2 requires both trailing fields. Version 1 forbids them and cannot enter
+this hosted tunnel path. Exact device/app/RPC enforcement remains a device duty,
+using the existing entitlement extension `1.3.6.1.4.1.65441.1.1`.
+
+Unknown critical extensions still fail. Only a scope-aware tunnel verifier may
+acknowledge FleetScope after validating it. Generic certificate validation,
+identity enrollment and renewal must not gain a blanket critical-extension
+exception. Existing non-MCP vectors remain unchanged; scoped positive and
+rejection cases are covered in the PKI and WendyOS implementation suites. The
+full cross-service rollout/conformance gate remains separate work.
