@@ -470,6 +470,19 @@ message GetAuditLogRequest {
   // W20/WDY-2216: originating tier-3 management-request jti; single-use enforced
   // by the engine when set (empty on the admin path => no replay check).
   string source_jti = 6;
+  // WDY-3508 (expand phase). On the fabric both are read from the signed
+  // management request (op "get_audit_log"), like page_size/page_token, and
+  // copied here; the engine applies them. Unset = today's behaviour.
+  // before_id: when non-zero, only rows with id < before_id
+  // (AuditLogEntry.id). The newest-first cursor: pass the last entry's id.
+  int64         before_id = 7;
+  AuditLogOrder order     = 8;
+}
+
+enum AuditLogOrder {
+  AUDIT_LOG_ORDER_UNSPECIFIED = 0; // = ASC, the pre-WDY-3508 behaviour
+  AUDIT_LOG_ORDER_ASC         = 1; // oldest first, by id
+  AUDIT_LOG_ORDER_DESC        = 2; // newest first, by id
 }
 
 // GetCACerts returns all active CA certificates for the authenticated tenant.
