@@ -387,6 +387,9 @@ message CertMetadata {
   string   issued_at  = 9;  // RFC3339
   string   not_before = 10; // RFC3339, from the leaf
   CertType cert_type  = 11;
+  // Dedicated MCP credential; principal remains the delegating operator.
+  string credential_purpose = 12; // "mcp", or empty for other credentials
+  string mcp_delegation_id = 13; // consent UUID, distinct from certificate fingerprint
 }
 message ListCertMetadataResponse {
   repeated CertMetadata items           = 1;
