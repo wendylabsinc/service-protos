@@ -12,6 +12,16 @@ service AuthFabric {
   // Admin-initiated force sign-out (SSF receiver). Revokes sessions AND
   // refresh-token families for the subject. Fail-safe: removes access only.
   rpc ForceSignOut(ForceSignOutRequest) returns (ForceSignOutResponse);
+
+  // Member read (WDY-3545): the current truth for the members of ONE realm, addressed by
+  // tenant_uuid (never the reclaimable slug). Cloud calls it on a membership-changed hint,
+  // for backfill and for its periodic reconcile, and converges its own mirror from the answer.
+  // Read-only. Scoped to the realm the request names: every field describes the member's
+  // membership IN THAT REALM, never their other orgs, credentials, MFA state or home realm.
+  // An unknown, out-of-scope or malformed tenant_uuid is refused with PERMISSION_DENIED and a
+  // generic message, never an empty list (an empty list means "no such member").
+  // Advertised through GetCapabilities; a caller that does not see it there must not call it.
+  rpc ListRealmMembers(ListRealmMembersRequest) returns (ListRealmMembersResponse);
 }
 
 message GetCapabilitiesRequest {
@@ -31,4 +41,54 @@ message ForceSignOutRequest {
 message ForceSignOutResponse {
   uint32 sessions_revoked = 1;
   uint32 token_families_revoked = 2;
+}
+
+message ListRealmMembersRequest {
+  string correlation_id = 1;        // threaded end-to-end
+  string tenant_uuid    = 2;        // the realm's immutable tenant UUID
+  string sub            = 3;        // optional: only this account (0 or 1 members back)
+  string page_token     = 4;        // opaque; next_page_token of the previous page
+}
+
+message ListRealmMembersResponse {
+  repeated RealmMember members = 1; // ordered by sub
+  string next_page_token       = 2; // empty on the last page
+  int64  as_of_unix_micros     = 3; // auth DB time the read started; apply only if newer
+}
+
+// One member of the requested realm. Pending (unaccepted) invitations are never returned.
+message RealmMember {
+  string            sub                          = 1; // global account sub
+  RealmMemberStatus status                       = 2;
+  int64             membership_since_unix_micros = 3; // membership row creation: the incarnation
+  RealmMemberKind   kind                         = 4;
+  bool              external                     = 5; // homed in another realm (which one is never said)
+  string            email                        = 6;
+  bool              email_verified               = 7;
+  string            name                         = 8;
+  // Exactly the names the member's next access token carries in its `groups` claim.
+  repeated RealmMemberGroup groups               = 9;
+}
+
+message RealmMemberGroup {
+  string           name   = 1;
+  RealmGroupSource source = 2;
+}
+
+enum RealmMemberStatus {
+  REALM_MEMBER_STATUS_UNSPECIFIED = 0;
+  REALM_MEMBER_STATUS_ACTIVE      = 1;
+  REALM_MEMBER_STATUS_SUSPENDED   = 2; // membership suspended here, or the account disabled
+}
+
+enum RealmMemberKind {
+  REALM_MEMBER_KIND_UNSPECIFIED = 0;
+  REALM_MEMBER_KIND_HUMAN       = 1;
+  REALM_MEMBER_KIND_SERVICE     = 2; // a tenant service account
+}
+
+enum RealmGroupSource {
+  REALM_GROUP_SOURCE_UNSPECIFIED = 0;
+  REALM_GROUP_SOURCE_LOCAL       = 1; // managed in wendy-auth
+  REALM_GROUP_SOURCE_FEDERATED   = 2; // delivered by an identity provider at sign-in
 }

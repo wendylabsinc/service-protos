@@ -33,6 +33,15 @@ service SecurityEventService {
   // against the JWKS published there), one SET per revoked serial, subject = leaf SPIFFE
   // principal in sub_id. That issuer is valid for this event only, and an x509
   // credential-change from any other issuer is rejected. See conformance/set/README.md.
+  //
+  // Membership refresh hint (WDY-3545, event-type
+  // https://schemas.wendy.sh/secevent/membership-changed): "the membership of (realm, sub)
+  // changed". Cloud only. Signed by the MEMBER'S realm and verified like any principal SET
+  // (iss->realm, subject realm == issuer, never the system realm), subject = per-event
+  // iss_sub. The body carries nothing beyond event_timestamp and reason_admin (audit text,
+  // never dispatched on). It grants, removes and changes NOTHING by itself: the receiver
+  // re-reads (tenant_uuid, sub) through AuthFabric.ListRealmMembers and converges from that
+  // answer. A receiver that does not know the type acks it and ignores it.
   rpc PushSecurityEvent(Envelope) returns (PushSecurityEventAck);
 }
 
