@@ -156,6 +156,32 @@ wendy-auth owns the payload bytes for its types. They carry `"producer": "pki-co
 Their canonical bytes are Go `encoding/json` (sorted keys, compact, no HTML escaping), so
 forward slashes are **not** escaped. As above, verify the signed bytes as-is.
 
+## Membership refresh hint (WDY-3545)
+
+Event-type `https://schemas.wendy.sh/secevent/membership-changed`, a Wendy-minted type: "the
+membership of (realm, sub) changed". **Transmitter = wendy-auth, receiver = cloud only.**
+
+- **A principal event**, verified like the RISC/CAEP ones: issuer = the member's realm
+  (`iss->realm`, subject realm == issuer), never the `system` realm. Per-event subject
+  `{format:"iss_sub", iss, sub}`, no `sub_id`. `sub` is the global account sub.
+- **Body** = `event_timestamp` and `reason_admin` only. `reason_admin` is audit text; a receiver
+  never dispatches on it.
+- **It carries no state and grants nothing.** The receiver dedups on `jti`, then re-reads the
+  member through `wendyauth.v1.AuthFabric/ListRealmMembers` (`tenant_uuid` = `Envelope.tenant`,
+  `sub`) and converges its own mirror from that answer: absent there means removed. It must not
+  grant, remove or change anything from the SET content itself. Replays, reordering and duplicates
+  are therefore harmless (the last read wins).
+- A receiver that does not know the type acks it and ignores it. The read is advertised through
+  `GetCapabilities`; a caller that does not see it there does not call it.
+- **Emission is off by default** in wendy-auth (`WENDY_AUTH_SET_MEMBERSHIP_CHANGED`) and is switched
+  on only once cloud on prod handles the hint (expand → migrate → contract; see
+  `docs/contract-ledger.md`).
+
+| vector | iss | expect |
+|---|---|---|
+| `cloud-membership-changed-iss-sub` | member realm | accept |
+| `cloud-membership-changed-system-issuer-reject` | system | reject |
+
 ## Coverage (v1)
 
 | name | what it pins |
@@ -175,6 +201,8 @@ forward slashes are **not** escaped. As above, verify the signed bytes as-is.
 | `cloud-x509-revoke-tenant-sub-id` | same, leaf without a SPIFFE SAN: tenant URI sub_id (accept) |
 | `cloud-x509-revoke-realm-issuer-reject` | x509 credential-change from a realm issuer — MUST reject |
 | `cloud-pki-issuer-session-revoked-reject` | pki-core issuer on a non-x509 event — MUST reject |
+| `cloud-membership-changed-iss-sub` | membership-changed refresh hint, cloud shape (accept) |
+| `cloud-membership-changed-system-issuer-reject` | membership-changed signed by the system realm — MUST reject |
 
 ## Notes / limitations
 
