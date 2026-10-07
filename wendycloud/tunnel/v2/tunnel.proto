@@ -97,7 +97,44 @@ message IssuePresenceLeaseRequest {
   // Opaque Cloud audit correlation value, 1..128 bytes. It MUST NOT embed a
   // principal or target identifier because it is copied into the lease.
   string correlation_id = 3;
+
+  // Optional hardware self-report, refreshed on every lease issue and renewal
+  // (WDY-3544). Cosmetic: Cloud writes it to the asset row and authorizes
+  // nothing from it. Exception to the reject-over-limit rule above: Cloud
+  // drops an invalid report and still issues the lease, so a bad string never
+  // takes a device offline. An agent that sends none keeps the stored values.
+  // Field 16: 4..15 stay reserved (buf breaking forbids un-reserving them).
+  DeviceHardware hardware = 16;
   reserved 4 to 15;
+}
+
+// The device's own hardware report, mirroring wendyos GetDeviceInfo; same
+// shape as Cloud's enrollment-time wendycloud.v2.DeviceHardware. Every field
+// is optional and absent means the device could not read it, never zero or
+// "unknown". Strings: board_model, os and os_version max 100 characters,
+// architecture max 50, the rest max 255.
+message DeviceHardware {
+  // /proc/device-tree/model, e.g. "NVIDIA Jetson AGX Thor Developer Kit".
+  optional string board_model = 1;
+  // The first /proc/device-tree/compatible entry naming the SoC, e.g. "nvidia,tegra264".
+  optional string soc_compatible = 2;
+  optional string serial_number = 3;
+  // uname -r.
+  optional string kernel_version = 4;
+  // NVIDIA L4T release, e.g. "38.2.0". Absent on non-NVIDIA boards.
+  optional string l4t_version = 5;
+  // Online logical CPUs.
+  optional uint32 cpu_count = 6;
+  optional int64 mem_total_bytes = 7;
+  // Root filesystem size.
+  optional int64 disk_total_bytes = 8;
+  // e.g. "linux".
+  optional string os = 9;
+  optional string os_version = 10;
+  // e.g. "arm64".
+  optional string architecture = 11;
+  // Vendor-specific GPU architecture, e.g. "sm_110".
+  optional string gpu_arch = 12;
 }
 
 message IssuePresenceLeaseResponse {
