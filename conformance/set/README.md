@@ -131,10 +131,15 @@ bidirectional binding, body `event_timestamp` + `reason_admin`. Fan-out =
   disable. tenant-deleted stays the purge and is terminal: enabled never
   reactivates a deleted tenant, and disabled/enabled for a deleted tenant change
   nothing.
-- **Ordering.** `event_timestamp` is required on these two. The receiver applies
-  one only when its `event_timestamp` is newer than the last disable/enable it
-  applied for that tenant, so a retried older event cannot undo a newer one.
-  tenant-deleted is not ordered: it always wins.
+- **Ordering.** `event_timestamp` is required on these two. The emitter MUST make
+  it strictly increase per tenant across disable/enable: when the next event would
+  carry the same second (or an earlier one), it uses the last value + 1. The
+  receiver applies one only when its `event_timestamp` is not older than the last
+  disable/enable it applied for that tenant, so a retried older event cannot undo
+  a newer one. The receiver refuses (does not ack) a SET whose `event_timestamp` is
+  later than its `iat` plus the receiver's clock-skew allowance: a future-dated
+  event would make every real one after it stale. tenant-deleted is not ordered:
+  it always wins.
 - **Ack.** Replayed `jti`, unknown or never-provisioned tenant, deleted tenant,
   stale event: `accepted=true`, no change, one audit row.
 - **Grant direction.** enabled is the one tenant-lifecycle event that restores

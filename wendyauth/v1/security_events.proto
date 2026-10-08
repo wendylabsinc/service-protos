@@ -33,8 +33,10 @@ service SecurityEventService {
   // tenant-lifecycle types too: same system-realm issuer, same bare tenant sub_id,
   // same bidirectional binding. disabled stops the tenant's issuance and keeps its
   // trust; enabled reverses a disable and never reactivates a deleted tenant. Their
-  // event_timestamp is required and orders them: a receiver applies one only when it
-  // is newer than the last it applied. pki-core only.
+  // event_timestamp is required and orders them: the emitter makes it strictly
+  // increase per tenant (last + 1 when it would not), a receiver applies one only
+  // when it is not older than the last it applied, and refuses one later than the
+  // SET's iat plus clock skew. pki-core only.
   //
   // Certificate revocation (WDY-3409) is CAEP credential-change with credential_type x509,
   // change_type revoke, issued by pki-core (iss = pki-core's public host per env, verified
