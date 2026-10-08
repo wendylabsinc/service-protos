@@ -145,6 +145,11 @@ message CreateAssetRequest {
 
 message GetAssetRequest {
   string id = 1;
+  // Optional exact tenant/PKI selector; both required when id is empty.
+  // Authorized tombstones return NOT_FOUND with a typed DeletedAsset detail.
+  // Plain NOT_FOUND is never deletion proof.
+  optional string organization_id = 2;
+  optional string device_id = 3;
 }
 
 message UpdateAssetRequest {
@@ -178,6 +183,15 @@ message UpdateAssetRequest {
 
 message DeleteAssetRequest {
   string id = 1;
+  // Optional compare-and-delete guard for device unenrollment.
+  optional string expected_device_id = 2;
+}
+
+message DeletedAsset {
+  string id = 1;
+  string organization_id = 2;
+  string device_id = 3;
+  google.protobuf.Timestamp deleted_at = 4;
 }
 
 message DeleteAssetResponse {
