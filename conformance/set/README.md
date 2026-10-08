@@ -116,6 +116,47 @@ offboard — there is no operator signature in this path (the cloud-initiated
 notified-only per AAA §5.9). pki-core offboards directly on its own SET copy, no
 cloud in the loop (wendy-self-hosted no-SaaS-dependency rule).
 
+### tenant-disabled / tenant-enabled (WDY-3543)
+
+Event-types `https://schemas.wendy.sh/secevent/tenant-disabled` and
+`https://schemas.wendy.sh/secevent/tenant-enabled`: the realm was disabled or
+re-enabled in wendy-auth. Realm IS tenant. They are tenant-lifecycle types, so
+everything above holds for them: `iss == system`, bare tenant `sub_id`, the
+bidirectional binding, body `event_timestamp` + `reason_admin`. Fan-out =
+**[pki-core]**; cloud does not consume them.
+
+- **pki-core effect.** disabled: the tenant can no longer obtain anything new
+  (ACME, EST, operator and every other issuance, and renewals); certificates,
+  CAs and CRLs are untouched, and revocation keeps working. enabled: reverses a
+  disable. tenant-deleted stays the purge and is terminal: enabled never
+  reactivates a deleted tenant, and disabled/enabled for a deleted tenant change
+  nothing.
+- **Ordering.** `event_timestamp` is required on these two. The emitter MUST make
+  it strictly increase per tenant across disable/enable: when the next event would
+  carry the same second (or an earlier one), it uses the last value + 1. The
+  receiver applies one only when its `event_timestamp` is not older than the last
+  disable/enable it applied for that tenant, so a retried older event cannot undo
+  a newer one. The receiver refuses (does not ack) a SET whose `event_timestamp` is
+  later than its `iat` plus the receiver's clock-skew allowance: a future-dated
+  event would make every real one after it stale. tenant-deleted is not ordered:
+  it always wins.
+- **Ack.** Replayed `jti`, unknown or never-provisioned tenant, deleted tenant,
+  stale event: `accepted=true`, no change, one audit row.
+- **Grant direction.** enabled is the one tenant-lifecycle event that restores
+  something. It restores only what disabled took away; principal disables,
+  revocations and the purge are never undone by it.
+
+The tenant-disabled/enabled vectors are hand-built to the SETBuilder canonical
+form above (same inputs as `pki-tenant-deleted-sub-id`, only the event-type and
+`reason_admin` differ). wendy-auth's generator must reproduce them byte for byte
+when it starts emitting.
+
+| vector | iss | event-type | expect |
+|---|---|---|---|
+| `pki-tenant-disabled-sub-id` | system | tenant-disabled | accept |
+| `pki-tenant-enabled-sub-id` | system | tenant-enabled | accept |
+| `pki-tenant-disabled-wrong-issuer-reject` | tenant realm | tenant-disabled | reject |
+
 ## Certificate-revoked events (WDY-3409)
 
 Event-type CAEP `https://schemas.openid.net/secevent/caep/event-type/credential-change`
@@ -156,6 +197,32 @@ wendy-auth owns the payload bytes for its types. They carry `"producer": "pki-co
 Their canonical bytes are Go `encoding/json` (sorted keys, compact, no HTML escaping), so
 forward slashes are **not** escaped. As above, verify the signed bytes as-is.
 
+## Membership refresh hint (WDY-3545)
+
+Event-type `https://schemas.wendy.sh/secevent/membership-changed`, a Wendy-minted type: "the
+membership of (realm, sub) changed". **Transmitter = wendy-auth, receiver = cloud only.**
+
+- **A principal event**, verified like the RISC/CAEP ones: issuer = the member's realm
+  (`iss->realm`, subject realm == issuer), never the `system` realm. Per-event subject
+  `{format:"iss_sub", iss, sub}`, no `sub_id`. `sub` is the global account sub.
+- **Body** = `event_timestamp` and `reason_admin` only. `reason_admin` is audit text; a receiver
+  never dispatches on it.
+- **It carries no state and grants nothing.** The receiver dedups on `jti`, then re-reads the
+  member through `wendyauth.v1.AuthFabric/ListRealmMembers` (`tenant_uuid` = `Envelope.tenant`,
+  `sub`) and converges its own mirror from that answer: absent there means removed. It must not
+  grant, remove or change anything from the SET content itself. Replays, reordering and duplicates
+  are therefore harmless (the last read wins).
+- A receiver that does not know the type acks it and ignores it. The read is advertised through
+  `GetCapabilities`; a caller that does not see it there does not call it.
+- **Emission is off by default** in wendy-auth (`WENDY_AUTH_SET_MEMBERSHIP_CHANGED`) and is switched
+  on only once cloud on prod handles the hint (expand → migrate → contract; see
+  `docs/contract-ledger.md`).
+
+| vector | iss | expect |
+|---|---|---|
+| `cloud-membership-changed-iss-sub` | member realm | accept |
+| `cloud-membership-changed-system-issuer-reject` | system | reject |
+
 ## Coverage (v1)
 
 | name | what it pins |
@@ -175,6 +242,11 @@ forward slashes are **not** escaped. As above, verify the signed bytes as-is.
 | `cloud-x509-revoke-tenant-sub-id` | same, leaf without a SPIFFE SAN: tenant URI sub_id (accept) |
 | `cloud-x509-revoke-realm-issuer-reject` | x509 credential-change from a realm issuer — MUST reject |
 | `cloud-pki-issuer-session-revoked-reject` | pki-core issuer on a non-x509 event — MUST reject |
+| `cloud-membership-changed-iss-sub` | membership-changed refresh hint, cloud shape (accept) |
+| `cloud-membership-changed-system-issuer-reject` | membership-changed signed by the system realm — MUST reject |
+| `pki-tenant-disabled-sub-id` | tenant-disabled, system-realm iss, tenant sub_id, pki aud (accept) |
+| `pki-tenant-enabled-sub-id` | tenant-enabled, system-realm iss, tenant sub_id, pki aud (accept) |
+| `pki-tenant-disabled-wrong-issuer-reject` | tenant-disabled signed by a tenant realm — MUST reject |
 
 ## Notes / limitations
 

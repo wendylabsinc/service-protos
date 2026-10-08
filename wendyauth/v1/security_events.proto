@@ -28,11 +28,30 @@ service SecurityEventService {
   // conformance/set/README.md. All other event-types keep the iss->realm and
   // subject-realm==issuer rules unchanged.
   //
+  // tenant-disabled / tenant-enabled (WDY-3543, event-types
+  // https://schemas.wendy.sh/secevent/tenant-disabled and .../tenant-enabled) are
+  // tenant-lifecycle types too: same system-realm issuer, same bare tenant sub_id,
+  // same bidirectional binding. disabled stops the tenant's issuance and keeps its
+  // trust; enabled reverses a disable and never reactivates a deleted tenant. Their
+  // event_timestamp is required and orders them: the emitter makes it strictly
+  // increase per tenant (last + 1 when it would not), a receiver applies one only
+  // when it is not older than the last it applied, and refuses one later than the
+  // SET's iat plus clock skew. pki-core only.
+  //
   // Certificate revocation (WDY-3409) is CAEP credential-change with credential_type x509,
   // change_type revoke, issued by pki-core (iss = pki-core's public host per env, verified
   // against the JWKS published there), one SET per revoked serial, subject = leaf SPIFFE
   // principal in sub_id. That issuer is valid for this event only, and an x509
   // credential-change from any other issuer is rejected. See conformance/set/README.md.
+  //
+  // Membership refresh hint (WDY-3545, event-type
+  // https://schemas.wendy.sh/secevent/membership-changed): "the membership of (realm, sub)
+  // changed". Cloud only. Signed by the MEMBER'S realm and verified like any principal SET
+  // (iss->realm, subject realm == issuer, never the system realm), subject = per-event
+  // iss_sub. The body carries nothing beyond event_timestamp and reason_admin (audit text,
+  // never dispatched on). It grants, removes and changes NOTHING by itself: the receiver
+  // re-reads (tenant_uuid, sub) through AuthFabric.ListRealmMembers and converges from that
+  // answer. A receiver that does not know the type acks it and ignores it.
   rpc PushSecurityEvent(Envelope) returns (PushSecurityEventAck);
 }
 
