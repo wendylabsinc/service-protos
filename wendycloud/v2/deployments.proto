@@ -106,6 +106,12 @@ message Deployment {
   string details = 5;
   string created_by_user_id = 6;
   google.protobuf.Timestamp created_at = 7;
+  // Both computed on read, never stored (WDY-3573).
+  // target_count: devices this deployment fanned out to.
+  // updated_count: of those, devices that reported the app RUNNING at this deployment's
+  // app_release_id (CurrentState) since the deployment was created.
+  int32 target_count = 8;
+  int32 updated_count = 9;
 }
 
 // infer the created_by_user_id from the authService
