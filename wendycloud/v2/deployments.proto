@@ -107,8 +107,8 @@ message Deployment {
   string created_by_user_id = 6;
   google.protobuf.Timestamp created_at = 7;
   // The targeting the deployment was created with (WDY-3576). Both empty: every device.
-  repeated string target_tags = 8;
-  repeated string target_device_ids = 9;
+  repeated string target_tags = 10;
+  repeated string target_device_ids = 11;
 }
 
 // infer the created_by_user_id from the authService
