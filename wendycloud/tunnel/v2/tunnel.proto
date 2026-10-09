@@ -105,6 +105,12 @@ message IssuePresenceLeaseRequest {
   // takes a device offline. An agent that sends none keeps the stored values.
   // Field 16: 4..15 stay reserved (buf breaking forbids un-reserving them).
   DeviceHardware hardware = 16;
+
+  // Optional Agent information snapshot for authenticated Cloud reads
+  // (WDY-3553). Cloud validates and stores it descriptively; it authorizes
+  // nothing. An absent or invalid snapshot keeps the previous valid value and
+  // never prevents lease renewal. Field 17 is additive for old agents/clouds.
+  AgentInformationSnapshot agent_information = 17;
   reserved 4 to 15;
 }
 
@@ -135,6 +141,24 @@ message DeviceHardware {
   optional string architecture = 11;
   // Vendor-specific GPU architecture, e.g. "sm_110".
   optional string gpu_arch = 12;
+}
+
+// The Agent fields used by Companion's existing device-information screen.
+// This deliberately mirrors GetAgentVersion plus ListHardwareCapabilities.
+message AgentInformationSnapshot {
+  string version = 1;
+  optional string os_version = 2;
+  string os = 3;
+  string cpu_architecture = 4;
+  repeated string featureset = 5;
+  repeated HardwareCapability hardware_capabilities = 6;
+}
+
+message HardwareCapability {
+  string category = 1;
+  string device_path = 2;
+  string description = 3;
+  map<string, string> properties = 4;
 }
 
 message IssuePresenceLeaseResponse {
