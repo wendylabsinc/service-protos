@@ -113,6 +113,9 @@ message Deployment {
   // app_release_id (CurrentState) since the deployment was created.
   int32 target_count = 8;
   int32 updated_count = 9;
+  // The targeting the deployment was created with (WDY-3576). Both empty: every device.
+  repeated string target_tags = 10;
+  repeated string target_device_ids = 11;
 }
 
 // infer the created_by_user_id from the authService
@@ -122,7 +125,14 @@ message CreateDeploymentRequest {
   string app_release_id = 3;
   string details = 4;
   Running running = 5;
-} 
+  // Targeting (WDY-3576). The deployment goes to the union of the devices that carry any of
+  // target_tags (exact match) and the devices named in target_device_ids (UUIDs, each must
+  // belong to the organization). Both empty: every device in the organization. The set is
+  // resolved once, at create time; a device tagged later does not get the deployment. A
+  // non-empty targeting that matches no device is refused with FAILED_PRECONDITION.
+  repeated string target_tags = 6;
+  repeated string target_device_ids = 7;
+}
 
 message GetDeploymentRequest {
   string id = 1;
