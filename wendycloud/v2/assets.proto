@@ -106,8 +106,33 @@ message Asset {
   // Vendor-specific GPU architecture, e.g. "sm_110".
   optional string gpu_arch = 40;
 
+  // Latest Agent information snapshot reported by this device on its
+  // mTLS-authenticated presence lease (WDY-3553). This is not a live relay
+  // response. Absent means no compatible Agent has reported a snapshot.
+  optional AgentInformationSnapshot agent_information = 41;
+  optional google.protobuf.Timestamp agent_information_reported_at = 42;
+
   google.protobuf.Timestamp created_at = 21;
   google.protobuf.Timestamp updated_at = 22;
+}
+
+// The Agent fields used by Companion's existing device-information screen.
+// This deliberately mirrors GetAgentVersion plus ListHardwareCapabilities
+// without exposing an Agent address or credential through Cloud.
+message AgentInformationSnapshot {
+  string version = 1;
+  optional string os_version = 2;
+  string os = 3;
+  string cpu_architecture = 4;
+  repeated string featureset = 5;
+  repeated HardwareCapability hardware_capabilities = 6;
+}
+
+message HardwareCapability {
+  string category = 1;
+  string device_path = 2;
+  string description = 3;
+  map<string, string> properties = 4;
 }
 
 message CreateAssetRequest {
