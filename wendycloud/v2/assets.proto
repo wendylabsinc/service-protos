@@ -189,8 +189,9 @@ message UpdateAssetRequest {
   // anything else sets it (WDY-3581).
   optional string site = 24;
   // Set true to apply tags as given, even when empty (clears all tags).
-  // False leaves tags unchanged, whatever the tags field holds. Same
-  // convention as SetOrgPublicRoutingRequest.update_port_denylist (WDY-3581).
+  // False keeps the older rule: a non-empty tags replaces them, an empty one
+  // leaves them unchanged. Same convention as
+  // SetOrgPublicRoutingRequest.update_port_denylist (WDY-3581).
   bool update_tags = 25;
 }
 
