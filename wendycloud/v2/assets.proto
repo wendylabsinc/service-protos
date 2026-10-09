@@ -112,6 +112,12 @@ message Asset {
   optional AgentInformationSnapshot agent_information = 41;
   optional google.protobuf.Timestamp agent_information_reported_at = 42;
 
+  // Latest provisioning-status result reported by this device on its
+  // mTLS-authenticated presence lease (WDY-3567). This is not inferred from
+  // enrollment credentials, device bindings, or online presence.
+  optional ProvisioningStatusSnapshot provisioning_status = 43;
+  optional google.protobuf.Timestamp provisioning_status_reported_at = 44;
+
   google.protobuf.Timestamp created_at = 21;
   google.protobuf.Timestamp updated_at = 22;
 }
@@ -133,6 +139,12 @@ message HardwareCapability {
   string device_path = 2;
   string description = 3;
   map<string, string> properties = 4;
+}
+
+// The outcome of the Agent's existing provisioning-status check. Exact Cloud
+// organization and asset UUIDs are already carried by Asset itself.
+message ProvisioningStatusSnapshot {
+  bool provisioned = 1;
 }
 
 message CreateAssetRequest {
