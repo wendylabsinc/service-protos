@@ -111,6 +111,11 @@ message IssuePresenceLeaseRequest {
   // nothing. An absent or invalid snapshot keeps the previous valid value and
   // never prevents lease renewal. Field 17 is additive for old agents/clouds.
   AgentInformationSnapshot agent_information = 17;
+
+  // Optional result of the Agent's provisioning-status check (WDY-3567).
+  // Cloud stores this as descriptive device state; it authorizes nothing. An
+  // absent report keeps the previous valid value and never prevents renewal.
+  ProvisioningStatusSnapshot provisioning_status = 18;
   reserved 4 to 15;
 }
 
@@ -159,6 +164,13 @@ message HardwareCapability {
   string device_path = 2;
   string description = 3;
   map<string, string> properties = 4;
+}
+
+// The outcome of the Agent's existing provisioning-status check. The Cloud
+// asset already supplies its exact UUID organization and asset identities, so
+// legacy numeric identifiers are neither copied nor fabricated here.
+message ProvisioningStatusSnapshot {
+  bool provisioned = 1;
 }
 
 message IssuePresenceLeaseResponse {
