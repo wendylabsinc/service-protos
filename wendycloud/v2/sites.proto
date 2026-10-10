@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package wendycloud.v2;
+
+import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
+
+// Sites group an organization's devices, e.g. "Plant 3" (WDY-3590). Every
+// organization has at least one site and every device belongs to exactly one;
+// a device without an explicit site sits in the organization's oldest site.
+// Descriptive grouping only: a site authorizes nothing.
+//
+// Each RPC comment names its gate: the catalog permission the caller must hold
+// in organization_id. Errors use the gRPC status code named in the comment.
+service SiteService {
+  // Every site of the organization, ordered by name, each with its
+  // device_count. Unpaginated: an organization has few sites. Gate:
+  // `site:list`.
+  rpc ListSites(ListSitesRequest) returns (ListSitesResponse);
+  // Gate: `site:create`. INVALID_ARGUMENT for an empty name, a name over 64
+  // characters or a description over 256; ALREADY_EXISTS if the name is taken
+  // in the organization (case-insensitive).
+  // Signed; payload_type "wendycloud.v2.CreateSiteRequest".
+  rpc CreateSite(SignedRequest) returns (Site) {
+    option (wendy.signed_request) = true;
+  }
+  // Full replace of name and description. Gate: `site:update`. Same errors as
+  // CreateSite; NOT_FOUND if the site is not in the organization.
+  // Signed; payload_type "wendycloud.v2.UpdateSiteRequest".
+  rpc UpdateSite(SignedRequest) returns (Site) {
+    option (wendy.signed_request) = true;
+  }
+  // Gate: `site:delete`. FAILED_PRECONDITION when it is the organization's
+  // last site, or while any device is in it (the caller moves them first).
+  // There is no force flag. NOT_FOUND if the site is not in the organization.
+  // Signed; payload_type "wendycloud.v2.DeleteSiteRequest".
+  rpc DeleteSite(SignedRequest) returns (DeleteSiteResponse) {
+    option (wendy.signed_request) = true;
+  }
+}
+
+message Site {
+  string id = 1;
+  string organization_id = 2;
+  // Unique in the organization, case-insensitive; 1-64 characters.
+  string name = 3;
+  // Up to 256 characters; empty means none.
+  string description = 4;
+  // Devices currently in the site. Filled by ListSites; 0 elsewhere.
+  int32 device_count = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListSitesRequest {
+  string organization_id = 1;
+}
+
+message ListSitesResponse {
+  repeated Site sites = 1;
+}
+
+message CreateSiteRequest {
+  string organization_id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message UpdateSiteRequest {
+  string organization_id = 1;
+  string site_id = 2;
+  string name = 3;
+  string description = 4;
+}
+
+message DeleteSiteRequest {
+  string organization_id = 1;
+  string site_id = 2;
+}
+
+message DeleteSiteResponse {}
