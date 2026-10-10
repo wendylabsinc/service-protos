@@ -107,10 +107,9 @@ message Deployment {
   string created_by_user_id = 6;
   google.protobuf.Timestamp created_at = 7;
   // Both computed on read, never stored (WDY-3573).
-  // target_count: current fan-out rows for the deployment's app; meaningful for the newest
-  // deployment only.
-  // updated_count: of those, devices that reported the app RUNNING at this deployment's
-  // app_release_id (CurrentState) since the deployment was created.
+  // target_count: devices with a fan-out row for this deployment (rows carry its deployment_id).
+  // updated_count: of those, devices whose reported_release_id equals this deployment's
+  // app_release_id, reported after the deployment was created (the reported_at fence).
   int32 target_count = 8;
   int32 updated_count = 9;
   // The targeting the deployment was created with (WDY-3576). Both empty: every device.
