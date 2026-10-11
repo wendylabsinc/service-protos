@@ -67,7 +67,8 @@ grant. The 1800-second limit is a session property (Session bounds), not grant
 validity.
 
 Cloud first authorizes the resolved `tunnel:connect` permission, verifies the
-operator-signed tunnel-v2 request through pki-core, and checks that the returned
+operator-signed request through pki-core (tunnel-v2 body, descriptor operation
+`create_lite_tunnel`, never `create_tunnel`), and checks that the returned
 attestation binds the exact descriptor payload and ephemeral caller key. The
 service is `wendycom`. The operator envelope uses ES256; this exception does not
 permit classical signatures for other tunnel-v2 services or device requests. Only after successful attestation may Cloud derive the
