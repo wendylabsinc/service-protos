@@ -99,8 +99,8 @@ different keys: Cloud fills the key hash from the caller signing key the
 attestation binds, and the device MUST match this hash against the SHA-256 of
 the SubjectPublicKeyInfo DER of the inner TLS leaf it accepted; a mismatch MUST
 be refused before WendyCom is exposed. A URI match alone never admits the session.
-It checks `issued_at - 60 s <= now < expires_at + 60 s` and
-`0 < expires_at - issued_at <= 60`; a grant past its validity MUST be refused.
+The device MUST refuse the grant unless both `issued_at - 60 s <= now < expires_at + 60 s`
+and `0 < expires_at - issued_at <= 60` hold.
 The ±60-second clock-skew allowance (the v2 broker's replay retention skew, one
 number for both lanes) applies to that validity window only, never
 to the 60-second ceiling, the session limit or any other check.
