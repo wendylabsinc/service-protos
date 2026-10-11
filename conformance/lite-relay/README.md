@@ -2,7 +2,8 @@
 
 WDY-3512: `grant.bin` is a WLG2 grant signed with ECDSA P-256 over SHA-256. `cloud-key.bin` is the raw public key. `vector.json` records
 all fields and hex encodings. The fixed private scalar is public test material,
-never a deployment key. The principal payload is the UTF-8 string
+never a deployment key, and so is the operator caller key whose SPKI DER is
+`operator_spki_hex`. The principal payload is the UTF-8 string
 `conformance principal descriptor`.
 
 The generator uses the Go standard library. Run:
