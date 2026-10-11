@@ -8,14 +8,14 @@ install a grant key. Each fresh control connection installs a fresh key set.
 
 ## Outer control records
 
-All records begin with the four bytes `57 52 02 opcode`. No v1 records are
+All records begin with the four bytes `57 52 03 opcode`. No v1 or v2 records are
 accepted. Integers are unsigned, big endian. Reads may split or combine records.
 
 * `01` ping and `02` pong have no body. Send ping every 20 seconds; require pong
   within 10 seconds. The first ping follows the key-set record.
 * `04` key set precedes the first ping. Its body starts with a one-byte count
   in 1..2, followed by that many entries. Each entry is a one-byte key-ID length
-  in 1..128, the ASCII key ID, and exactly 1952 ML-DSA-65 public-key bytes.
+  in 1..128, the ASCII key ID, and exactly 65 uncompressed SEC1 P-256 public-key bytes (`04 || x[32] || y[32]`).
   Reject duplicate IDs and invalid lengths. This replaces all previous keys.
 * `03` upgrade has a 16-byte session ID and a 32-byte SHA-256 hash of the exact
   compact grant record. The device retains both values with this socket.
@@ -24,8 +24,8 @@ accepted. Integers are unsigned, big endian. Reads may split or combine records.
   server; the CLI is the client. The device accepts no further outer records.
 
 Key IDs contain only ASCII letters, digits, period, underscore, and hyphen.
-The keys are the existing Cloud grant keys, including an optional previous key
-for rotation overlap. They are not new per-device signing keys. A broker that
+The keys belong to the dedicated Lite Cloud signer, including an optional previous
+key for rotation overlap. They are separate from ML-DSA control-plane keys. A broker that
 cannot obtain its current key must not publish device presence.
 
 ## Compact grant record
@@ -36,7 +36,7 @@ trailing data within the record. The key-ID length determines the record length.
 
 | Field | Bytes |
 | --- | ---: |
-| ASCII `WLG1` | 4 |
+| ASCII `WLG2` | 4 |
 | Key-ID length | 1 |
 | Key ID | 1..128 |
 | Issued at, Unix seconds | 8 |
@@ -46,17 +46,18 @@ trailing data within the record. The key-ID length determines the record length.
 | SHA-256 of exact device SPIFFE URI UTF-8 | 32 |
 | SHA-256 of exact operator SPIFFE URI UTF-8 | 32 |
 | SHA-256 of decoded signed principal descriptor payload | 32 |
-| ML-DSA-65 signature | 3309 |
+| P-256 ECDSA signature, raw `r[32] || s[32]` | 64 |
 
-The signature is pure FIPS 204 ML-DSA-65 with empty context over every preceding
-byte, starting with `WLG1`. The magic separates this artifact from all JWS
+The signature is ES256: ECDSA P-256 over SHA-256 of every preceding
+byte, starting with `WLG2`. The magic separates this artifact from all JWS
 artifacts signed by the same KMS-held Cloud grant key. Total length is
-`3458 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
+`213 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
 
 Cloud first authorizes the resolved `tunnel:connect` permission, verifies the
 operator-signed tunnel-v2 request through pki-core, and checks that the returned
 attestation binds the exact descriptor payload and ephemeral caller key. The
-service is `wendycom`. Only after successful attestation may Cloud derive the
+service is `wendycom`. The operator envelope uses ES256; this exception does not
+permit classical signatures for other tunnel-v2 services or device requests. Only after successful attestation may Cloud derive the
 operator URI from pki-core validation of that same x5c leaf. It must be a single operator identity in
 the device's tenant. It must never derive this identity from unsigned metadata.
 
@@ -70,7 +71,7 @@ It checks `issued_at <= now < expires_at` and
 The upgrade binding makes grants single-use across device sockets without
 persistent device replay storage. A repeated preface is an invalid WendyCom frame.
 
-After verification the device writes `57 4c 41 31` (`WLA1`). The CLI waits for
+After verification the device writes `57 4c 41 32` (`WLA2`). The CLI waits for
 this acknowledgement before sending the established stream message and before
 sending any WendyCom frame. Missing/invalid grant or acknowledgement closes TLS.
 

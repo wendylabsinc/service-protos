@@ -3,26 +3,30 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"math/big"
 	"os"
 )
 
 func main() {
-	scheme := mldsa65.Scheme()
-	seed := make([]byte, scheme.SeedSize())
+	seed := make([]byte, 32)
 	for i := range seed {
 		seed[i] = byte(i)
 	}
-	pk, sk := scheme.DeriveKey(seed)
-	pub, _ := pk.MarshalBinary()
+	d := new(big.Int).SetBytes(seed)
+	x, y := elliptic.P256().ScalarBaseMult(seed)
+	sk := &ecdsa.PrivateKey{PublicKey: ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, D: d}
+	pub := elliptic.Marshal(elliptic.P256(), x, y)
 	device := "spiffe://wendy.sh/tenant/00000000-0000-4000-8000-000000000001/device/lite-test"
 	operator := "spiffe://wendy.sh/tenant/00000000-0000-4000-8000-000000000001/operator/00000000-0000-4000-8000-000000000002"
 	kid := "conformance-cloud-key"
-	r := append([]byte("WLG1"), byte(len(kid)))
+	r := append([]byte("WLG2"), byte(len(kid)))
 	r = append(r, []byte(kid)...)
 	r = binary.BigEndian.AppendUint64(r, 1700000000)
 	r = binary.BigEndian.AppendUint64(r, 1700001800)
@@ -36,7 +40,13 @@ func main() {
 		h := sha256.Sum256([]byte(s))
 		r = append(r, h[:]...)
 	}
-	r = append(r, scheme.Sign(sk, r, nil)...)
+	digest := sha256.Sum256(r)
+	sr, ss, err := ecdsa.Sign(rand.Reader, sk, digest[:])
+	if err != nil {
+		panic(err)
+	}
+	r = append(r, sr.FillBytes(make([]byte, 32))...)
+	r = append(r, ss.FillBytes(make([]byte, 32))...)
 	hash := sha256.Sum256(r)
 	root := os.Args[1] + "/"
 	os.MkdirAll(root, 0755)
