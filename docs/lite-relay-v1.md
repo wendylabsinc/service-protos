@@ -6,6 +6,15 @@ its enrollment-provisioned HTTPS roots. Grant keys arrive only through this
 connection, after TLS authentication. Neither the CLI nor an inner TLS peer can
 install a grant key. Each fresh control connection installs a fresh key set.
 
+## Tier
+
+Tier C is an asset registered `wendy-lite` at enrollment: a device that
+terminates mTLS itself and cannot verify ML-DSA. Only Tier-C assets enter this
+lane, and only they are issued P-256 grants. Cloud refuses the Lite lane, and
+any P-256 grant, for a Tier-A or Tier-B asset; those stay on the ML-DSA tunnel-v2
+lane. The tier is a property of the enrolled asset, never caller input, and is
+never negotiated on the wire.
+
 ## Outer control records
 
 All records begin with the four bytes `57 52 03 opcode`. No v1 or v2 records are
@@ -53,8 +62,9 @@ trailing data within the record. The key-ID length determines the record length.
 | P-256 ECDSA signature, raw `r[32] || s[32]` | 64 |
 
 The signature is ES256: ECDSA P-256 over SHA-256 of every preceding
-byte, starting with `WLG2`. The magic separates this artifact from all JWS
-artifacts signed by the same KMS-held Cloud grant key. Total length is
+byte, starting with `WLG2`. The P-256 Lite grant key signs only these Tier-C
+grant records, never a JWS artifact; the magic keeps the record distinct from
+every other signed format. Total length is
 `309 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
 
 The correlation ID is the request's §11.2 `correlation_id`: its 16 UUID bytes
