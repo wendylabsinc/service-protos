@@ -45,13 +45,14 @@ trailing data within the record. The key-ID length determines the record length.
 | Asset UUID, network byte order | 16 |
 | SHA-256 of exact device SPIFFE URI UTF-8 | 32 |
 | SHA-256 of exact operator SPIFFE URI UTF-8 | 32 |
+| SHA-256 of operator caller key SubjectPublicKeyInfo DER | 32 |
 | SHA-256 of decoded signed principal descriptor payload | 32 |
 | P-256 ECDSA signature, raw `r[32] || s[32]` | 64 |
 
 The signature is ES256: ECDSA P-256 over SHA-256 of every preceding
 byte, starting with `WLG2`. The magic separates this artifact from all JWS
 artifacts signed by the same KMS-held Cloud grant key. Total length is
-`213 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
+`245 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
 
 Cloud first authorizes the resolved `tunnel:connect` permission, verifies the
 operator-signed tunnel-v2 request through pki-core, and checks that the returned
@@ -65,7 +66,11 @@ The device verifies the signature using the key set from this socket's outer
 TLS connection. It checks the grant's SHA-256 and session ID against the upgrade
 record, device URI against its own certificate, and operator URI against the
 validated same-tenant inner TLS client certificate. Different operator signing
-and TLS leaf certificates may represent the same PKI-issued principal.
+and TLS leaf certificates may represent the same PKI-issued principal, but not
+different keys: Cloud fills the key hash from the caller signing key the
+attestation binds, and the device MUST match this hash against the SHA-256 of
+the SubjectPublicKeyInfo DER of the inner TLS leaf it accepted; mismatch =
+refuse. A URI match alone never admits the session.
 It checks `issued_at <= now < expires_at` and
 `0 < expires_at - issued_at <= 1800`. It rejects a grant before exposing WendyCom.
 The upgrade binding makes grants single-use across device sockets without
