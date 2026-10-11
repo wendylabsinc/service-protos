@@ -20,8 +20,13 @@ service WendyComRelayService {
 }
 
 message WendyComRelayOpen {
-  // The tunnel-v2 canonical request and signing profile are reused unchanged.
-  // service MUST be "wendycom"; request_id is a fresh random 16-byte value.
+  // The tunnel-v2 canonical request body is reused unchanged. service MUST be
+  // "wendycom"; request_id is a fresh random 16-byte value. The reqsig
+  // descriptor follows the tunnel-v2 rules except its operation, which MUST be
+  // "create_lite_tunnel" (aud stays "pki-core/tunnel-attestation"): Cloud and
+  // pki-core refuse "create_tunnel" here and "create_lite_tunnel" on the v2 path,
+  // so each audit names its path. Replay stays closed by pki-core's single-use
+  // descriptor nonce.
   wendycloud.tunnel.v2.TunnelPrincipalRequestBody request_body = 1;
   // Mandatory kind "tunnel-principal-request+jws", with an x5c leaf reference.
   wendyauth.v1.SignedArtifact principal_request = 2;
