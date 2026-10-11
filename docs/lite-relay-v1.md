@@ -71,7 +71,9 @@ every other signed format. Total length is
 `309 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
 
 The correlation ID is the request's §11.2 `correlation_id`: its 16 UUID bytes
-when it is a UUID, else the first 16 bytes of SHA-256 of its UTF-8. Cloud never
+when it is exactly the 36-character hyphenated 8-4-4-4-12 form (either case),
+else the first 16 bytes of SHA-256 of its UTF-8. Braced, URN and bare-hex
+forms are not that form and take the hash. Cloud never
 mints a second one for the grant. The attestation hash binds the exact
 `tunnel-principal-attestation+jwt` pki-core returned for this request.
 `expires_at` bounds presentation only: it is at most 60 seconds after
