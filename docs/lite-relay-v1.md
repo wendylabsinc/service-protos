@@ -39,6 +39,9 @@ cannot obtain its current key must not publish device presence.
 
 ## Compact grant record
 
+The Lite grant is the same AAA §5.8 grant in a compact binary encoding signed
+ES256 (Tier C).
+
 The first application bytes after the inner mTLS handshake are exactly one
 record with the following layout. There is no JSON, JWS, CBOR, padding, or
 trailing data within the record. The key-ID length determines the record length.
