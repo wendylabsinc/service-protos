@@ -69,8 +69,8 @@ validated same-tenant inner TLS client certificate. Different operator signing
 and TLS leaf certificates may represent the same PKI-issued principal, but not
 different keys: Cloud fills the key hash from the caller signing key the
 attestation binds, and the device MUST match this hash against the SHA-256 of
-the SubjectPublicKeyInfo DER of the inner TLS leaf it accepted; mismatch =
-refuse. A URI match alone never admits the session.
+the SubjectPublicKeyInfo DER of the inner TLS leaf it accepted; a mismatch MUST
+be refused before WendyCom is exposed. A URI match alone never admits the session.
 It checks `issued_at <= now < expires_at` and
 `0 < expires_at - issued_at <= 1800`. It rejects a grant before exposing WendyCom.
 The upgrade binding makes grants single-use across device sockets without
