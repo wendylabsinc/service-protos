@@ -71,7 +71,7 @@ every other signed format. Total length is
 `309 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
 
 The correlation ID is the request's §11.2 `correlation_id`: its 16 UUID bytes
-when it is exactly the 36-character hyphenated 8-4-4-4-12 form (either case),
+when it is exactly the 36-character hyphenated 8-4-4-4-12 form (hex digits case-insensitive, mixed included),
 else the first 16 bytes of SHA-256 of its UTF-8. Braced, URN and bare-hex
 forms are not that form and take the hash. Cloud never
 mints a second one for the grant. The attestation hash binds the exact
@@ -107,7 +107,7 @@ to the 60-second ceiling, the session limit or any other check.
 It MUST refuse a `jti` it has already accepted: it keeps accepted `jti` values
 in a bounded cache until their `expires_at` plus the 60-second skew, which the
 60-second validity bounds (firmware WDY-3565). When the cache is full it MUST
-refuse new grants; it never evicts an entry before that retention ends. It rejects a grant before exposing WendyCom.
+refuse new grants; it MUST NOT evict an entry before that retention ends. It rejects a grant before exposing WendyCom.
 The upgrade binding additionally ties a grant to one device socket. A repeated
 preface is an invalid WendyCom frame.
 
