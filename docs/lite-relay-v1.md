@@ -40,19 +40,31 @@ trailing data within the record. The key-ID length determines the record length.
 | Key-ID length | 1 |
 | Key ID | 1..128 |
 | Issued at, Unix seconds | 8 |
-| Expires at, Unix seconds | 8 |
+| Expires at (present-by), Unix seconds | 8 |
 | Random session ID | 16 |
+| Grant ID (`jti`), random, single-use | 16 |
+| Correlation ID | 16 |
 | Asset UUID, network byte order | 16 |
 | SHA-256 of exact device SPIFFE URI UTF-8 | 32 |
 | SHA-256 of exact operator SPIFFE URI UTF-8 | 32 |
 | SHA-256 of operator caller key SubjectPublicKeyInfo DER | 32 |
 | SHA-256 of decoded signed principal descriptor payload | 32 |
+| SHA-256 of the exact pki-core attestation compact JWS (ASCII) | 32 |
 | P-256 ECDSA signature, raw `r[32] || s[32]` | 64 |
 
 The signature is ES256: ECDSA P-256 over SHA-256 of every preceding
 byte, starting with `WLG2`. The magic separates this artifact from all JWS
 artifacts signed by the same KMS-held Cloud grant key. Total length is
-`245 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
+`309 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
+
+The correlation ID is the request's §11.2 `correlation_id`: its 16 UUID bytes
+when it is a UUID, else the first 16 bytes of SHA-256 of its UTF-8. Cloud never
+mints a second one for the grant. The attestation hash binds the exact
+`tunnel-principal-attestation+jwt` pki-core returned for this request.
+`expires_at` bounds presentation only: it is at most 60 seconds after
+`issued_at` and never later than the attestation's `exp`, as for every §5.8
+grant. The 1800-second limit is a session property (Session bounds), not grant
+validity.
 
 Cloud first authorizes the resolved `tunnel:connect` permission, verifies the
 operator-signed tunnel-v2 request through pki-core, and checks that the returned
@@ -72,9 +84,12 @@ attestation binds, and the device MUST match this hash against the SHA-256 of
 the SubjectPublicKeyInfo DER of the inner TLS leaf it accepted; a mismatch MUST
 be refused before WendyCom is exposed. A URI match alone never admits the session.
 It checks `issued_at <= now < expires_at` and
-`0 < expires_at - issued_at <= 1800`. It rejects a grant before exposing WendyCom.
-The upgrade binding makes grants single-use across device sockets without
-persistent device replay storage. A repeated preface is an invalid WendyCom frame.
+`0 < expires_at - issued_at <= 60`; a grant past its validity MUST be refused.
+It MUST refuse a `jti` it has already accepted: it keeps accepted `jti` values
+in a bounded cache until their `expires_at` plus clock skew, which the 60-second
+validity bounds (firmware WDY-3565). It rejects a grant before exposing WendyCom.
+The upgrade binding additionally ties a grant to one device socket. A repeated
+preface is an invalid WendyCom frame.
 
 After verification the device writes `57 4c 41 32` (`WLA2`). The CLI waits for
 this acknowledgement before sending the established stream message and before
@@ -85,12 +100,15 @@ sending any WendyCom frame. Missing/invalid grant or acknowledgement closes TLS.
 Cloud enforces at most four concurrent sessions per authenticated user and one
 per asset across broker processes. Admission and release are atomic; stale
 reservations expire. A replacement control connection does not bypass a claim.
-The session closes at its signed expiry, no later than 1800 seconds after issue.
+The session closes no later than 1800 seconds after the grant's `issued_at`, and
+never after the operator leaf or device certificate expires; the broker enforces
+this, and the device closes WendyCom at most 1800 seconds after it accepted the
+grant.
 
 A session has 10 seconds from claim to established, including outer shutdown,
 inner TLS and grant verification. Afterwards it has a 60-second inactivity
 limit, reset by bytes in either direction. The device independently enforces
-its handshake deadline and grant expiry. Established is not an authentication
+its handshake deadline, the grant's present-by time and the session limit. Established is not an authentication
 proof; the operator principal proof is verified before claim, and the device
 performs its own verification before accepting application traffic.
 
