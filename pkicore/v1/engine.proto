@@ -576,6 +576,12 @@ enum CARole {
   // (tenant="system"); CA_ROLE_TENANT_CODE_SIGNING is tenant-tier.
   CA_ROLE_TENANT_CODE_SIGNING = 8; // "tenant_code_signing"
   CA_ROLE_CODE_SIGNING_ACTIVE = 9; // "code_signing_active"
+
+  // The tenant's self-signed P-256 Lite Operator Authority (lite-relay-v1
+  // § Operator dual-key). Never an operator trust anchor except on the Lite
+  // lane opt-in; consumers selecting CA_ROLE_TENANT_OPERATOR_AUTHORITY never
+  // see it.
+  CA_ROLE_TENANT_LITE_OPERATOR_AUTHORITY = 10; // "tenant_lite_operator_authority"
 }
 
 message CAInfo {
