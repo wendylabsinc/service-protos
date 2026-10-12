@@ -229,6 +229,14 @@ message AttestTunnelPrincipalResponse {
   // iat <= grant iat and grant exp <= attestation exp.
   string principal_attestation_jws = 1; // 1..16384 ASCII bytes.
   reserved 2 to 15;
+  // The operator leaf pki-core validated for this request (x5c[0], chain,
+  // revocation, principal), outside the JWS. Set only when the request
+  // principal is an operator; empty for a device principal. Cloud's Lite lane
+  // takes the operator identity from these fields, never from a separate
+  // ValidateOperatorCertificate call (lite-relay-v1 § Operator dual-key).
+  string operator_principal_uri    = 16; // exact operator SPIFFE URI
+  bytes  operator_leaf_serial      = 17; // leaf serial, big-endian magnitude
+  bytes  operator_leaf_spki_sha256 = 18; // SHA-256 of leaf SubjectPublicKeyInfo DER
 }
 
 message RequestTunnelResponse {
