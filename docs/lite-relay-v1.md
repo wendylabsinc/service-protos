@@ -188,18 +188,18 @@ attestation; an established session is not cut (at most 1800 s).
 
 **Verifiers.** Each service validates operator leaves in one place. By default
 it refuses a non-ML-DSA leaf, a leaf with the marker, and any chain through a
-Lite Operator Authority; no other trust pool contains one. The opt-in is never
-request input. pki-core opts in only for `create_lite_tunnel` whose target asset
-has a current, unrevoked device certificate in the tenant the call was admitted
-under, issued under pki-core's `device-tier-c` profile; pki-core resolves
-`target.asset_id` from its own records and never uses a tier sent by Cloud.
-Cloud admits the Lite lane only for a Tier-C asset (§Tier) and takes the
-operator identity from the attestation response, never from
-`ValidateOperatorCertificate`, which has no opt-in. With the opt-in the verifier
-requires the Lite profile above, a chain to the active Lite Operator Authority
-of the target asset's tenant, a SAN tenant equal to it, and an unrevoked leaf;
-it accepts nothing else. A Tier-C device requires the inner TLS leaf to chain to
-its anchor with the Lite profile, then applies the grant checks above.
+Lite Operator Authority; no other trust pool contains one. The opt-in is keyed
+by the credential class pki-core issued (marker plus Lite Operator Authority
+chain, which no caller can mint) and the signed
+`create_lite_tunnel`/`wendycom`/ES256 descriptor; pki-core alone opts in, and
+requires a P-256 leaf with the marker, chaining to the admitted tenant's active
+Lite Operator Authority, SAN tenant equal, unrevoked. Three barriers keep it
+Tier-C only: Cloud's tier gate (the immutable `wendy-lite` asset type, §Tier),
+pki-core's Lite-only pool, and the device anchor. pki-core is not a target-tier
+gate today (WDY-3640). Cloud takes the operator identity from the attestation
+response, never from `ValidateOperatorCertificate`, which has no opt-in. A
+Tier-C device requires the inner TLS leaf to chain to its anchor with the Lite
+profile, then applies the grant checks above.
 
 **Audit.** Lite issuance, its refusals and every Lite grant record operator URI,
 tenant, key algorithm, leaf and primary serials, `correlation_id`.
