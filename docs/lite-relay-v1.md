@@ -159,8 +159,10 @@ Authority: a self-signed P-256 CA (pathLen 0) that pki-core creates per tenant
 and keeps beside the ML-DSA chain, not under it, because a Tier-C device cannot
 parse an ML-DSA-signed certificate. It issues only Lite leaves and signs its own
 CRL, published like other tenant CRLs. A Tier-C device holds its tenant's Lite
-Operator Authority certificate as its operator trust anchor (provisioned with
-its other roots) and refuses every Lite session without one. The CLI sends only
+Operator Authority certificate as its operator trust anchor and refuses every
+Lite session without one. It accepts that anchor only from pki-core's enrollment
+response over the TLS channel its enrollment roots authenticate, bound to its own
+identity; BLE provisioning, local configuration and the CLI never set it. The CLI sends only
 the Lite leaf in the inner TLS Certificate message. Re-keying the authority
 requires re-provisioning the anchor; leaves under a non-active authority fail.
 
@@ -185,8 +187,9 @@ attestation; an established session is not cut (at most 1800 s).
 it refuses a non-ML-DSA leaf, a leaf with the marker, and any chain through a
 Lite Operator Authority; no other trust pool contains one. The opt-in is never
 request input. pki-core opts in only for `create_lite_tunnel` whose target asset
-holds a pki-core-issued Tier-C device identity in the tenant the call was
-admitted under. Cloud opts in only on the Lite lane for a Tier-C asset (§Tier)
+has a current, unrevoked device certificate in the tenant the call was admitted
+under, issued under pki-core's `device-tier-c` profile; pki-core resolves
+`target.asset_id` from its own records and never uses a tier sent by Cloud. Cloud opts in only on the Lite lane for a Tier-C asset (§Tier)
 and takes the result from pki-core's validation. With the opt-in the verifier
 requires the Lite profile above, a chain to the active Lite Operator Authority
 of the target asset's tenant, a SAN tenant equal to it, and an unrevoked leaf;
