@@ -84,10 +84,15 @@ validity.
 Cloud first authorizes the resolved `tunnel:connect` permission, verifies the
 operator-signed request through pki-core (tunnel-v2 body, descriptor operation
 `create_lite_tunnel`, never `create_tunnel`), and checks that the returned
-attestation binds the exact descriptor payload and ephemeral caller key. The
+attestation binds the exact descriptor payload and the caller signing key (the
+Lite leaf's P-256 key, also the inner TLS client key; see Operator dual-key). The
 service is `wendycom`. The operator envelope uses ES256; this exception does not
 permit classical signatures for other tunnel-v2 services or device requests. Only after successful attestation may Cloud derive the
-operator URI from pki-core validation of that same x5c leaf. It must be a single operator identity in
+operator URI, and only from the `AttestTunnelPrincipalResponse` operator fields
+pki-core fills from its validation of that same x5c leaf. Cloud refuses the
+Lite lane when those fields are empty and never falls back to another validator;
+`operator_leaf_spki_sha256` must equal the attested caller key hash, and pki-core
+requires that caller key to be the x5c leaf key. It must be a single operator identity in
 the device's tenant. It must never derive this identity from unsigned metadata.
 
 The device verifies the signature using the key set from this socket's outer
@@ -137,3 +142,64 @@ returns a route only after asset authorization, before attestation or claim.
 Clients verify TLS for that endpoint, authenticate a new stream, and limit route
 retries to three. Deployments must advertise an endpoint that reaches the owning
 process; a load-balanced endpoint without instance affinity is invalid.
+
+## Operator dual-key
+
+An operator has one identity (one SPIFFE URI) and two certificates: an ML-DSA
+**primary** under the tenant Operator Authority for every operator call except
+the Lite lane, including the request for the second; and a P-256 **Lite** leaf
+with the same SPIFFE URI and tenant, used only for the ES256
+`create_lite_tunnel` envelope and as the inner TLS client certificate.
+
+**Lite leaf profile.** keyUsage `digitalSignature` only (critical); extKeyUsage
+exactly {`id-kp-clientAuth`, `id-kp-wendyLiteOperator` =
+`1.3.6.1.4.1.65441.1.9`}, never anyExtendedKeyUsage. That EKU is the marker:
+pki-core sets it on every P-256 operator leaf and on no other certificate.
+Verifiers require the EKU extension and both OIDs literally (mbedTLS: iterate
+`ext_key_usage`, not the helper, which passes when absent).
+
+**Lite Operator Authority.** Each tenant may hold one active Lite Operator
+Authority: a self-signed P-256 CA (pathLen 0) that pki-core creates per tenant
+and keeps beside the ML-DSA chain, not under it, because a Tier-C device cannot
+parse an ML-DSA-signed certificate. It issues only Lite leaves and signs its own
+CRL, published like other tenant CRLs. A Tier-C device holds its tenant's Lite
+Operator Authority certificate as its operator trust anchor and refuses every
+Lite session without one. It accepts that anchor only from pki-core's enrollment
+response over the TLS channel its enrollment roots authenticate, bound to its
+own identity; BLE provisioning, local configuration and the CLI never set it.
+The CLI sends only the Lite leaf in the inner TLS Certificate message. Re-keying
+it means re-provisioning anchors.
+
+**Issuance.** pki-core issues a P-256 operator leaf only from `POST
+/v1/identity/certificate`, and only when the access token's `cnf.jkt` and the
+DPoP proof key are an ML-DSA key equal to the key of at least one active,
+unrevoked primary of the same principal and tenant. Every other issuance path
+(RelayIssuance, entitled and over-duration certificates, bootstrap) refuses a
+non-ML-DSA operator CSR. The CSR carries the P-256 key and proves possession;
+this is the only waiver of thumbprint(CSR key) == `cnf.jkt`. SPIFFE URI and
+tenant come from the token and those primaries; CSR subject and extensions are
+ignored. pki-core never certifies a key it has revoked.
+
+**Lifetime and revocation.** notAfter is clamped to the earliest notAfter of
+those primaries, never extended; renewal meets the same precondition. Revoking
+any of those primaries, disabling the principal, or offboarding the tenant
+revokes the Lite leaf. pki-core checks revocation on every `create_lite_tunnel`
+attestation; an established session is not cut (at most 1800 s).
+
+**Verifiers.** Each service validates operator leaves in one place. By default
+it refuses a non-ML-DSA leaf, a leaf with the marker, and any chain through a
+Lite Operator Authority; no other trust pool contains one. The opt-in is keyed
+by the credential class pki-core issued (marker plus Lite Operator Authority
+chain, which no caller can mint) and the signed
+`create_lite_tunnel`/`wendycom`/ES256 descriptor; pki-core alone opts in, and
+requires a P-256 leaf with the marker, chaining to the admitted tenant's active
+Lite Operator Authority, SAN tenant equal, unrevoked. Three barriers keep it
+Tier-C only: Cloud's tier gate (the immutable `wendy-lite` asset type, §Tier),
+pki-core's Lite-only pool, and the device anchor. pki-core is not a target-tier
+gate today (WDY-3640). Cloud takes the operator identity from the attestation
+response, never from `ValidateOperatorCertificate`, which has no opt-in. A
+Tier-C device requires the inner TLS leaf to chain to its anchor with the Lite
+profile, then applies the grant checks above.
+
+**Audit.** Lite issuance, its refusals and every Lite grant record operator URI,
+tenant, key algorithm, leaf and primary serials, `correlation_id`.

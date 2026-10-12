@@ -576,6 +576,12 @@ enum CARole {
   // (tenant="system"); CA_ROLE_TENANT_CODE_SIGNING is tenant-tier.
   CA_ROLE_TENANT_CODE_SIGNING = 8; // "tenant_code_signing"
   CA_ROLE_CODE_SIGNING_ACTIVE = 9; // "code_signing_active"
+
+  // The tenant's self-signed P-256 Lite Operator Authority (lite-relay-v1
+  // § Operator dual-key). Never an operator trust anchor except on the Lite
+  // lane opt-in; consumers selecting CA_ROLE_TENANT_OPERATOR_AUTHORITY never
+  // see it.
+  CA_ROLE_TENANT_LITE_OPERATOR_AUTHORITY = 10; // "tenant_lite_operator_authority"
 }
 
 message CAInfo {
@@ -742,6 +748,13 @@ message IssueOperatorCertRequest {
   // the proof's expiry (unix seconds), bounding the replay-cache row's TTL.
   string          dpop_jti      = 10;
   int64           dpop_exp      = 11;
+  // Lite operator leaf (lite-relay-v1 § Operator dual-key): the token's
+  // cnf.jkt (RFC 7638 thumbprint of the session key), which the identity
+  // frontend verified as the DPoP proof key. Set only when the CSR key differs
+  // from it (a P-256 Lite CSR over an ML-DSA session); the engine then requires
+  // it to be the key of an active, unrevoked ML-DSA primary leaf of the same
+  // principal. Empty => CSR key == session key, as before.
+  string          session_jkt   = 12;
 }
 message IssueOperatorCertResponse {
   bytes certificate = 1; // DER leaf
@@ -1439,7 +1452,11 @@ message ValidateOperatorCertificateResponse {
   //   "malformed"          — leaf does not parse as an X.509 certificate
   //   "untrusted"          — does not chain to the tenant's Operator-Authority
   //                          CA (also covers a leaf of a DIFFERENT tenant:
-  //                          anchors are strictly per-tenant)
+  //                          anchors are strictly per-tenant; a Lite operator
+  //                          leaf never chains here)
+  //   "operator_class"     — chains, but is not an ML-DSA operator leaf (a
+  //                          non-ML-DSA key or the Lite marker; lite-relay-v1
+  //                          § Operator dual-key). This RPC has no Lite opt-in.
   //   "not_operator"       — chains, but the SPIFFE SAN is not an operator
   //                          principal of the tenant
   //   "not_yet_valid"      — NotBefore is in the future
