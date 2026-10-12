@@ -742,6 +742,13 @@ message IssueOperatorCertRequest {
   // the proof's expiry (unix seconds), bounding the replay-cache row's TTL.
   string          dpop_jti      = 10;
   int64           dpop_exp      = 11;
+  // Lite operator leaf (lite-relay-v1 § Operator dual-key): the DER
+  // SubjectPublicKeyInfo of the session key, i.e. the DPoP proof key the
+  // identity frontend verified as the token's cnf.jkt. Set only when the CSR
+  // key differs from it (a P-256 Lite CSR over an ML-DSA session); the engine
+  // then requires an ML-DSA key equal to an active, unrevoked primary leaf of
+  // the same principal. Empty => CSR key == session key, as before.
+  bytes           session_key_spki = 12;
 }
 message IssueOperatorCertResponse {
   bytes certificate = 1; // DER leaf
