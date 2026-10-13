@@ -169,17 +169,18 @@ response over the TLS channel its enrollment roots authenticate, bound to its
 own identity; BLE provisioning, local configuration and the CLI never set it.
 The CLI sends only the Lite leaf in the inner TLS Certificate message.
 
-**Anchor delivery.** Every successful `device-tier-c` enrollment and renewal
-response carries that certificate in the HTTP header
-`X-Wendy-Lite-Operator-Authority`, standard base64 of its DER: EST
-`simpleenroll` and `simplereenroll`, CSR `/v1/{tenant_id}/enroll` and
-`/v1/{tenant_id}/renew`, and `/v1/renew`. No other response carries it, and
-pki-core creates the authority on first use. The device MUST pin it as its only
-operator anchor and MUST refuse one that is not a self-signed P-256 CA
-certificate. Rotation: the device MUST replace its pinned anchor with the one on
-each later renewal response, so a rotated Lite Operator Authority reaches a
-device at its next renewal; until then that device refuses Lite leaves of the
-new authority. The header is additive: a client that ignores it is unaffected.
+**Anchor delivery.** A successful `device-tier-c` response from EST
+`simpleenroll` or `simplereenroll`, CSR `/v1/{tenant_id}/enroll` or
+`/v1/{tenant_id}/renew`, or `/v1/renew` carries that certificate in the HTTP
+header `X-Wendy-Lite-Operator-Authority`, standard base64 of its DER; pki-core
+creates the authority on first use. No other response carries it, so a Tier-C
+device enrolls and renews over EST or CSR. An enrollment that cannot attach it
+fails; a renewal that cannot goes on without it. The device MUST pin it as its
+only operator anchor and MUST refuse one that is not a self-signed P-256 CA
+certificate. Rotation: when a later renewal response carries the header, the
+device MUST replace its pinned anchor with it, so a new Lite Operator Authority
+reaches a device at its next renewal; a renewal without the header keeps the
+pinned anchor. The header is additive: a client that ignores it is unaffected.
 
 **Issuance.** pki-core issues a P-256 operator leaf only from `POST
 /v1/identity/certificate`, and only when the access token's `cnf.jkt` and the
@@ -215,10 +216,12 @@ profile, then applies the grant checks above.
 **Service accounts.** A service-account identity (SPIFFE kind `service`)
 follows the same rules: an ML-DSA primary, and at most the same Lite leaf
 (marker, Lite Operator Authority, ML-DSA session of that same service principal,
-linked lifetime and revocation). Verifiers apply the same default deny to
-service leaves, so an unmarked non-ML-DSA service leaf is refused everywhere.
-The `create_lite_tunnel` lane still admits operator leaves only; admitting a
-service Lite leaf there is a separate contract change.
+linked lifetime and revocation). Every operator-class verifier applies the same
+default deny to service leaves, so an unmarked non-ML-DSA service leaf is
+refused wherever an operator leaf would be; that refusal, not issuance, is the
+guarantee. It breaks any EC service-account credential. No lane admits a
+service Lite leaf yet: `create_lite_tunnel` admits operator leaves only, and
+admitting service leaves there is a separate contract change.
 
 **Audit.** Lite issuance, its refusals and every Lite grant record operator URI,
 tenant, key algorithm, leaf and primary serials, `correlation_id`.

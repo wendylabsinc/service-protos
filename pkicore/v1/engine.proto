@@ -331,9 +331,10 @@ message IssueCertificateResponse {
   bytes certificate = 1; // DER leaf
   bytes chain       = 2; // DER intermediates (not root)
   bytes ocsp_staple = 3; // pre-generated OCSP response for offline carry
-  // DER of the tenant's Lite Operator Authority, set iff the leaf is
-  // device-tier-c; the frontends relay it as the device's operator anchor
-  // (docs/lite-relay-v1.md § Operator dual-key).
+  // DER of the tenant's Lite Operator Authority on a device-tier-c leaf of a
+  // non-system tenant (absent on a renewal that could not attach it); the
+  // EST/CSR/renew frontends relay it as the device's operator anchor
+  // (docs/lite-relay-v1.md § Operator dual-key, Anchor delivery).
   bytes lite_operator_authority = 4;
 }
 
