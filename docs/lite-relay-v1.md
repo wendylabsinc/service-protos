@@ -212,5 +212,13 @@ response, never from `ValidateOperatorCertificate`, which has no opt-in. A
 Tier-C device requires the inner TLS leaf to chain to its anchor with the Lite
 profile, then applies the grant checks above.
 
+**Service accounts.** A service-account identity (SPIFFE kind `service`)
+follows the same rules: an ML-DSA primary, and at most the same Lite leaf
+(marker, Lite Operator Authority, ML-DSA session of that same service principal,
+linked lifetime and revocation). Verifiers apply the same default deny to
+service leaves, so an unmarked non-ML-DSA service leaf is refused everywhere.
+The `create_lite_tunnel` lane still admits operator leaves only; admitting a
+service Lite leaf there is a separate contract change.
+
 **Audit.** Lite issuance, its refusals and every Lite grant record operator URI,
 tenant, key algorithm, leaf and primary serials, `correlation_id`.
