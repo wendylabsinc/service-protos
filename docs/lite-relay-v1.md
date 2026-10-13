@@ -88,12 +88,13 @@ attestation binds the exact descriptor payload and the caller signing key (the
 Lite leaf's P-256 key, also the inner TLS client key; see Operator dual-key). The
 service is `wendycom`. The operator envelope uses ES256; this exception does not
 permit classical signatures for other tunnel-v2 services or device requests. Only after successful attestation may Cloud derive the
-operator URI, and only from the `AttestTunnelPrincipalResponse` operator fields
-pki-core fills from its validation of that same x5c leaf. Cloud refuses the
+operator URI (or a service account's, see Service accounts), and only from the
+`AttestTunnelPrincipalResponse` operator fields pki-core fills from its
+validation of that same x5c leaf. Cloud refuses the
 Lite lane when those fields are empty and never falls back to another validator;
 `operator_leaf_spki_sha256` must equal the attested caller key hash, and pki-core
-requires that caller key to be the x5c leaf key. It must be a single operator identity in
-the device's tenant. It must never derive this identity from unsigned metadata.
+requires that caller key to be the x5c leaf key. It must be a single operator or
+service identity in the device's tenant. It must never derive this identity from unsigned metadata.
 
 The device verifies the signature using the key set from this socket's outer
 TLS connection. It checks the grant's SHA-256 and session ID against the upgrade
@@ -219,9 +220,13 @@ follows the same rules: an ML-DSA primary, and at most the same Lite leaf
 linked lifetime and revocation). Every operator-class verifier applies the same
 default deny to service leaves, so an unmarked non-ML-DSA service leaf is
 refused wherever an operator leaf would be; that refusal, not issuance, is the
-guarantee. It breaks any EC service-account credential. No lane admits a
-service Lite leaf yet: `create_lite_tunnel` admits operator leaves only, and
-admitting service leaves there is a separate contract change.
+guarantee. It breaks any EC service-account credential. `create_lite_tunnel`
+admits a service principal holding that Lite leaf exactly as an operator
+(WDY-3651): pki-core fills `AttestTunnelPrincipalResponse` fields 16-18 for it,
+`operator_principal_uri` being the service SPIFFE URI, whose kind segment
+carries `service`; Cloud takes the principal and its kind from that URI, never
+from unsigned metadata. A service account signs no other tunnel operation, and
+an unmarked service leaf stays refused there.
 
 **Audit.** Lite issuance, its refusals and every Lite grant record operator URI,
 tenant, key algorithm, leaf and primary serials, `correlation_id`.
