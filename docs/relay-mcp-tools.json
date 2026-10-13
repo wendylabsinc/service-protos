@@ -1,5 +1,5 @@
 {
-  "version": "2026.10.13-182438+45caf404785da52e",
+  "version": "2026.10.13-212424+7d3624a60bf68a8c",
   "tools": [
     {
       "annotations": {
@@ -196,7 +196,7 @@
       "annotations": {
         "title": "Set Camera Control",
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": true
       },
@@ -494,42 +494,6 @@
     },
     {
       "annotations": {
-        "title": "Attach to Container",
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": true
-      },
-      "description": "Start or restart a container and collect a bounded snapshot of its output. This interrupts an existing running task. For passive log inspection use telemetry_logs with app_name. To run a command inside an existing container use container_exec.",
-      "inputSchema": {
-        "properties": {
-          "app_name": {
-            "description": "App name of the container to attach to",
-            "type": "string"
-          },
-          "max_bytes": {
-            "description": "Maximum output size in bytes before the result is truncated (default 100000)",
-            "type": "number"
-          },
-          "max_chunks": {
-            "description": "Maximum output chunks to collect (default 100)",
-            "type": "number"
-          },
-          "max_lines": {
-            "description": "Deprecated alias for max_chunks (maximum output chunks to collect, default 100)",
-            "type": "number"
-          }
-        },
-        "required": [
-          "app_name"
-        ],
-        "type": "object"
-      },
-      "name": "container_attach",
-      "title": "Attach to Container"
-    },
-    {
-      "annotations": {
         "title": "Delete Container",
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -683,7 +647,7 @@
         "idempotentHint": true,
         "openWorldHint": true
       },
-      "description": "Stop a running container",
+      "description": "Stop a running container. Interrupts whatever task it is running.",
       "inputSchema": {
         "properties": {
           "app_name": {
@@ -830,11 +794,11 @@
       "annotations": {
         "title": "Set Default Device",
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "description": "Save an address as the default device in ~/.wendy/config.json",
+      "description": "Save an address as the default device in ~/.wendy/config.json, replacing the current default",
       "inputSchema": {
         "properties": {
           "address": {
@@ -1216,44 +1180,6 @@
     },
     {
       "annotations": {
-        "title": "Start Device Provisioning",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      },
-      "description": "Enroll with an externally supplied cloud enrollment token; waits up to 2 minutes. Prefer cloud_enroll_device when using your current cloud login.",
-      "inputSchema": {
-        "properties": {
-          "asset_id": {
-            "description": "Asset ID to assign to this device (optional)",
-            "type": "number"
-          },
-          "cloud_host": {
-            "description": "Wendy Cloud hostname, e.g. cloud.wendy.dev",
-            "type": "string"
-          },
-          "enrollment_token": {
-            "description": "Enrollment token obtained from Wendy Cloud",
-            "type": "string"
-          },
-          "organization_id": {
-            "description": "Organization ID from Wendy Cloud",
-            "type": "number"
-          }
-        },
-        "required": [
-          "enrollment_token",
-          "cloud_host",
-          "organization_id"
-        ],
-        "type": "object"
-      },
-      "name": "provisioning_start",
-      "title": "Start Device Provisioning"
-    },
-    {
-      "annotations": {
         "title": "Show Provisioning Status",
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -1614,7 +1540,7 @@
         "idempotentHint": false,
         "openWorldHint": true
       },
-      "description": "Build and deploy a local project to device or the connected target. Returns status and build-log tail. Check container_list and telemetry_logs for application readiness.",
+      "description": "Build and deploy a local project to device or the connected target, replacing a running app of the same name. Returns status and build-log tail. Check container_list and telemetry_logs for application readiness.",
       "inputSchema": {
         "properties": {
           "build_type": {
@@ -1999,7 +1925,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "description": "Return current MCP session connection state, cached CLI update details, and a plain-English suggested next step. Call this first to orient yourself. cli_update.available means a newer release is known; false does not confirm a successful release check.",
+      "description": "Return the current connection state and a plain-English suggested next step. Call this first to orient yourself.",
       "inputSchema": {
         "properties": {},
         "required": [],
@@ -2007,69 +1933,6 @@
       },
       "name": "wendy_status",
       "title": "Show Wendy Status"
-    },
-    {
-      "annotations": {
-        "title": "Manage Wendy Tool Groups",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "description": "Show or select tool groups. Core is always available. Enable setup, simulator, hardware, robotics, observability, cloud, or all for specialist tools.",
-      "inputSchema": {
-        "properties": {
-          "groups": {
-            "description": "Replace enabled groups; omit to inspect. Core is always included.",
-            "items": {
-              "enum": [
-                "core",
-                "setup",
-                "simulator",
-                "hardware",
-                "robotics",
-                "observability",
-                "cloud",
-                "all"
-              ],
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [],
-        "type": "object"
-      },
-      "name": "wendy_tools",
-      "title": "Manage Wendy Tool Groups"
-    },
-    {
-      "annotations": {
-        "title": "Connect Device to Wi-Fi",
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      },
-      "description": "Connect the device to a WiFi network",
-      "inputSchema": {
-        "properties": {
-          "password": {
-            "description": "WiFi password (leave empty for open networks)",
-            "type": "string"
-          },
-          "ssid": {
-            "description": "WiFi network SSID",
-            "type": "string"
-          }
-        },
-        "required": [
-          "ssid"
-        ],
-        "type": "object"
-      },
-      "name": "wifi_connect",
-      "title": "Connect Device to Wi-Fi"
     },
     {
       "annotations": {
