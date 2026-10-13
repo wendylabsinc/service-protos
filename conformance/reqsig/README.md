@@ -28,6 +28,7 @@ Responses are unchanged.
 | `payload_type` | fully-qualified request message name. Must equal the one named in the RPC's `Signed; payload_type "…"` comment. |
 | `signature` | compact JWS (ASCII bytes), see below |
 | `pki_management_request` | pki-core tier-3 operations only: the operator's `management-request+jws`, relayed verbatim as the fabric `Envelope.signed_artifact` |
+| `channel`, `mcp_client_id`, `relay_session_id` | MCP channel marker and its audit fields (`docs/relay-mcp.md`). Not signed and not part of verification; vectors leave them unset. |
 
 ### JWS
 
