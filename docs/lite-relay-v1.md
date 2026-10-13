@@ -167,8 +167,19 @@ Operator Authority certificate as its operator trust anchor and refuses every
 Lite session without one. It accepts that anchor only from pki-core's enrollment
 response over the TLS channel its enrollment roots authenticate, bound to its
 own identity; BLE provisioning, local configuration and the CLI never set it.
-The CLI sends only the Lite leaf in the inner TLS Certificate message. Re-keying
-it means re-provisioning anchors.
+The CLI sends only the Lite leaf in the inner TLS Certificate message.
+
+**Anchor delivery.** Every successful `device-tier-c` enrollment and renewal
+response carries that certificate in the HTTP header
+`X-Wendy-Lite-Operator-Authority`, standard base64 of its DER: EST
+`simpleenroll` and `simplereenroll`, CSR `/v1/{tenant_id}/enroll` and
+`/v1/{tenant_id}/renew`, and `/v1/renew`. No other response carries it, and
+pki-core creates the authority on first use. The device MUST pin it as its only
+operator anchor and MUST refuse one that is not a self-signed P-256 CA
+certificate. Rotation: the device MUST replace its pinned anchor with the one on
+each later renewal response, so a rotated Lite Operator Authority reaches a
+device at its next renewal; until then that device refuses Lite leaves of the
+new authority. The header is additive: a client that ignores it is unaffected.
 
 **Issuance.** pki-core issues a P-256 operator leaf only from `POST
 /v1/identity/certificate`, and only when the access token's `cnf.jkt` and the

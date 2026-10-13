@@ -331,6 +331,10 @@ message IssueCertificateResponse {
   bytes certificate = 1; // DER leaf
   bytes chain       = 2; // DER intermediates (not root)
   bytes ocsp_staple = 3; // pre-generated OCSP response for offline carry
+  // DER of the tenant's Lite Operator Authority, set iff the leaf is
+  // device-tier-c; the frontends relay it as the device's operator anchor
+  // (docs/lite-relay-v1.md § Operator dual-key).
+  bytes lite_operator_authority = 4;
 }
 
 message RevokeCertificateRequest {
@@ -1222,6 +1226,7 @@ message RenewCertificateResponse {
   bytes        ocsp_staple    = 4; // pre-generated OCSP response for offline carry
   string       correlation_id = 5;
   string       detail         = 6; // human-readable reason for DENIED / NEEDS_GRANT
+  bytes        lite_operator_authority = 7; // as IssueCertificateResponse.lite_operator_authority
 }
 
 enum OverDurationOutcome {
