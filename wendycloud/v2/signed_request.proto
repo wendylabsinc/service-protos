@@ -67,9 +67,11 @@ enum RequestChannel {
 service OperatorSessionService {
   // The call is signed with `x5c`; that leaf is the one registered. The broker
   // validates it with pki-core, caches it under its kid, and returns the kid.
-  // A kid also resolves without this call (the broker asks pki-core on a cache
-  // miss), so registering only moves a rejected leaf's failure to session
-  // start. Gate: the caller is an operator of organization_id's tenant.
+  // A kid resolves only while this broker holds its accepted leaf locally.
+  // pki-core returns a verdict, never the leaf. A missing/cold/evicted leaf
+  // yields FAILED_PRECONDITION: retry once with x5c and a fresh nonce, then
+  // fail loudly. Registration primes the leaf cache, not an authorization
+  // session. Gate: the caller is an operator of organization_id's tenant.
   // Signed; payload_type "wendycloud.v2.RegisterOperatorLeafRequest".
   rpc RegisterOperatorLeaf(SignedRequest) returns (RegisterOperatorLeafResponse) {
     option (wendy.signed_request) = true;

@@ -28,8 +28,14 @@ service NotificationService {
   // Legacy server-streamed offset pagination.
   rpc ListNotifications(ListNotificationsRequest) returns (stream ListNotificationsResponse);
   // Stable, canonical-ID-relative traversal for durable inbox clients.
-  rpc ListNotificationsV2(ListNotificationsV2Request) returns (ListNotificationsV2Response);
-  rpc GetNotification(GetNotificationRequest) returns (Notification);
+  // Signed; payload_type "wendycloud.v2.ListNotificationsV2Request".
+  rpc ListNotificationsV2(SignedRequest) returns (ListNotificationsV2Response) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.GetNotificationRequest".
+  rpc GetNotification(SignedRequest) returns (Notification) {
+    option (wendy.signed_request) = true;
+  }
   // Resolves one stored Wendy-managed attachment for the authenticated recipient. The
   // caller supplies no organization, tenant, clip identifier, or destination URL.
   rpc ResolveNotificationAttachment(ResolveNotificationAttachmentRequest) returns (ResolveNotificationAttachmentResponse);
@@ -39,14 +45,29 @@ service NotificationService {
   rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse) {
     option deprecated = true;
   }
-  rpc DeleteNotifications(DeleteNotificationsRequest) returns (DeleteNotificationsResponse);
-  rpc DeleteNotificationsThrough(DeleteNotificationsThroughRequest) returns (DeleteNotificationsThroughResponse);
+  // Signed; payload_type "wendycloud.v2.DeleteNotificationsRequest".
+  rpc DeleteNotifications(SignedRequest) returns (DeleteNotificationsResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.DeleteNotificationsThroughRequest".
+  rpc DeleteNotificationsThrough(SignedRequest) returns (DeleteNotificationsThroughResponse) {
+    option (wendy.signed_request) = true;
+  }
   rpc MarkAsRead(MarkAsReadRequest) returns (MarkAsReadResponse) {
     option deprecated = true;
   }
-  rpc SetNotificationReadStatus(SetNotificationReadStatusRequest) returns (SetNotificationReadStatusResponse);
-  rpc SetNotificationReadStatusThrough(SetNotificationReadStatusThroughRequest) returns (SetNotificationReadStatusThroughResponse);
-  rpc CountNotifications(CountNotificationsRequest) returns (CountNotificationsResponse);
+  // Signed; payload_type "wendycloud.v2.SetNotificationReadStatusRequest".
+  rpc SetNotificationReadStatus(SignedRequest) returns (SetNotificationReadStatusResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.SetNotificationReadStatusThroughRequest".
+  rpc SetNotificationReadStatusThrough(SignedRequest) returns (SetNotificationReadStatusThroughResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.CountNotificationsRequest".
+  rpc CountNotifications(SignedRequest) returns (CountNotificationsResponse) {
+    option (wendy.signed_request) = true;
+  }
   rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse) {
     option deprecated = true;
   }

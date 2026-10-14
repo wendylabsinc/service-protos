@@ -44,6 +44,27 @@ jobs:
             lint_args+=(--path "$proto_file")
           done
           buf lint "${lint_args[@]}"
+      - name: Check compiled native inbox signing contracts
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base_sha="$PR_BASE_SHA"
+          elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse HEAD^)"
+          else
+            base_sha="$BEFORE_SHA"
+          fi
+          base_dir="$(mktemp -d "${RUNNER_TEMP}/signing-base.XXXXXX")"
+          git archive "$base_sha" | tar -x -C "$base_dir"
+          buf build "$base_dir" --as-file-descriptor-set --exclude-source-info \
+            -o "${RUNNER_TEMP}/inbox-base.json"
+          buf build --as-file-descriptor-set --exclude-source-info \
+            -o "${RUNNER_TEMP}/inbox-current.json"
+          python3 conformance/reqsig/check-inbox-signing.py \
+            "${RUNNER_TEMP}/inbox-current.json" "${RUNNER_TEMP}/inbox-base.json"
       # Breaking-change guard for ALL cross-service protos — the drift guard,
       # caught in one place. Runs on PRs against master.
       - name: Breaking change check (vs master)

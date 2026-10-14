@@ -42,6 +42,10 @@ breaking:
     # shipped in a coordinated merge round. Drop this entry in a follow-up PR
     # once this lands on master.
     RPC_SAME_REQUEST_TYPE:
+      # Native Register/Unregister use the same intentional SignedRequest
+      # migration. check-inbox-signing.py pins both inputs and annotations,
+      # preserved payload/response schemas, and other existing method inputs.
+      - wendycloud/v2/apns.proto
       - wendycloud/v2/apps.proto
       - wendycloud/v2/assets.proto
       - wendycloud/v2/certificates.proto

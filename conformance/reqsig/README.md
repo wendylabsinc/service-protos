@@ -42,9 +42,11 @@ Responses are unchanged.
     the RFC 7515 `x5t#S256` value of the leaf. Saves the leaf's size on every
     call.
   - Both or neither is rejected.
-- `OperatorSessionService.RegisterOperatorLeaf` (signed with `x5c`) checks the
-  leaf once at session start and returns its `kid`. It is optional: the broker
-  resolves any `kid` through pki-core on a cache miss.
+- `OperatorSessionService.RegisterOperatorLeaf` (signed with `x5c`) primes the
+  broker's local accepted-leaf cache and returns its `kid`. It is optional and
+  does not create an authorization session. A cold, missing or evicted leaf
+  cannot be retrieved from pki-core: retry once with `x5c` and a fresh nonce,
+  then fail loudly if that retry is refused.
 
 ### Claims (JCS, RFC 8785)
 
@@ -65,11 +67,13 @@ needs a fresh nonce and a fresh management request.
 ### Verification (one generic gate, before the handler)
 
 1. Parse the JWS and check the size cap, `alg` and the absence of `crit`.
-2. Get pki-core's verdict on the leaf (fail closed):
-   `ValidateOperatorCertificate` with `certificate = x5c[0]`, or with
-   `leaf_sha256 = kid`, which also returns the leaf DER. Check `alg` against the
-   leaf key family, then verify the signature. The broker may cache a valid
-   verdict by `kid`, for minutes and never past `not_after`. It drops every
+2. Check `alg` against the supplied `x5c` leaf's key family, or the accepted
+   leaf the broker already holds locally for `kid`, then verify the signature.
+   A missing local leaf fails with the retry instruction below. Get pki-core's
+   verdict on the leaf (fail closed): `ValidateOperatorCertificate` with
+   `certificate = x5c[0]`, or `leaf_sha256 = kid`. This returns a verdict, never
+   leaf DER; a fingerprint is not a verification key. The broker may cache a
+   valid verdict by `kid`, for minutes and never past `not_after`. It drops every
    cached leaf whose serial matches the `x509_serial` of a pki-core x509
    `credential-change` SET (`conformance/set/README.md`). The serial is enough,
    so the SET carries no `kid`. The per-call authority checks still run.
@@ -128,6 +132,16 @@ the certificates and JWS were signed with OpenSSL `deterministic:1`. Rebuilding
 from the labels in `generation` with OpenSSL ≥ 3.5 and `buf convert` reproduces
 it byte for byte. **The labels are test private keys.** Real producers sign
 hedged (randomized), and verifiers cannot tell the difference.
+
+## Native inbox/APNs schema check
+
+`check-inbox-signing.py` checks compiled descriptors for the seven native inbox
+RPCs and APNS Register/Unregister. It requires `SignedRequest` and the signing
+option together, checks the documented payload message names, and compares the
+cutover against its Git base: payload messages, responses, streaming flags,
+deprecation and other existing methods remain unchanged. It also guards other
+existing method inputs against the file-scoped Buf migration exceptions.
+This is schema coverage, not certificate, session or transport acceptance.
 
 ## v1 vectors: header-carried descriptor (pki-core producer)
 

@@ -2,9 +2,18 @@ syntax = "proto3";
 
 package wendycloud.v2;
 
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
+
 service APNSService {
-  rpc RegisterDeviceToken(APNSRegisterDeviceTokenRequest) returns (APNSRegisterDeviceTokenResponse);
-  rpc UnregisterDeviceToken(APNSUnregisterDeviceTokenRequest) returns (APNSUnregisterDeviceTokenResponse);
+  // Signed; payload_type "wendycloud.v2.APNSRegisterDeviceTokenRequest".
+  rpc RegisterDeviceToken(SignedRequest) returns (APNSRegisterDeviceTokenResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.APNSUnregisterDeviceTokenRequest".
+  rpc UnregisterDeviceToken(SignedRequest) returns (APNSUnregisterDeviceTokenResponse) {
+    option (wendy.signed_request) = true;
+  }
 }
 
 enum APNSEnvironment {
