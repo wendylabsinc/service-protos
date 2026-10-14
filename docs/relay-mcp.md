@@ -23,14 +23,38 @@ fields on `wendycloud/v2/signed_request.proto`.
 
 ## Binding gate
 
-A web bearer alone binds nothing. The relay binds a web client to a session
-only when the bearer's `sub` and `tenant_uuid` equal the session's user and
-tenant (the CLI's session carries the tenant as every envelope does), the
-client presents the session's `pairing_code`, and the user accepts the
-`PairingRequested` prompt (client name, client id, code) in the CLI or app.
-Every new binding is confirmed. MCP has no pairing primitive: an unbound
-client sees one relay-served pairing tool, and the user tells the chat the
-code the CLI printed. The CLI drops frames for any binding it did not accept.
+A web bearer alone binds nothing. The relay asks a CLI session to approve
+only a bearer whose `sub` and normalized `tenant_uuid` match that session's
+user and tenant. An unpaired `tools/call` returns the pairing code and asks
+the CLI to show the same code with the client name and ID. The user compares
+the two codes and accepts the `PairingRequested` prompt in the CLI or app.
+The chat does not collect a code. The CLI drops frames for any binding it
+did not accept.
+
+Approval belongs to one signed-in OAuth connection, identified by `sub`,
+normalized `tenant_uuid`, `client_id`, and the signed `relay_grant_id` claim.
+It applies across chats using that same connection while the approved CLI
+session remains open. A separate authorization, another client, another
+subject, or another tenant needs its own approval. Reinitializing the same
+connection reuses its pending prompt or accepted approval. The relay still
+validates the bearer on every HTTP request and checks revocation before
+reusing approval.
+
+Every HTTP `initialize` creates a fresh `Mcp-Session-Id`, even when it shares
+approval with another transport. The relay sends all of those transports
+through the original binding ID accepted by the CLI. Each forwarded request
+gets a unique relay request ID, and its response restores the original ID
+and its JSON type. Cancellation targets only the matching request on the
+same HTTP transport. Two chats can both use request ID `1` without sharing
+responses or cancelling each other's calls. These mappings stay inside the
+relay; the existing CLI frame and pairing messages do not change.
+
+During expansion, a missing or non-string `relay_grant_id` uses the SHA-256
+digest of the exact verified access token in place of a grant ID. The raw
+bearer is not stored or forwarded. This fallback never treats the same
+subject and client as sufficient to inherit approval. An empty string claim
+is refused. A malformed optional claim does not reject otherwise valid
+tokens on Cloud's other authentication paths.
 
 ## Tool manifest
 
@@ -60,7 +84,16 @@ the HTTP/2 keepalive pings, so the path to it must be a passthrough load
 balancer or another front that does not cap stream duration (an L7 proxy or
 Cloud Run cuts streams at 60 min).
 The web bearer lives 1 h; each refresh re-checks the realm setting and the
-user's account in wendy-auth (WDY-3364).
+user's account in wendy-auth (WDY-3364). Grant-backed approval survives a
+refresh carrying the same `relay_grant_id`, subject, tenant and client, but
+every request still needs a currently valid bearer.
+
+Legacy exact-token approval expires at the verified access token's expiry.
+The registry removes it and closes any CLI session attached to it. The user
+must run `wendy cloud mcp` again and approve the refreshed legacy token.
+Closing the session avoids leaving an expired binding occupying the CLI,
+which accepts only one binding during a command invocation. It does not
+silently transfer approval to the refreshed token.
 
 ## Realm settings and claims
 
@@ -109,6 +142,11 @@ One relay resource URL per environment (the connector URL, e.g.
   `realm` (slug), `tenant_uuid`, `allow_hosted_mcp`. The relay takes the
   tenant from `tenant_uuid`. Such a token is refused by cloud's own services
   (wrong `iss`/`aud`; `RelayMcpService` refuses scope `mcp:relay`).
+- Optional `relay_grant_id`: a non-empty JSON string signed into the relay
+  access token by wendy-auth. Its value comes only from the server-owned
+  refresh-token family. Refreshes in that family keep the value; a separate
+  authorization gets a different value. Client metadata, request parameters
+  and headers cannot choose or override it. Cloud treats the value as opaque.
 - Client identity: client ID metadata documents (the `client_id` is an HTTPS
   URL wendy-auth fetches); dynamic client registration only as fallback.
   Token-endpoint auth `none` or `private_key_jwt`.
@@ -124,3 +162,17 @@ expand (this): proto and docs. migrate: wendy-auth settings, claims and AS
 features (no proto dependency); then cloud (relay, channel refusal and audit)
 and the CLI against this contract; cloud enforces the claims only once
 wendy-auth emitting them is live in that environment. contract: none needed.
+
+WDY-3758 expands the OAuth contract with optional `relay_grant_id` and
+separates HTTP transport IDs from pairing approval. Cloud #830 accepts both
+legacy exact-token identity and grant identity. This phase has no new
+wendy-auth, pki-core or CLI minimum beyond the existing hosted MCP support.
+The unchanged CLI binding and frame messages work with both token forms.
+
+Migrate is wendy-auth #345 emitting the claim. It follows a Cloud #830
+release tagged and confirmed live on prod, and its release notes name that
+Cloud version. Approval across token refresh needs both changes; before
+the issuer emits the claim, token refresh still requires a new CLI session
+and pairing. This change removes no old token shape. Requiring the claim or
+removing exact-token fallback is a separate contract phase, at least one
+release after migrate and only after the required peers are live on prod.
