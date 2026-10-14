@@ -1440,11 +1440,15 @@ message ValidateOperatorCertificateRequest {
   // The leaf by reference (WDY-3463): base64url, unpadded, of SHA-256 over the
   // leaf DER (the RFC 7515 x5t#S256 value; the `kid` of a SignedRequest JWS).
   // pki-core looks the leaf up in the authenticated tenant's
-  // certificate_ledger rows and runs the same checks on the stored DER. No row
-  // in that tenant, including a leaf of another tenant, is "not_issued".
-  // A ledger row without a stored DER (an operator leaf minted before pki-core
-  // stored leaf DER) is the gRPC error FAILED_PRECONDITION "leaf not stored;
-  // present the certificate", not a verdict: ask again with certificate.
+  // certificate_ledger rows and answers from the row (WDY-3647): issuing CA in
+  // the tenant's live Operator-Authority pool, ML-DSA non-Lite key, operator
+  // principal of the tenant, validity window, revocation, disabled principal.
+  // No row in that tenant, including a leaf of another tenant, is
+  // "not_issued". The ledger keeps no leaf DER, so the answer is a verdict
+  // only: the caller verifies signatures with the leaf it hashed. An operator
+  // row minted before pki-core recorded the key algorithm (WDY-3648) is the
+  // gRPC error FAILED_PRECONDITION "leaf not stored; present the certificate",
+  // not a verdict: ask again with certificate.
   string leaf_sha256 = 2;
 }
 
@@ -1481,7 +1485,8 @@ message ValidateOperatorCertificateResponse {
   // RFC3339 leaf NotAfter, set only when valid. Hard upper bound for any
   // caller-side caching of this verdict.
   string not_after = 4;
-  // The ledger's leaf DER, set only when valid and the request named the leaf
-  // by leaf_sha256: the caller needs its public key to verify the signature.
+  // Deprecated (WDY-3647): never populated. pki-core #254 returned the stored
+  // leaf DER here for leaf_sha256 lookups; pki-core stopped storing leaf DER
+  // with WDY-3648 and leaves this empty. Do not read it; never reuse field 5.
   bytes certificate = 5;
 }

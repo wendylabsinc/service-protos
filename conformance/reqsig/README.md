@@ -28,6 +28,7 @@ Responses are unchanged.
 | `payload_type` | fully-qualified request message name. Must equal the one named in the RPC's `Signed; payload_type "…"` comment. |
 | `signature` | compact JWS (ASCII bytes), see below |
 | `pki_management_request` | pki-core tier-3 operations only: the operator's `management-request+jws`, relayed verbatim as the fabric `Envelope.signed_artifact` |
+| `channel`, `mcp_client_id`, `relay_session_id` | MCP channel marker and its audit fields (`docs/relay-mcp.md`). Not signed and not part of verification; vectors leave them unset. |
 
 ### JWS
 
@@ -84,10 +85,12 @@ needs a fresh nonce and a fresh management request.
 
 Every rejection is one generic `PERMISSION_DENIED`, and the reason is only
 logged. That includes an unknown, revoked or expired `kid`. The one exception
-is a `kid` whose leaf pki-core has not stored (leaves minted before it stored
-leaf DER, up to ~24 h after that deploy): pki-core answers
-`FAILED_PRECONDITION` "leaf not stored; present the certificate", and the
-broker returns that status unchanged. The client retries the call once, signed
+is a `kid` whose leaf the broker does not hold (cloud keeps the leaf it
+received with `x5c` in its session cache keyed by `kid`; pki-core stores no
+leaf DER and answers a `kid` with a verdict only, WDY-3647), or whose
+operator leaf pki-core minted before it recorded the key algorithm (WDY-3648,
+one operator leaf lifetime after that deploy): the broker answers
+`FAILED_PRECONDITION` "leaf not stored; present the certificate". The client retries the call once, signed
 with `x5c` (fresh nonce), and fails loudly if that is refused too. A method whose
 input is `SignedRequest` is always verified, whether or not it carries the
 option. Each consumer should test that the option and the
