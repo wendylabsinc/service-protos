@@ -14,7 +14,8 @@ fields on `wendycloud/v2/signed_request.proto`.
    never forwards it.
 2. **Relay ↔ CLI.** The CLI calls `OpenRelaySession` (signed, realm settings
    checked) and holds the session with one `RelaySession` stream, outbound
-   from the user's machine. The relay forwards MCP JSON-RPC as `McpFrame`s;
+   from the user's machine. Both go to the tunnel broker's gRPC listener
+   (`tunnel.<env>.wendy.dev:443`), not the Cloud API host. The relay forwards MCP JSON-RPC as `McpFrame`s;
    `sequence` starts at 1 per sender and a gap or repeat ends the stream.
 3. **CLI → cloud.** The CLI runs the same tool set as local `wendy mcp serve`
    and signs every cloud call with the operator key, setting
