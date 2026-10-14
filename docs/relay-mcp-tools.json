@@ -1,5 +1,5 @@
 {
-  "version": "2026.10.13-212424+7d3624a60bf68a8c",
+  "version": "dev+b38ba95cd005eb89",
   "tools": [
     {
       "annotations": {
@@ -1605,7 +1605,7 @@
         "idempotentHint": false,
         "openWorldHint": true
       },
-      "description": "Create a stopped local simulator from a published or local image. Downloads may take several minutes. Connect to its vm:name selector to boot it and provision its robot profile.",
+      "description": "Create a stopped local simulator from a published or local image. Downloads may take several minutes. Use simulator_start to boot and verify it. wendy-lite runs WASM firmware; wendy-lite-native runs native ESP-IDF firmware with OTA slots. Both use ESP32-C6 with esp-emu; image must be a merged flash binary.",
       "inputSchema": {
         "properties": {
           "disk_gib": {
@@ -1628,7 +1628,9 @@
               "generic",
               "go2",
               "g1",
-              "rosmaster-r2"
+              "rosmaster-r2",
+              "wendy-lite",
+              "wendy-lite-native"
             ],
             "type": "string"
           },
@@ -1697,6 +1699,29 @@
       },
       "name": "simulator_list",
       "title": "List Simulators"
+    },
+    {
+      "annotations": {
+        "title": "Start Simulator",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "description": "Start a local simulator and verify its device protocol. Wendy Lite uses real ESP32-C6 firmware and requires esp-emu on PATH or installed by the interactive Wendy CLI.",
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "simulator_start",
+      "title": "Start Simulator"
     },
     {
       "annotations": {
