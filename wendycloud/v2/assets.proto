@@ -26,6 +26,13 @@ service AssetService {
     option (wendy.signed_request) = true;
   }
   // Signed; payload_type "wendycloud.v2.DeleteAssetRequest".
+  // For a PKI-bound device, SignedRequest.pki_management_request carries the
+  // operator's management-request+jws (op revoke_principal) for exactly
+  // spiffe://wendy.sh/tenant/<organization_id>/device/<device_id>, signed by
+  // the same operator leaf as this request. Cloud relays revocation before
+  // retaining deletion evidence; device:delete suffices (no global cert-revoke).
+  // Assets without a device binding do not require the management request.
+  // See docs/contract-ledger.md for rollout and compatibility requirements.
   rpc DeleteAsset(SignedRequest) returns (DeleteAssetResponse) {
     option (wendy.signed_request) = true;
   }
@@ -204,6 +211,10 @@ message DeleteAssetRequest {
   string id = 1;
   // Optional compare-and-delete guard for device unenrollment.
   optional string expected_device_id = 2;
+  // Opt-in: request purpose-bound Cloud reset authorization for this installed
+  // leaf after committed deletion. Requires current device:delete, exact device
+  // guard and the operator's exact-body signature; absent keeps deletion-only.
+  optional string reset_certificate_sha256 = 3;
 }
 
 message DeletedAsset {
@@ -215,6 +226,14 @@ message DeletedAsset {
 
 message DeleteAssetResponse {
   bool success = 1;
+  // Opt-in compact ML-DSA-65 JWS, typ asset-reset-authorization+jws, aud
+  // wendy-agent/unprovision. Bound to committed DeletedAsset bytes and the
+  // exact operator-signed request (including installed-leaf hash). Not a bearer
+  // credential; Agent must independently verify Cloud key trust, operator proof,
+  // installed identity, revocation and fresh time before erasure. Empty means
+  // no reset authority, even if success=true. Current-authorized replay can
+  // obtain fresh proof; it never rewrites the first tombstone actor/time.
+  bytes reset_authorization = 2;
 }
 
 message ListAssetsRequest {
