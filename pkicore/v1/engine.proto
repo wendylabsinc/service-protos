@@ -325,6 +325,14 @@ message IssueCertificateRequest {
   // "cloud-grant+jws"). When present, the engine re-verifies it (D7) and mints
   // an entitlement-bearing cert gated by the grant. Empty => ordinary issuance.
   bytes grant = 7;
+  // Optional, relay-for-issuance only: the serialized wendycloud.v2.SignedRequest
+  // the operator sent cloud for this grant (RequestEntitledCertificate), relayed
+  // verbatim; its JWS must carry the operator leaf in x5c. When present, pki-core's
+  // fabric verifies it against the tenant's Operator Authority CA and refuses unless
+  // signer SPIFFE == grant principal == CSR URI SAN, target.tenant == envelope
+  // tenant, body_sha256 matches, and the signed csr_pem is this CSR. Never
+  // forwarded to the engine.
+  bytes operator_signed_request = 8;
 }
 
 message IssueCertificateResponse {
