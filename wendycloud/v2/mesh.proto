@@ -4,7 +4,7 @@ package wendycloud.v2;
 
 // MeshRosterService serves the minimal name directory the WendyOS mesh needs
 // to resolve <devicename>.<org-slug>.cloud.wendy.dev to a cloud asset id. It is
-// deliberately narrower than AssetService: only {name, asset_id} pairs plus the
+// deliberately narrower than AssetService: only {name, asset_id, device_uuid} entries plus the
 // caller's own org slug, scoped by the caller's asset-certificate identity.
 //
 // The shape originates device-side in WendyOS (Proto/cloud/mesh.proto,
@@ -19,6 +19,9 @@ message GetMeshRosterRequest {}
 message MeshRosterEntry {
   string name = 1;      // device asset name, server-normalized to a DNS label
   string asset_id = 2;
+  // Canonical lowercase UUID bound at enrollment to the certificate device
+  // principal. Distinct from asset_id; empty for absent or non-UUID bindings.
+  string device_uuid = 3;
 }
 
 message GetMeshRosterResponse {
