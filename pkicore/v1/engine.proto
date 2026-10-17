@@ -511,7 +511,11 @@ enum AuditLogOrder {
 
 // GetCACerts returns all active CA certificates for the authenticated tenant.
 // Tenant is taken from x-tenant-id gRPC metadata. Used by the EST cacerts endpoint.
-message GetCACertsRequest {}
+message GetCACertsRequest {
+  // Empty preserves the tenant's normal chain. ECDSA_P256 selects the
+  // separate Tier-C device authority for firmware without ML-DSA support.
+  string chain_algorithm = 1;
+}
 message GetCACertsResponse {
   repeated bytes certs = 1; // DER-encoded CA certificates (root → device CA order)
 }
@@ -595,6 +599,7 @@ enum CARole {
   // lane opt-in; consumers selecting CA_ROLE_TENANT_OPERATOR_AUTHORITY never
   // see it.
   CA_ROLE_TENANT_LITE_OPERATOR_AUTHORITY = 10; // "tenant_lite_operator_authority"
+  CA_ROLE_TENANT_LITE_DEVICE_IDENTITY = 11; // "tenant_lite_device_identity"
 }
 
 message CAInfo {
@@ -693,6 +698,9 @@ message CreateEnrollmentTokenRequest {
   string source_jti  = 6;
   // WDY-3541: optional display name; same rules as CreateEABKeyRequest.label.
   string label       = 7;
+  // Empty preserves ca_id. ECDSA_P256 selects the tenant's separate Lite
+  // Device CA, permitted only for device-tier-c.
+  string chain_algorithm = 8;
 }
 message CreateEnrollmentTokenResponse {
   string token_id    = 1;
