@@ -521,7 +521,7 @@ message GetCACertsRequest {
   // With chain_algorithm ECDSA_P256 only: return instead, for ML-capable
   // verifiers, the Lite Device CA as signed by the tenant Intermediate plus
   // its ancestors below the platform Root (tenant Intermediate, Customer
-  // Intermediate); never the twin. Ignored without chain_algorithm.
+  // Intermediate); never the twin. Invalid without chain_algorithm.
   bool full_chain = 2;
 }
 message GetCACertsResponse {
