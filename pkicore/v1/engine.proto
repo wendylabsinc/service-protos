@@ -518,6 +518,11 @@ message GetCACertsRequest {
   // without ML-DSA support; empty until an operator-signed token mint has
   // created that CA.
   string chain_algorithm = 1;
+  // With chain_algorithm ECDSA_P256 only: return instead, for ML-capable
+  // verifiers, the Lite Device CA as signed by the tenant Intermediate plus
+  // its ancestors below the platform Root (tenant Intermediate, Customer
+  // Intermediate); never the twin. Ignored without chain_algorithm.
+  bool full_chain = 2;
 }
 message GetCACertsResponse {
   repeated bytes certs = 1; // DER-encoded CA certificates (root → device CA order)
