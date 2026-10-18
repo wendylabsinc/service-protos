@@ -16,7 +16,7 @@ import "wendycloud/v2/signed_request.proto";
 // WDY-2489).
 service DevicePostboxService {
   rpc PullChanges(PullChangesRequest) returns (PullChangesResponse);
-  // Q8 recommendation, sem's y pending (2026-10-19 01:15). The device signs the
+  // Q8 decided (sem 2026-10-19 01:42). The device signs the
   // newest entry it has verified with its own device key and sends it here, to
   // cloud, over its own mTLS. Cloud can withhold an ack, never forge one: the
   // alarm for a withheld tail is a stale last signed ack, raised operator side.
