@@ -164,7 +164,7 @@ Event-type `https://schemas.wendy.sh/secevent/tenant-renamed`: the realm's slug
 the tenant UUID in `sub_id` is the identity and does not change; only its name
 does. A tenant-lifecycle type, so `iss == system`, bare tenant `sub_id` and the
 bidirectional binding above all hold (a tenant realm cannot rename itself or
-another tenant). Fan-out = **[pki-core]**.
+another tenant). Fan-out = **[cloud, pki-core]** (one aud-specific vector each).
 
 - **Body:** `{alias_expires_at, event_timestamp, new_slug, old_slug, reason_admin}`.
   `old_slug` / `new_slug` are the slugs before and after (both valid slugs, never
@@ -176,6 +176,9 @@ another tenant). Fan-out = **[pki-core]**.
   as an unknown realm. A live tenant's own slug always wins over another
   tenant's alias. Every other check is unchanged: a principal SET must still
   name a principal of the issuer's tenant.
+- **cloud effect.** cloud rewrites the tenant's issuer-keyed identity to the
+  new issuer in one transaction: the organization's issuer, its users'
+  identities (`iss`), and the issuer prefix of its group grants (WDY-3875).
 - **Ordering.** `event_timestamp` is required and orders renames per tenant on
   their own clock (never against disable/enable). A rename applies when its
   `event_timestamp` is newer than the last rename applied, or equal to it with
@@ -183,7 +186,7 @@ another tenant). Fan-out = **[pki-core]**.
   records its `old_slug` alias. Same future-dated refusal as disable/enable.
 - **Delivery order (emitter).** pki-core refuses a SET from `new_slug`'s issuer
   as an unknown realm until it has applied the rename, so wendy-auth must deliver
-  tenant-renamed to pki-core before any SET that the renamed realm signs.
+  tenant-renamed to each receiver before any SET that the renamed realm signs.
 - **Ack.** Replayed `jti`, unknown or offboarded tenant: `accepted=true`, no
   change, one audit row. A `new_slug` that another live pki tenant holds is
   refused (not acked), so the SET is retried rather than lost.
@@ -194,6 +197,7 @@ wendy-auth's generator must reproduce them byte for byte when it starts emitting
 
 | vector | iss | event-type | expect |
 |---|---|---|---|
+| `cloud-tenant-renamed-sub-id` | system | tenant-renamed | accept |
 | `pki-tenant-renamed-sub-id` | system | tenant-renamed | accept |
 | `pki-tenant-renamed-wrong-issuer-reject` | tenant realm | tenant-renamed | reject |
 

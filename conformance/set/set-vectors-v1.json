@@ -379,6 +379,22 @@
       },
       "name" : "pki-tenant-renamed-wrong-issuer-reject",
       "reject_reason" : "tenant-lifecycle event-type requires iss=system realm; a tenant realm may not rename itself or another tenant"
+    },
+    {
+      "canonical_payload_hex" : "7b22617564223a2268747470733a5c2f5c2f636c6f75642e77656e64792e73685c2f6661627269635c2f737366222c226576656e7473223a7b2268747470733a5c2f5c2f736368656d61732e77656e64792e73685c2f7365636576656e745c2f74656e616e742d72656e616d6564223a7b22616c6961735f657870697265735f6174223a313735353539323030302c226576656e745f74696d657374616d70223a313735333030303030302c226e65775f736c7567223a2261636d652d726f626f74696373222c226f6c645f736c7567223a2261636d65222c22726561736f6e5f61646d696e223a7b22656e223a2274656e616e745f72656e616d6564227d7d7d2c22657870223a313735333030303330302c22696174223a313735333030303030302c22697373223a2268747470733a5c2f5c2f617574682e77656e64792e73685c2f7265616c6d735c2f73797374656d222c226a7469223a226a74692d66697865642d31222c227375625f6964223a7b22666f726d6174223a22757269222c22757269223a227370696666653a5c2f5c2f77656e64792e73685c2f74656e616e745c2f31323334353637382d313233342d313233342d313233342d313233343536373839616263227d2c2274786e223a226a74692d66697865642d31227d",
+      "canonical_payload_utf8" : "{\"aud\":\"https:\\\/\\\/cloud.wendy.sh\\\/fabric\\\/ssf\",\"events\":{\"https:\\\/\\\/schemas.wendy.sh\\\/secevent\\\/tenant-renamed\":{\"alias_expires_at\":1755592000,\"event_timestamp\":1753000000,\"new_slug\":\"acme-robotics\",\"old_slug\":\"acme\",\"reason_admin\":{\"en\":\"tenant_renamed\"}}},\"exp\":1753000300,\"iat\":1753000000,\"iss\":\"https:\\\/\\\/auth.wendy.sh\\\/realms\\\/system\",\"jti\":\"jti-fixed-1\",\"sub_id\":{\"format\":\"uri\",\"uri\":\"spiffe:\\\/\\\/wendy.sh\\\/tenant\\\/12345678-1234-1234-1234-123456789abc\"},\"txn\":\"jti-fixed-1\"}",
+      "expect" : "accept",
+      "inputs" : {
+        "audience" : "https:\/\/cloud.wendy.sh\/fabric\/ssf",
+        "event_uri" : "https:\/\/schemas.wendy.sh\/secevent\/tenant-renamed",
+        "exp" : 1753000300,
+        "iat" : 1753000000,
+        "issuer" : "https:\/\/auth.wendy.sh\/realms\/system",
+        "jti" : "jti-fixed-1",
+        "reason" : "tenant_renamed",
+        "sub_id_uri" : "spiffe:\/\/wendy.sh\/tenant\/12345678-1234-1234-1234-123456789abc"
+      },
+      "name" : "cloud-tenant-renamed-sub-id"
     }
   ],
   "version" : "set-vectors-v1"
