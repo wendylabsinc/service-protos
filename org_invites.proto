@@ -34,6 +34,8 @@ message OrganizationInvite {
 
 message CreateOrganizationInviteRequest {
   int32 organization_id = 1;
+  // Empty: the member receives the organization's default role when the invite is accepted
+  // (WDY-3877).
   string role = 2;
   google.protobuf.Timestamp expires_at = 3;
 }
