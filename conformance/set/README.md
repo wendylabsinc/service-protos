@@ -157,6 +157,46 @@ when it starts emitting.
 | `pki-tenant-enabled-sub-id` | system | tenant-enabled | accept |
 | `pki-tenant-disabled-wrong-issuer-reject` | tenant realm | tenant-disabled | reject |
 
+### tenant-renamed (WDY-3876)
+
+Event-type `https://schemas.wendy.sh/secevent/tenant-renamed`: the realm's slug
+(the issuer path segment) was renamed in wendy-auth (WDY-3870). Realm IS tenant:
+the tenant UUID in `sub_id` is the identity and does not change; only its name
+does. A tenant-lifecycle type, so `iss == system`, bare tenant `sub_id` and the
+bidirectional binding above all hold (a tenant realm cannot rename itself or
+another tenant). Fan-out = **[pki-core]**.
+
+- **Body:** `{alias_expires_at, event_timestamp, new_slug, old_slug, reason_admin}`.
+  `old_slug` / `new_slug` are the slugs before and after (both valid slugs, never
+  `system`, never equal). `alias_expires_at` (unix seconds, later than
+  `event_timestamp`) is when wendy-auth stops redirecting `old_slug`.
+- **pki-core effect.** The tenant's slug becomes `new_slug`, so SETs whose `iss`
+  names `new_slug` resolve to the tenant. SETs whose `iss` names `old_slug`
+  keep resolving to the same tenant until `alias_expires_at`, then are refused
+  as an unknown realm. A live tenant's own slug always wins over another
+  tenant's alias. Every other check is unchanged: a principal SET must still
+  name a principal of the issuer's tenant.
+- **Ordering.** `event_timestamp` is required and orders renames per tenant on
+  their own clock (never against disable/enable). A rename applies when its
+  `event_timestamp` is newer than the last rename applied, or equal to it with
+  `old_slug` matching the current slug. An older one changes no slug but still
+  records its `old_slug` alias. Same future-dated refusal as disable/enable.
+- **Delivery order (emitter).** pki-core refuses a SET from `new_slug`'s issuer
+  as an unknown realm until it has applied the rename, so wendy-auth must deliver
+  tenant-renamed to pki-core before any SET that the renamed realm signs.
+- **Ack.** Replayed `jti`, unknown or offboarded tenant: `accepted=true`, no
+  change, one audit row. A `new_slug` that another live pki tenant holds is
+  refused (not acked), so the SET is retried rather than lost.
+
+Hand-built to the SETBuilder canonical form (same inputs as
+`pki-tenant-disabled-sub-id`; event-type, body and `reason_admin` differ).
+wendy-auth's generator must reproduce them byte for byte when it starts emitting.
+
+| vector | iss | event-type | expect |
+|---|---|---|---|
+| `pki-tenant-renamed-sub-id` | system | tenant-renamed | accept |
+| `pki-tenant-renamed-wrong-issuer-reject` | tenant realm | tenant-renamed | reject |
+
 ## Certificate-revoked events (WDY-3409)
 
 Event-type CAEP `https://schemas.openid.net/secevent/caep/event-type/credential-change`

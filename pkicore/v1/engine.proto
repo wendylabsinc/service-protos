@@ -152,7 +152,10 @@ service CAEngine {
   // offboarded tenant. The engine applies a change only when event_time is
   // newer than the last one it applied, so a late retry cannot undo a newer
   // change. Replayed jti, offboarded or unknown tenant: no change, one audit
-  // row. Any other event_type is refused.
+  // row. tenant-renamed (WDY-3876) moves the tenant's slug to new_slug and
+  // keeps old_slug resolving to the same tenant until alias_expires_unix; it is
+  // ordered by event_time on its own clock (never against disable/enable). Any
+  // other event_type is refused.
   rpc RecordTenantLifecycle(RecordTenantLifecycleRequest)                         returns (RecordTenantLifecycleResponse);
 
   // Enrollment-token revoke relay (AAA contract §5.4, W18). The private-only
@@ -1101,14 +1104,18 @@ message RecordTenantDeletedRequest {
 message RecordTenantDeletedResponse {}
 
 // RecordTenantLifecycleRequest carries the fact extracted from a verified
-// system-realm-signed tenant-disabled / tenant-enabled SET (WDY-3543). The raw
-// SET is never relayed, persisted or logged.
+// system-realm-signed tenant-disabled / tenant-enabled (WDY-3543) or
+// tenant-renamed (WDY-3876) SET. The raw SET is never relayed, persisted or
+// logged.
 message RecordTenantLifecycleRequest {
-  string tenant_id       = 1; // injected from gRPC metadata x-tenant-id (from the verified SET sub_id)
-  string event_type      = 2; // short form: "tenant-disabled" | "tenant-enabled"
-  string source_jti      = 3; // the SET jti — idempotency key for the replay cache
-  int64  set_exp_unix    = 4; // the SET exp (unix seconds) — bounds the replay-cache row TTL
-  int64  event_time_unix = 5; // the event's event_timestamp — orders disable/enable (strictly increasing per tenant; the fabric refuses one later than iat + skew)
+  string tenant_id          = 1; // injected from gRPC metadata x-tenant-id (from the verified SET sub_id)
+  string event_type         = 2; // short form: "tenant-disabled" | "tenant-enabled" | "tenant-renamed"
+  string source_jti         = 3; // the SET jti — idempotency key for the replay cache
+  int64  set_exp_unix       = 4; // the SET exp (unix seconds) — bounds the replay-cache row TTL
+  int64  event_time_unix    = 5; // the event's event_timestamp — orders disable/enable, and separately renames (the fabric refuses one later than iat + skew)
+  string old_slug           = 6; // tenant-renamed only: the slug the realm was renamed away from
+  string new_slug           = 7; // tenant-renamed only: the realm's slug after the rename
+  int64  alias_expires_unix = 8; // tenant-renamed only: until when old_slug still names this tenant (wendy-auth's alias grace)
 }
 message RecordTenantLifecycleResponse {}
 
