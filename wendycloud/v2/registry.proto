@@ -1,0 +1,396 @@
+syntax = "proto3";
+
+package wendycloud.v2;
+
+import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/deployments.proto";
+import "wendycloud/v2/signed_request.proto";
+
+// Encrypted artifact registry (Apps & Deployments spec v2; lean registry design
+// approved 2026-10-18). Invariants this file encodes:
+// - The registry is blind. It stores ciphertext, wraps and signed public-key
+//   registrations. No RPC carries a plaintext key, and no server produces a
+//   wrap: wraps are made by an operator client and arrive inside a request that
+//   operator signed. A compromised registry can withhold or delete, never grant.
+// - Authority is the operator signature. A device acts on a per-device signed
+//   assignment (ArtifactRegistryService.AssignDevice) and checks every byte it fetches
+//   here against digests that assignment signs. A wrong blob or a wrong wrap
+//   fails closed on the device.
+// - Device pull authorization is the live assignment: device from the mTLS leaf,
+//   tenant from its SAN, never from the request.
+
+// ==================== Key directory ====================
+
+// Cloud keeps the directory of principals' encryption public keys so an
+// operator client can wrap to devices and to other operators. Cloud is an
+// untrusted courier: every entry is served with the signed registration the
+// principal sent, and the client verifies it before wrapping. No certificate
+// extension carries the key in v1.
+service KeyDirectoryService {
+  // An operator registers its user encryption key at sign-in, alongside
+  // OperatorSessionService.RegisterOperatorLeaf. Signed with `x5c`: the stored
+  // request is the binding. ONE key per user; registering a different key for
+  // the same user replaces it (rotation). Delivering that one key to each of
+  // the user's machines is out of scope here (decision 5, parked).
+  // Signed; payload_type "wendycloud.v2.RegisterEncryptionKeyRequest".
+  rpc RegisterUserEncryptionKey(SignedRequest) returns (RegisterEncryptionKeyResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // A device registers the encryption key it generated at enrollment, over its
+  // own mTLS, as its first call after enrollment. Same SignedRequest shape,
+  // signed by the DEVICE identity key with `x5c` = the device leaf; it is not an
+  // operator-signed method. The leaf must be the mTLS peer.
+  // payload_type "wendycloud.v2.RegisterEncryptionKeyRequest".
+  rpc RegisterDeviceEncryptionKey(SignedRequest) returns (RegisterEncryptionKeyResponse);
+  rpc GetRecipientKeys(GetRecipientKeysRequest) returns (GetRecipientKeysResponse);
+}
+
+// The KEM is fixed by principal class: wendy-lite boards (tier C) register
+// KEM_SUITE_P256_HPKE only; every other device and every user registers
+// KEM_SUITE_MLKEM768_X25519 only. Cloud refuses any other pairing.
+message RegisterEncryptionKeyRequest {
+  string organization_id = 1;  // tenant UUID
+  KemSuite suite = 2;
+  bytes public_key = 3;
+}
+
+message RegisterEncryptionKeyResponse {
+  string key_id = 1;  // SHA-256 (hex) of public_key
+}
+
+message GetRecipientKeysRequest {
+  string organization_id = 1;
+  repeated string principals = 2;  // device or user SPIFFE URIs
+}
+
+// The client trusts `registration`, not cloud: it verifies the JWS over the
+// payload bytes, chains `x5c` to the tenant CA (valid at the signing time),
+// checks the leaf identity equals `principal`, and decodes the payload as
+// RegisterEncryptionKeyRequest to get the key.
+message RecipientKey {
+  string principal = 1;
+  SignedRequest registration = 2;  // verbatim as registered
+}
+
+message GetRecipientKeysResponse {
+  repeated RecipientKey keys = 1;
+  // Principals with no live registration (never registered, revoked, deleted):
+  // the client refuses to target them.
+  repeated string unbound = 2;
+}
+
+// ==================== Operator side ====================
+
+// Operator-facing registry API (CLI, console). Bearer + DPoP; state-changing
+// calls are SignedRequests and audited with the signer.
+service ArtifactRegistryService {
+  // Opens the upload of one release's artifact. Records the clear manifest,
+  // sets AppRelease.image_digest to manifest_digest, and returns the ciphertext
+  // still missing. The release is servable once every blob is present and a
+  // CUSTODIAN wrap exists at release scope.
+  // Signed; payload_type "wendycloud.v2.PublishArtifactRequest".
+  rpc PublishArtifact(SignedRequest) returns (PublishArtifactResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Client stream: one header, then data. Authorized by upload_id. The registry
+  // checks the promised ciphertext digest and size; it cannot check plaintext.
+  // Write-once per digest.
+  rpc PutBlob(stream PutBlobRequest) returns (PutBlobResponse);
+  // Attaches wraps and sealed content keys made client-side: release scope at
+  // publish, deployment scope at deployment create, operator invite, rotation.
+  // Device wraps for tier A/B travel in DeviceAssignment instead.
+  // Signed; payload_type "wendycloud.v2.AddWrapsRequest".
+  rpc AddWraps(SignedRequest) returns (AddWrapsResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Deletes wrap rows; needs no key. Operator removal, tier C board removal.
+  // Signed; payload_type "wendycloud.v2.RemoveWrapsRequest".
+  rpc RemoveWraps(SignedRequest) returns (RemoveWrapsResponse) {
+    option (wendy.signed_request) = true;
+  }
+  rpc GetArtifact(GetArtifactRequest) returns (GetArtifactResponse);
+  rpc GetWraps(GetWrapsRequest) returns (GetWrapsResponse);
+  // Ciphertext of a release, resumable by offset. Used by the CLI to push tier C
+  // firmware to a board; the operator relays ciphertext it does not open.
+  rpc GetReleaseBlob(GetReleaseBlobRequest) returns (stream GetBlobResponse);
+
+  // One signed statement per device (Q7 = B), postbox-relayed verbatim to that
+  // device. It is the device's authority to apply AND its pull authorization.
+  // Cloud refuses it unless the deployment has a SealedContentKey and a
+  // CUSTODIAN wrap at deployment_key_id. For a registry-backed release,
+  // CreateDeployment records the deployment only; devices receive it here.
+  // Signed; payload_type "wendycloud.v2.DeviceAssignment".
+  rpc AssignDevice(SignedRequest) returns (AssignDeviceResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Postbox-relayed to the device; cloud drops the assignment, so pulls stop.
+  // Signed; payload_type "wendycloud.v2.UnassignDeviceRequest".
+  rpc UnassignDevice(SignedRequest) returns (UnassignDeviceResponse) {
+    option (wendy.signed_request) = true;
+  }
+}
+
+// Everything the device checks comes from here, under the operator signature:
+// it targets this device, pins the release digest and the deployment key, and
+// carries the device's own wrap of that key. Rotation = a new assignment per
+// device at the new key id.
+message DeviceAssignment {
+  string organization_id = 1;
+  string deployment_id = 2;
+  string device = 3;  // the target device's SPIFFE URI
+  string app_id = 4;
+  string app_release_id = 5;
+  string manifest_digest = 6;
+  string deployment_key_id = 7;
+  Running desired_state = 8;
+  KeyWrap device_wrap = 9;  // recipient = device, scope = deployment at deployment_key_id
+  google.protobuf.Timestamp expires_at = 10;
+}
+
+message AssignDeviceResponse {
+  int64 postbox_entry_id = 1;
+}
+
+message UnassignDeviceRequest {
+  string organization_id = 1;
+  string deployment_id = 2;
+  string device = 3;
+}
+
+message UnassignDeviceResponse {
+  int64 postbox_entry_id = 1;
+}
+
+message PublishArtifactRequest {
+  string organization_id = 1;
+  string app_release_id = 2;
+  ArtifactManifest manifest = 3;
+}
+
+message PublishArtifactResponse {
+  string upload_id = 1;
+  repeated string missing_ciphertext_digests = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  // Users whose current permissions already reach every release of this app.
+  // The publishing client wraps the content key to each of them at release
+  // scope now, not on request (sem 2026-10-18 16:37, Q1).
+  repeated RecipientKey auto_grant_keys = 4;
+}
+
+message PutBlobRequest {
+  oneof part {
+    PutBlobHeader header = 1;  // first message only
+    bytes data = 2;
+  }
+}
+
+message PutBlobHeader {
+  string upload_id = 1;
+  string ciphertext_digest = 2;  // "sha256:<hex>"
+  uint64 ciphertext_size = 3;
+}
+
+message PutBlobResponse {
+  string ciphertext_digest = 1;
+}
+
+message GetArtifactRequest {
+  string organization_id = 1;
+  string app_release_id = 2;
+}
+
+message GetArtifactResponse {
+  ArtifactManifest manifest = 1;
+}
+
+message GetWrapsRequest {
+  string organization_id = 1;
+  WrapScope scope = 2;
+  // Empty: the caller's own user wraps. Otherwise the named principals' wraps
+  // (ciphertext only their keys open), e.g. a board's wrap for a tier C push.
+  repeated string recipients = 3;
+}
+
+message GetWrapsResponse {
+  repeated KeyWrap wraps = 1;
+  repeated SealedContentKey sealed_content_keys = 2;
+}
+
+message GetReleaseBlobRequest {
+  string organization_id = 1;
+  string app_release_id = 2;
+  string ciphertext_digest = 3;
+  uint64 offset = 4;
+}
+
+// ==================== Artifact format ====================
+
+// The clear artifact manifest. Names, digests and sizes in clear are the
+// accepted metadata residual; every blob is ciphertext.
+message ArtifactManifest {
+  // The release digest the operator signs. CONTAINER/WASM/CONFIG: SHA-256 over
+  // oci_manifest, which authenticates every plaintext_digest. FIRMWARE:
+  // SHA-256 over firmware.record.
+  string manifest_digest = 1;
+  bytes oci_manifest = 2;  // byte-exact OCI manifest; empty for FIRMWARE
+  ReleaseType kind = 3;
+  repeated EncryptedBlob blobs = 4;  // FIRMWARE: exactly one, the image
+  string content_key_id = 5;         // SHA-256 (hex) of the content key
+  AeadSuite aead = 6;
+  // Plaintext bytes per AEAD chunk. FIRMWARE: at most 61440, so a sealed chunk
+  // plus framing fits one WendyCom frame (body_size is uint16).
+  uint32 chunk_size = 7;
+  SignedFirmwareRecord firmware = 8;  // FIRMWARE only
+}
+
+// Dual digest. plaintext_digest is authenticated through manifest_digest;
+// ciphertext_digest is the registry address and an early transport check,
+// never authority.
+message EncryptedBlob {
+  string plaintext_digest = 1;
+  string ciphertext_digest = 2;
+  uint64 plaintext_size = 3;
+  uint64 ciphertext_size = 4;
+}
+
+// Each chunk sealed under the content key with a nonce derived from (chunk
+// index, last-chunk flag): truncation, reorder and splice fail authentication.
+// Symmetric, so post-quantum safe as is.
+enum AeadSuite {
+  AEAD_SUITE_UNSPECIFIED = 0;
+  AEAD_SUITE_AES_256_GCM_CHUNKED = 1;
+}
+
+// ==================== Tier C firmware ====================
+
+// Wendy Lite firmware is not OCI: one raw ESP-IDF app image, written to the
+// next OTA slot. Boards do not pull in v1; an operator pushes over WendyCom
+// (USB, LAN, BLE or the cloud relay) on top of that link's TLS. The board
+// verifies the signature, unwraps its P-256 wrap, decrypts chunks in order,
+// checks image_sha256 and the fields below, and only then switches the boot
+// partition. That board-side work does not exist yet (firmware ticket).
+message FirmwareRecord {
+  string organization_id = 1;
+  string app_id = 2;
+  string version = 3;
+  string board_target = 4;  // board config name in the firmware catalog
+  uint64 flash_size = 5;    // bytes
+  string idf_version = 6;
+  uint64 image_size = 7;    // plaintext bytes; the board refuses more than its slot
+  bytes image_sha256 = 8;   // SHA-256 of the plaintext image
+}
+
+message SignedFirmwareRecord {
+  bytes record = 1;  // serialized FirmwareRecord, the exact signed bytes
+  // ML-DSA-65 over `record` by the publishing operator's leaf.
+  bytes signature = 2;
+  repeated bytes publisher_chain_der = 3;  // leaf first, up to the tenant CA
+}
+
+// ==================== Keys and wraps ====================
+
+enum KemSuite {
+  KEM_SUITE_UNSPECIFIED = 0;
+  // HPKE with the ML-KEM-768 + X25519 hybrid KEM, HKDF-SHA256, AES-256-GCM.
+  // Tier A/B devices, users, the custodian.
+  KEM_SUITE_MLKEM768_X25519 = 1;
+  // HPKE DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, AES-256-GCM. Tier C boards only.
+  KEM_SUITE_P256_HPKE = 2;
+}
+
+enum RecipientKind {
+  RECIPIENT_KIND_UNSPECIFIED = 0;
+  RECIPIENT_KIND_DEVICE = 1;
+  RECIPIENT_KIND_USER = 2;
+  // Wendy break-glass key; clients pin its public key per environment. Dev =
+  // generated key pair; prod = 2-of-3 Shamir ceremony, same officers as the
+  // platform root, separate key.
+  RECIPIENT_KIND_CUSTODIAN = 3;
+}
+
+// What a wrap opens. Deployment scope: the deployment key (tier A/B). Release
+// scope: the content key itself, for release holders before any deployment and
+// for tier C boards, which get the content key directly (no deployment key).
+message WrapScope {
+  oneof scope {
+    string deployment_id = 1;
+    string app_release_id = 2;
+  }
+  string key_id = 3;  // SHA-256 (hex) of the wrapped key; tells a stale wrap after rotation
+}
+
+// One key sealed to one recipient public key (HPKE base mode). The HPKE info
+// binds tenant, scope, key_id and recipient_key_id, so a wrap moved to another
+// scope or recipient does not open.
+message KeyWrap {
+  WrapScope scope = 1;
+  RecipientKind recipient_kind = 2;
+  string recipient = 3;         // SPIFFE URI; empty for the custodian
+  string recipient_key_id = 4;  // SHA-256 (hex) of the recipient public key
+  KemSuite suite = 5;
+  bytes enc = 6;
+  bytes ciphertext = 7;
+}
+
+// The content key sealed under a deployment key, once per deployment.
+// AAD = deployment_id || manifest_digest.
+message SealedContentKey {
+  string deployment_id = 1;
+  string manifest_digest = 2;
+  string content_key_id = 3;
+  string deployment_key_id = 4;
+  bytes nonce = 5;
+  bytes ciphertext = 6;
+}
+
+message AddWrapsRequest {
+  string organization_id = 1;
+  repeated KeyWrap wraps = 2;
+  repeated SealedContentKey sealed_content_keys = 3;  // deployment create and rotation
+}
+
+message AddWrapsResponse {
+  uint32 stored = 1;
+}
+
+message RemoveWrapsRequest {
+  string organization_id = 1;
+  WrapScope scope = 2;
+  repeated string recipient_key_ids = 3;
+}
+
+message RemoveWrapsResponse {
+  uint32 removed = 1;
+}
+
+// ==================== Device side ====================
+
+// Device-facing registry API over the device's own mTLS (tier A/B). Every call
+// is refused unless a live assignment of this device references the deployment
+// and the digest belongs to its release; refused too (UNAVAILABLE) when the
+// assignment check cannot be made (Q3).
+service DeviceArtifactService {
+  rpc GetDeploymentMaterial(GetDeploymentMaterialRequest) returns (GetDeploymentMaterialResponse);
+  rpc GetBlob(GetBlobRequest) returns (stream GetBlobResponse);
+}
+
+message GetDeploymentMaterialRequest {
+  string deployment_id = 1;  // from the verified assignment
+}
+
+// The device's wrap is not here: it arrives in its signed DeviceAssignment.
+message GetDeploymentMaterialResponse {
+  ArtifactManifest manifest = 1;
+  SealedContentKey sealed_content_key = 2;  // at the assignment's deployment_key_id
+}
+
+message GetBlobRequest {
+  string deployment_id = 1;
+  string ciphertext_digest = 2;
+  uint64 offset = 3;
+}
+
+message GetBlobResponse {
+  bytes data = 1;
+}
