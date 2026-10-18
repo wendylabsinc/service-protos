@@ -21,6 +21,14 @@ import "wendycloud/v2/signed_request.proto";
 // `device:<asset id>`, `site:<site id>` or `tag:<name>`, and no target segment
 // for ALL (every device, as today). A category the caller holds completely is
 // one `entitlement:{category}:*[:{target}]:allow` string.
+//
+// Device actions the agent enforces from the certificate (WDY-3887), each a
+// device-targeted catalog permission like any other:
+//   device:read     reads: device info, hardware, drivers list
+//   device:update   OS and agent update, driver install and remove
+//   device:shell    host shell, container exec and attach
+//   device:logs     log and telemetry streaming
+//   device:network  Wi-Fi, Bluetooth, hostname and power changes
 service OperatorCertificateService {
   // Gate: `certificate:request-entitled` in organization_id, plus device
   // access: the caller's entries must reach the target. ALL is issued only
