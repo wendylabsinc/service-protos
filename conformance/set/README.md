@@ -190,10 +190,32 @@ another tenant). Fan-out = **[cloud, pki-core]** (one aud-specific vector each).
   another tenant's unexpired one. Same future-dated refusal as disable/enable.
 - **Delivery order (emitter).** pki-core refuses a SET from `new_slug`'s issuer
   as an unknown realm until it has applied the rename, so wendy-auth must deliver
-  tenant-renamed to each receiver before any SET that the renamed realm signs.
+  tenant-renamed to each receiver before any SET that the renamed realm signs
+  (per-realm FIFO: the realm's later SETs wait behind an unacked rename).
+- **Re-delivery (emitter).** Each delivery attempt is signed afresh: new `jti`,
+  `iat` and `exp`, the same event body (same `event_timestamp`). A SET's `exp`
+  is minutes, so resending the first attempt's bytes would be refused once it
+  expires. pki-core treats a re-signed copy of a rename it already applied as a
+  late delivery: no slug moves, the `old_slug` alias is kept, one audit row.
 - **Ack.** Replayed `jti`, unknown or offboarded tenant: `accepted=true`, no
-  change, one audit row. A `new_slug` that another live pki tenant holds is
-  refused (not acked), so the SET is retried rather than lost.
+  change, one audit row. pki-core's ack of every tenant-renamed it processed
+  echoes the SET's `jti`. An ack with an empty `jti` comes from a pki-core fabric
+  that predates this type and dropped it, so the emitter counts it as not
+  delivered and retries it.
+- **Refusals.** A `new_slug` another live pki tenant holds: `Aborted`, nothing
+  written, retried (that tenant may still rename away). Never applicable, so
+  terminal with one `tenant.rename_refused` audit row: `old_slug` is neither the
+  tenant's slug nor one of its unexpired aliases, or `new_slug` names an
+  offboarded tenant or another tenant's unexpired alias (`FailedPrecondition`).
+  The emitter retries `Unavailable`, `ResourceExhausted`, `Aborted`,
+  `DeadlineExceeded` and `Internal` with backoff. Every other code, and a
+  retryable one after the outbox's attempt limit, is dead-lettered (audited),
+  which releases the realm's FIFO so its later SETs (disable, delete) still
+  arrive.
+- **Roll order (pki-core).** Engine first, then fabric, both on a release that
+  knows tenant-renamed before wendy-auth emits it. A new fabric in front of an old
+  engine is refused `InvalidArgument` (terminal: the rename is dead-lettered and
+  lost). An old fabric drops it with an empty-`jti` ack (see Ack).
 
 Hand-built to the SETBuilder canonical form (same inputs as
 `pki-tenant-disabled-sub-id`; event-type, body and `reason_admin` differ).
