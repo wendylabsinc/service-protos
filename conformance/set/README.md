@@ -180,10 +180,14 @@ another tenant). Fan-out = **[cloud, pki-core]** (one aud-specific vector each).
   new issuer in one transaction: the organization's issuer, its users'
   identities (`iss`), and the issuer prefix of its group grants (WDY-3875).
 - **Ordering.** `event_timestamp` is required and orders renames per tenant on
-  their own clock (never against disable/enable). A rename applies when its
-  `event_timestamp` is newer than the last rename applied, or equal to it with
-  `old_slug` matching the current slug. An older one changes no slug but still
-  records its `old_slug` alias. Same future-dated refusal as disable/enable.
+  their own clock (never against disable/enable). The emitter MUST make it
+  strictly increase per tenant across renames (last value + 1 when the next
+  would carry the same second or an earlier one). A rename applies only when its
+  `event_timestamp` is later than the last rename applied; an equal or older
+  one is a late delivery, changes no slug, but still keeps its `old_slug`
+  resolving until its `alias_expires_at`. An alias is never recorded for a slug
+  another tenant holds live, never shortens a later alias and never takes
+  another tenant's unexpired one. Same future-dated refusal as disable/enable.
 - **Delivery order (emitter).** pki-core refuses a SET from `new_slug`'s issuer
   as an unknown realm until it has applied the rename, so wendy-auth must deliver
   tenant-renamed to each receiver before any SET that the renamed realm signs.
