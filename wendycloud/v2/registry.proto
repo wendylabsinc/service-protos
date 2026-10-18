@@ -76,11 +76,16 @@ message GetRecipientKeysRequest {
   repeated string principals = 2;  // device or user SPIFFE URIs
 }
 
-// The client trusts `registration` and `chain_der`, not cloud. It verifies the
-// JWS over the payload bytes with the `x5c` leaf, chains that leaf through
-// `chain_der` to the tenant CA (valid at the signing time), checks the leaf
-// identity equals `principal`, and decodes the payload as
-// RegisterEncryptionKeyRequest to get the key.
+// The client trusts `registration` and `chain_der` only as far as they chain
+// to its own pinned platform root; cloud serves them and is untrusted. It
+// verifies the JWS over the payload bytes with the `x5c` leaf, chains that
+// leaf through `chain_der` to the tenant CA (valid at the signing time), and
+// anchors the tenant CA to the client-pinned platform root, never to the
+// cloud-served chain alone (a compromised cloud could serve its own CA). It
+// checks the CA's tenant equals organization_id, the leaf identity equals
+// `principal`, payload_type is "wendycloud.v2.RegisterEncryptionKeyRequest",
+// the JWS operation is the matching Register* method, then decodes the payload
+// and recomputes key_id = SHA-256(public_key) locally.
 message RecipientKey {
   string principal = 1;
   SignedRequest registration = 2;  // verbatim as registered
@@ -264,9 +269,13 @@ message EncryptedBlob {
   uint64 ciphertext_size = 4;
 }
 
-// Q4: AES-256-GCM. Each chunk sealed under the content key with a nonce
-// derived from (chunk index, last-chunk flag): truncation, reorder and splice
-// fail authentication. Symmetric, so post-quantum safe as is.
+// Q4: AES-256-GCM. Q4 amendment, sem sees it: one content key covers every
+// blob of a release, so chunks are NOT sealed under the content key directly
+// (chunk 0 of two blobs would reuse key + nonce). Each blob gets its own key,
+// HKDF-SHA256(content key, info = the blob's plaintext_digest); each chunk is
+// sealed under that per-blob key with a nonce derived from (chunk index,
+// last-chunk flag): truncation, reorder and splice fail authentication.
+// Symmetric, so post-quantum safe as is.
 // TODO(conformance): exact nonce layout, HPKE info / AAD byte layouts and test
 // vectors (a conformance/registry directory) land with the first
 // implementation.
