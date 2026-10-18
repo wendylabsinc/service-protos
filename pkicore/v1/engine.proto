@@ -511,7 +511,19 @@ enum AuditLogOrder {
 
 // GetCACerts returns all active CA certificates for the authenticated tenant.
 // Tenant is taken from x-tenant-id gRPC metadata. Used by the EST cacerts endpoint.
-message GetCACertsRequest {}
+message GetCACertsRequest {
+  // Empty preserves the tenant's normal chain. ECDSA_P256 returns only the
+  // classical self-signed twin of the tenant's Lite Device CA (same key and
+  // subject as the CA the tenant Intermediate signs) for Tier-C firmware
+  // without ML-DSA support; empty until an operator-signed token mint has
+  // created that CA.
+  string chain_algorithm = 1;
+  // With chain_algorithm ECDSA_P256 only: return instead, for ML-capable
+  // verifiers, the Lite Device CA as signed by the tenant Intermediate plus
+  // its ancestors below the platform Root (tenant Intermediate, Customer
+  // Intermediate); never the twin. Invalid without chain_algorithm.
+  bool full_chain = 2;
+}
 message GetCACertsResponse {
   repeated bytes certs = 1; // DER-encoded CA certificates (root → device CA order)
 }
@@ -590,11 +602,16 @@ enum CARole {
   CA_ROLE_TENANT_CODE_SIGNING = 8; // "tenant_code_signing"
   CA_ROLE_CODE_SIGNING_ACTIVE = 9; // "code_signing_active"
 
-  // The tenant's self-signed P-256 Lite Operator Authority (lite-relay-v1
-  // § Operator dual-key). Never an operator trust anchor except on the Lite
+  // The tenant's P-256 Lite Operator Authority (lite-relay-v1 § Operator
+  // dual-key), signed by the tenant Intermediate. Never an operator trust anchor except on the Lite
   // lane opt-in; consumers selecting CA_ROLE_TENANT_OPERATOR_AUTHORITY never
   // see it.
   CA_ROLE_TENANT_LITE_OPERATOR_AUTHORITY = 10; // "tenant_lite_operator_authority"
+  // The tenant's P-256 Lite Device CA: a sibling of the Device Identity CA
+  // under the tenant Intermediate, issuing device-tier-c leaves. Tier-C
+  // callers receive its classical self-signed twin; consumers selecting
+  // CA_ROLE_TENANT_DEVICE_IDENTITY never see it.
+  CA_ROLE_TENANT_LITE_DEVICE_IDENTITY = 11; // "tenant_lite_device_identity"
 }
 
 message CAInfo {
@@ -693,6 +710,10 @@ message CreateEnrollmentTokenRequest {
   string source_jti  = 6;
   // WDY-3541: optional display name; same rules as CreateEABKeyRequest.label.
   string label       = 7;
+  // Empty preserves ca_id. ECDSA_P256 selects the tenant's Lite Device CA
+  // (created here on first use, under the tenant Intermediate), permitted
+  // only for device-tier-c.
+  string chain_algorithm = 8;
 }
 message CreateEnrollmentTokenResponse {
   string token_id    = 1;
