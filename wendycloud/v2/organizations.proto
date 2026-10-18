@@ -109,6 +109,12 @@ message OrganizationMember {
   // or ownership), "default" (the organization default at join; group-mapped roles add to it),
   // or "none" (no role of its own; group mappings alone decide).
   string role_source = 9;
+  // ListMembers only (WDY-3895): distinct compute devices covered by this member's device-access
+  // rules, including group grants and deny precedence. Roles still govern allowed actions.
+  // Present zero means no devices; absent means unavailable, including older servers,
+  // unresolved realm membership, or a viewer without device-access:list or full fleet access.
+  // Uses the caller's token groups for self; current auth directory groups for other members.
+  optional int32 device_access_count = 10;
 }
 
 message CreateOrganizationRequest {
