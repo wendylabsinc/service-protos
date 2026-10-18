@@ -22,6 +22,11 @@ service AuthFabric {
   // generic message, never an empty list (an empty list means "no such member").
   // Advertised through GetCapabilities; a caller that does not see it there must not call it.
   rpc ListRealmMembers(ListRealmMembersRequest) returns (ListRealmMembersResponse);
+
+  // Complete group catalog for ONE tenant realm, including groups with no members (WDY-3867).
+  // Cloud-runtime only. Malformed, unknown and out-of-scope tenants are PERMISSION_DENIED.
+  // The system realm is never readable. No member or credential data is returned.
+  rpc ListRealmGroups(ListRealmGroupsRequest) returns (ListRealmGroupsResponse);
 }
 
 message GetCapabilitiesRequest {
@@ -73,6 +78,24 @@ message RealmMember {
 message RealmMemberGroup {
   string           name   = 1;
   RealmGroupSource source = 2;
+}
+
+message ListRealmGroupsRequest {
+  string correlation_id = 1;
+  string tenant_uuid = 2; // immutable realm tenant UUID
+}
+
+message ListRealmGroupsResponse {
+  string realm_issuer = 1; // the issuer used for this realm's access tokens
+  repeated RealmGroup groups = 2; // complete catalog, ordered by name; no pagination
+}
+
+message RealmGroup {
+  string id = 1; // catalog UUID, not the group claim value
+  string name = 2; // exact name used in the access token's groups claim
+  string description = 3;
+  RealmGroupSource source = 4;
+  string connection_name = 5; // optional display name for a federated source
 }
 
 enum RealmMemberStatus {
