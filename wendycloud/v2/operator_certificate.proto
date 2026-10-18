@@ -25,10 +25,12 @@ import "wendycloud/v2/signed_request.proto";
 // Device actions the agent enforces from the certificate (WDY-3887), each a
 // device-targeted catalog permission like any other:
 //   device:read     reads: device info, hardware, drivers list
-//   device:update   OS and agent update, driver install and remove
+//   device:update   the device record (site, tags); no device action
+//   device:software OS and agent update, driver install and remove, reboot
+//                   and shutdown
 //   device:shell    host shell, container exec and attach
 //   device:logs     log and telemetry streaming
-//   device:network  Wi-Fi, Bluetooth, hostname and power changes
+//   device:network  Wi-Fi, Bluetooth and hostname changes
 service OperatorCertificateService {
   // Gate: `certificate:request-entitled` in organization_id, plus device
   // access: the caller's entries must reach the target. ALL is issued only
