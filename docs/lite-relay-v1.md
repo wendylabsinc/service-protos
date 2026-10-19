@@ -48,7 +48,7 @@ trailing data within the record. The key-ID length determines the record length.
 
 | Field | Bytes |
 | --- | ---: |
-| ASCII `WLG2` | 4 |
+| ASCII `WLG3` | 4 |
 | Key-ID length | 1 |
 | Key ID | 1..128 |
 | Issued at, Unix seconds | 8 |
@@ -56,7 +56,6 @@ trailing data within the record. The key-ID length determines the record length.
 | Random session ID | 16 |
 | Grant ID (`jti`), random, single-use | 16 |
 | Correlation ID | 16 |
-| Asset UUID, network byte order | 16 |
 | SHA-256 of exact device SPIFFE URI UTF-8 | 32 |
 | SHA-256 of exact operator SPIFFE URI UTF-8 | 32 |
 | SHA-256 of operator caller key SubjectPublicKeyInfo DER | 32 |
@@ -65,10 +64,21 @@ trailing data within the record. The key-ID length determines the record length.
 | P-256 ECDSA signature, raw `r[32] || s[32]` | 64 |
 
 The signature is ES256: ECDSA P-256 over SHA-256 of every preceding
-byte, starting with `WLG2`. The P-256 Lite grant key signs only these Tier-C
+byte, starting with `WLG3`. The P-256 Lite grant key signs only these Tier-C
 grant records, never a JWS artifact; the magic keeps the record distinct from
 every other signed format. Total length is
-`309 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
+`293 + key_id_length` bytes. Unknown versions, algorithms and key IDs fail closed.
+
+The device URI hash is the record's only device identifier (WDY-3919). A device
+has one id, the UUID segment of `spiffe://wendy.sh/tenant/<tenant>/device/<uuid>`,
+which is also its cloud asset id; the record carries no separate asset UUID.
+The hash binds tenant and UUID in 32 bytes the device compares against the
+SHA-256 of its own certificate's SAN URI, with no UUID parsing on the device.
+
+**WLG2 (retired).** WLG2 was this layout with a 16-byte asset UUID after the
+correlation ID. It is retired at once, with no dual-accept window (sem
+2026-10-19 17:27; every Lite device is test fleet): Cloud issues only WLG3, and
+firmware and the CLI accept only WLG3 and refuse a WLG2 record by its magic.
 
 The correlation ID is the request's §11.2 `correlation_id`: its 16 UUID bytes
 when it is exactly the 36-character hyphenated 8-4-4-4-12 form (hex digits case-insensitive, mixed included),
