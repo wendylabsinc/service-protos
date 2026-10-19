@@ -1443,6 +1443,9 @@ message RevokeByPrincipalResponse {
   // bootstrap credentials revoked, pending request blocked and certificate
   // revocation committed atomically. Old implementations default to false.
   bool device_enrollment_fenced = 2;
+  // Echo of the pending request actually blocked by the engine. Cloud checks
+  // this so an older fabric that drops the request annotation fails closed.
+  string fenced_enrollment_request_jti = 3;
 }
 message GetPendingOverDurationRequestResponse { PendingOverDurationRequest request = 1; }
 
