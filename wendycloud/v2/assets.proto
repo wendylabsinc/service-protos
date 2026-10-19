@@ -95,9 +95,10 @@ message Asset {
   // Device binding: the UUID pki-core stamped into the device's
   // /device/<uuid> SPIFFE identity at enrollment. Since WDY-3919 a device has
   // ONE id: this equals `id` for every compute device, and cloud resolves an
-  // mTLS device identity by `id`. Kept so older readers keep working; new
-  // readers use `id`.
-  optional string pki_device_name = 35;
+  // mTLS device identity by `id`. Deprecated: equals the asset id; removed
+  // after the cloud release that ships WDY-3919 (expand -> migrate ->
+  // contract). New readers use `id`.
+  optional string pki_device_name = 35 [deprecated = true];
 
   // Hardware facts the device reports about itself (WDY-3544), beside the
   // older columns above (device_type = board model, architecture, cpu_cores,

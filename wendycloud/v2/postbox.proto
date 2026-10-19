@@ -17,8 +17,8 @@ service DevicePostboxService {
 
 // Neither the tenant nor the target is on the wire: both are derived from the
 // mTLS-proven identity — tenant from the leaf, target from the canonical
-// spiffe://wendy.sh/tenant/<tenant>/device/<name> built from the asset's
-// pki_device_name. A caller-supplied target would let one device read another
+// spiffe://wendy.sh/tenant/<tenant>/device/<uuid> built from the asset id,
+// which is the device UUID (WDY-3919). A caller-supplied target would let one device read another
 // device's chain, which no server-side check makes safer than the identity the
 // certificate already proves.
 message PullChangesRequest {
