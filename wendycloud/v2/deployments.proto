@@ -17,7 +17,12 @@ service DeploymentService {
     option (wendy.signed_request) = true;
   }
   rpc ListAppReleases(ListAppReleasesRequest) returns (stream ListAppReleasesResponse);
-  rpc GetPushImageCredentials(GetPushImageCredentialsRequest) returns (GetPushImageCredentialsResponse);
+  // Retired by the encrypted registry (registry.proto): no CLI holds a registry
+  // token. Deprecated now, deleted once cloud serves ArtifactRegistryService
+  // (expand, migrate, contract).
+  rpc GetPushImageCredentials(GetPushImageCredentialsRequest) returns (GetPushImageCredentialsResponse) {
+    option deprecated = true;
+  }
 
   // ==================== Deployments ====================
   // Signed; payload_type "wendycloud.v2.CreateDeploymentRequest".
@@ -30,7 +35,12 @@ service DeploymentService {
   // ==================== Asset App Desired Instructions (wendy-agent) ====================
   rpc HandleReportedState(stream UpdateReportedStateRequest) returns (stream DesiredStateResponse);
   rpc ListAssetApps(ListAssetAppsRequest) returns (ListAssetAppsResponse);
-  rpc GetPullCredentials(GetPullCredentialsRequest) returns (GetPullCredentialsResponse);
+  // Retired by the encrypted registry (registry.proto): devices pull through
+  // DeviceArtifactService on their own mTLS. Deprecated now, deleted once cloud
+  // serves it (expand, migrate, contract).
+  rpc GetPullCredentials(GetPullCredentialsRequest) returns (GetPullCredentialsResponse) {
+    option deprecated = true;
+  }
 
   // ==================== Device Container Control ====================
   rpc ListDeviceContainers(ListDeviceContainersRequest) returns (stream DeviceContainer);
@@ -47,6 +57,8 @@ message AppRelease {
   string app_id = 3;
   string name = 4;
   string details = 5;
+  // For a registry-backed release: ArtifactManifest.manifest_digest, set by
+  // ArtifactRegistryService.PublishArtifact.
   optional string image_digest = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
@@ -163,6 +175,24 @@ message CurrentState {
   Running reported_state = 3;
   int32 reported_restart_count = 4;
   uint32 reported_last_exit_signal = 5;
+  // The postbox entry this state answers, so cloud can tell which signed
+  // request a device applied or refused, and why.
+  int64 postbox_entry_id = 6;
+  string correlation_id = 7;
+  string manifest_digest = 8;
+  ApplyOutcome outcome = 9;
+}
+
+enum ApplyOutcome {
+  APPLY_OUTCOME_UNSPECIFIED = 0;
+  APPLY_OUTCOME_APPLIED = 1;
+  APPLY_OUTCOME_REJECTED_SIGNATURE = 2;
+  APPLY_OUTCOME_REJECTED_TARGET = 3;
+  APPLY_OUTCOME_REJECTED_STALE = 4;
+  APPLY_OUTCOME_REJECTED_DIGEST = 5;
+  APPLY_OUTCOME_REJECTED_UNWRAP = 6;
+  APPLY_OUTCOME_PULL_REFUSED = 7;
+  APPLY_OUTCOME_SUPERSEDED = 8;
 }
 
 // this is to be called by the wendy-agent to get the desired state of an app on an asset
@@ -189,6 +219,9 @@ enum Running {
 enum ReleaseType {
   CONTAINER = 0;
   WASM = 1;
+  CONFIG = 2;
+  // No FIRMWARE: tier C (wendy-lite) firmware is not OCI and gets its own shape
+  // (sem 2026-10-18 16:37). TODO(tier C): add with that contract.
 }
 
 // ==================== List Asset Apps ====================
