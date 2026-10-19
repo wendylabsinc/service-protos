@@ -1441,7 +1441,8 @@ message RevokeByPrincipalRequest {
   // to the same signed request. False preserves certificate-only revocation.
   // The fence is per (tenant_id, device UUID), the UUID being the device
   // segment of principal; it advances pki-core's own enrollment epoch. A
-  // deleted device is gone from records: nothing reserves its UUID.
+  // deleted device is gone from records: nothing reserves its UUID. A
+  // deliberate re-enroll mints a new UUID, so no replacement guard is needed.
   bool fence_device_enrollment = 7;
 }
 message RevokeByPrincipalResponse {
