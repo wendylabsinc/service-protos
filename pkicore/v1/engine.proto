@@ -546,7 +546,6 @@ message VerifyEABSignatureResponse {
   string device_id            = 5;
   // Persist on the ACME account and carry in AuthContext on every finalize.
   int64 enrollment_epoch = 6;
-
 }
 
 // --- Tenant policy ---
@@ -1075,7 +1074,6 @@ message CheckACMEAccountRequest {
   string device_id            = 4; // the account's device_id (EAB-bound); empty for non-device accounts
   bool   attestation_required = 5; // the account re-attests every order, so expiry alone does not end its lineage
   int64 enrollment_epoch = 6; // EAB-bound generation, including before first issuance
-
 }
 message CheckACMEAccountResponse {
   bool revoked = 1; // true: the lineage is over; the account must not be served
@@ -1438,7 +1436,6 @@ message RevokeByPrincipalRequest {
   // Block this JTI even if its relay has not reached PKI yet. This annotation
   // cannot revoke enrollment requests for any other tenant or device.
   string enrollment_request_jti = 6;
-
 }
 message RevokeByPrincipalResponse {
   int32 revoked_count = 1; // 0 is success: nothing live to revoke
@@ -1446,7 +1443,6 @@ message RevokeByPrincipalResponse {
   // bootstrap credentials revoked, pending request blocked and certificate
   // revocation committed atomically. Old implementations default to false.
   bool device_enrollment_fenced = 2;
-
 }
 message GetPendingOverDurationRequestResponse { PendingOverDurationRequest request = 1; }
 

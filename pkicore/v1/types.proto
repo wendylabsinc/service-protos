@@ -49,8 +49,7 @@ message AuthContext {
   reserved "oidc", "platform_svc";
   // ACME's EAB-bound device enrollment generation. Zero is the legacy initial
   // generation; a device-principal revocation invalidates earlier generations.
-  int64 enrollment_epoch = 11;
-
+  int64 enrollment_epoch = 10;
 }
 
 // Every field is filled by the pki-core engine from its audit_log row; the
