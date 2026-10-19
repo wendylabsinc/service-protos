@@ -15,7 +15,10 @@ WDY-3458 lands.
 
 Operator-signed RPCs carry their signature in the request body. The RPCs are the
 ones marked `option (wendy.signed_request) = true` (`wendy/options.proto`); that
-option is the only list. Their input is `wendycloud.v2.SignedRequest`
+option is the only list. Device-signed RPCs (`RegisterDeviceEncryptionKey`,
+`AckHead`) take the same envelope, signed with the device leaf, which must be
+the mTLS peer; they are marked `option (wendy.device_signed_request) = true`
+instead (WDY-3926) and never go to the operator verifier. Their input is `wendycloud.v2.SignedRequest`
 (`wendycloud/v2/signed_request.proto`). Headers carry only the bearer token and
 the DPoP proof. Client-streaming and bidirectional RPCs are not signed. A
 server-streaming RPC still takes a single request message, so it can be signed;
@@ -92,9 +95,9 @@ operator leaf pki-core minted before it recorded the key algorithm (WDY-3648,
 one operator leaf lifetime after that deploy): the broker answers
 `FAILED_PRECONDITION` "leaf not stored; present the certificate". The client retries the call once, signed
 with `x5c` (fresh nonce), and fails loudly if that is refused too. A method whose
-input is `SignedRequest` is always verified, whether or not it carries the
-option. Each consumer should test that the option and the
-input type agree.
+input is `SignedRequest` is always verified, whether or not it carries an
+option. Each consumer should test that the input is `SignedRequest` exactly
+when the method carries one of the two options, and never both.
 
 ### What is signed, by whom, how the key is referenced
 
@@ -102,6 +105,7 @@ input type agree.
 |---|---|---|---|
 | `SignedRequest.signature` | operator leaf | `x5c` or `kid`; `kid` → `FAILED_PRECONDITION` "leaf not stored" means retry once with `x5c`, then fail loudly | request body |
 | `SignedRequest.signature` on `RegisterOperatorLeaf` and the postbox-relayed `DeploymentService.CreateDeployment` / `ControlContainer` | operator leaf | `x5c` only; `kid` is refused (the postbox JWS is forwarded verbatim to devices in `PostboxEntry.request_jws`) | request body, then the postbox |
+| `SignedRequest.signature` on the `wendy.device_signed_request` methods (`KeyDirectoryService.RegisterDeviceEncryptionKey`, `DevicePostboxService.AckHead`) | device leaf | `x5c` only, and it must be the mTLS peer | request body |
 | `SignedRequest.pki_management_request` (tier-3) | the same operator leaf | `x5c`, byte-equal to the resolved signature leaf | request body |
 | enrollment, over-duration request/approval/pickup JWS | operator leaf | its own format, verified by pki-core | a field of the signed payload |
 | device-originated calls (`CreateNotificationV2`) | device | the devices-mTLS leaf; nothing signed per request | TLS. `x-wendy-device-{uri,certificate-serial,timestamp,signature}` are retired with no replacement (WDY-3464) |
