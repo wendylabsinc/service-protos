@@ -48,14 +48,15 @@ service KeyDirectoryService {
     option (wendy.signed_request) = true;
   }
   // A device registers the encryption key it generated at enrollment, over its
-  // own mTLS. Device-signed (see SignedRequest.signature): `x5c` = the device
-  // leaf, which must be the mTLS peer. Not an operator-signed method, so no
-  // wendy.signed_request option.
+  // own mTLS. Device-signed (wendy.device_signed_request): `x5c` = the device
+  // leaf, which must be the mTLS peer.
   // payload_type "wendycloud.v2.RegisterEncryptionKeyRequest".
   // TODO(ungrounded): when the agent sends this relative to enrollment (first
   // call after enrollment is assumed) is not ruled; until it has, the device is
   // reported in GetRecipientKeysResponse.unbound and cannot be targeted.
-  rpc RegisterDeviceEncryptionKey(SignedRequest) returns (RegisterEncryptionKeyResponse);
+  rpc RegisterDeviceEncryptionKey(SignedRequest) returns (RegisterEncryptionKeyResponse) {
+    option (wendy.device_signed_request) = true;
+  }
   rpc GetRecipientKeys(GetRecipientKeysRequest) returns (GetRecipientKeysResponse);
 }
 

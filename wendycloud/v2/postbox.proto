@@ -3,6 +3,7 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
 import "wendycloud/v2/signed_request.proto";
 
 // DevicePostboxService is the device-facing half of the §5.3 postbox: a device
@@ -21,12 +22,13 @@ service DevicePostboxService {
   // cloud, over its own mTLS. Cloud can withhold an ack, never forge one: the
   // alarm for a withheld tail is a stale last signed ack, raised operator side.
   // pki-core is not involved.
-  // Device-signed SignedRequest (not an operator-signed method, so no
-  // wendy.signed_request option): `x5c` = the device leaf, which must be the
-  // mTLS peer. payload_type "wendycloud.v2.PostboxHeadAck".
+  // Device-signed (wendy.device_signed_request): `x5c` = the device leaf,
+  // which must be the mTLS peer. payload_type "wendycloud.v2.PostboxHeadAck".
   // TODO(Q8): the operator-side read of the last signed ack (console staleness
   // alarm) is not in this contract yet.
-  rpc AckHead(SignedRequest) returns (AckHeadResponse);
+  rpc AckHead(SignedRequest) returns (AckHeadResponse) {
+    option (wendy.device_signed_request) = true;
+  }
 }
 
 // Neither the tenant nor the target is on the wire: both are derived from the

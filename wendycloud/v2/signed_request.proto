@@ -6,7 +6,8 @@ import "google/protobuf/timestamp.proto";
 import "wendy/options.proto";
 
 // SignedRequest is the input of every operator-signed RPC, the ones marked
-// `option (wendy.signed_request) = true` (WDY-3458). The signature travels in
+// `option (wendy.signed_request) = true` (WDY-3458), and of the device-signed
+// ones marked `option (wendy.device_signed_request) = true` (WDY-3926). The signature travels in
 // the body, not in headers; headers carry only the bearer token and DPoP proof.
 //
 // The server verifies `signature` (a JWS over the exact `payload` bytes),
@@ -37,8 +38,8 @@ message SignedRequest {
   // (DeploymentService.CreateDeployment, ControlContainer,
   // ArtifactRegistryService.AssignDevice, UnassignDevice), whose JWS is
   // forwarded verbatim to devices in PostboxEntry.request_jws.
-  // Two methods take a DEVICE-signed SignedRequest instead
-  // (KeyDirectoryService.RegisterDeviceEncryptionKey,
+  // The methods marked wendy.device_signed_request take a DEVICE-signed
+  // SignedRequest instead (KeyDirectoryService.RegisterDeviceEncryptionKey,
   // DevicePostboxService.AckHead): `x5c` = the device leaf, which must be the
   // mTLS peer. TODO(device signer): conformance/reqsig has no device-signer
   // profile yet (claims, target, aud); it lands with the first implementation.
