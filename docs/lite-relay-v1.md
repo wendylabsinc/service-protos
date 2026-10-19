@@ -75,12 +75,10 @@ which is also its cloud asset id; the record carries no separate asset UUID.
 The hash binds tenant and UUID in 32 bytes the device compares against the
 SHA-256 of its own certificate's SAN URI, with no UUID parsing on the device.
 
-**WLG2 (retiring).** WLG2 is this layout with a 16-byte asset UUID after the
-correlation ID, `309 + key_id_length` bytes. The magic, not the length, tells the
-two apart (the lengths overlap across key-ID sizes) and keeps either signature
-from verifying as the other. Rollout: firmware and the CLI's framing check
-accept both WLG2 and WLG3; Cloud then issues WLG3 only; once no Cloud issues
-WLG2, firmware and the CLI drop it. A device ignores the WLG2 asset UUID.
+**WLG2 (retired).** WLG2 was this layout with a 16-byte asset UUID after the
+correlation ID. It is retired at once, with no dual-accept window (sem
+2026-10-19 17:27; every Lite device is test fleet): Cloud issues only WLG3, and
+firmware and the CLI accept only WLG3 and refuse a WLG2 record by its magic.
 
 The correlation ID is the request's §11.2 `correlation_id`: its 16 UUID bytes
 when it is exactly the 36-character hyphenated 8-4-4-4-12 form (hex digits case-insensitive, mixed included),
