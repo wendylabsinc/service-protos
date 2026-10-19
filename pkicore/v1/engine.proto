@@ -1074,6 +1074,7 @@ message CheckACMEAccountRequest {
   string device_id            = 4; // the account's device_id (EAB-bound); empty for non-device accounts
   bool   attestation_required = 5; // the account re-attests every order, so expiry alone does not end its lineage
   int64 enrollment_epoch = 6; // EAB-bound generation, including before first issuance
+  string eab_key_id = 7; // the EAB key the account registered with; a leafless account rests on this key alone (empty: account predates the binding)
 }
 message CheckACMEAccountResponse {
   bool revoked = 1; // true: the lineage is over; the account must not be served
