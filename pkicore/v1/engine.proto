@@ -1430,7 +1430,8 @@ message RevokeByPrincipalRequest {
   // fields above must match.
   bytes  signed_request = 4;
   // Cloud-signed rights attestation that the signing operator holds
-  // pki:cert-revoke now. Same shape as RevokeCertificateRequest.signed_rights.
+  // pki:cert-revoke (or device:delete for a fence) now. Same shape as
+  // RevokeCertificateRequest.signed_rights.
   bytes  signed_rights  = 5;
   // Cloud's pending enrollment request, scoped by the signed device principal.
   // Block this JTI even if its relay has not reached PKI yet. This annotation
@@ -1439,6 +1440,9 @@ message RevokeByPrincipalRequest {
   // Device unenrollment additionally requires device:delete authority, bound
   // to the same signed request. False preserves certificate-only revocation.
   bool fence_device_enrollment = 7;
+  // Required for a fence: Cloud's immutable asset UUID identifies this enrollment.
+  // Repeated deletions of this enrollment must not revoke a later replacement.
+  string device_enrollment_id = 8;
 }
 message RevokeByPrincipalResponse {
   int32 revoked_count = 1; // 0 is success: nothing live to revoke
@@ -1449,6 +1453,9 @@ message RevokeByPrincipalResponse {
   // Echo of the pending request actually blocked by the engine. Cloud checks
   // this so an older fabric that drops the request annotation fails closed.
   string fenced_enrollment_request_jti = 3;
+  // Echo of the enrollment whose deletion committed (including harmless retries).
+  // Cloud requires this to detect implementations without incarnation protection.
+  string fenced_device_enrollment_id = 4;
 }
 message GetPendingOverDurationRequestResponse { PendingOverDurationRequest request = 1; }
 
