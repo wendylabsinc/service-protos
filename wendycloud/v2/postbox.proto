@@ -2,17 +2,31 @@ syntax = "proto3";
 
 package wendycloud.v2;
 
+import "google/protobuf/timestamp.proto";
+import "wendycloud/v2/signed_request.proto";
+
 // DevicePostboxService is the device-facing half of the §5.3 postbox: a device
 // polls its own hash-chained entry log and the notarized checkpoint that binds
 // its head. Cloud is a queue here — it must not re-encode or canonicalize the
 // JWS or the checkpoint (both bind exact bytes), interpret or filter entries,
 // or synthesize a checkpoint. Authorization happened at accept.
 //
-// Devices pull; cloud never dials. There is no device acknowledgement RPC and
-// no cloud-side high-water mark: the device holds the mark and rejects anything
-// below it (WDY-2919, spec on WDY-2489).
+// Devices pull; cloud never dials. There is no cloud-side high-water mark: the
+// device holds the mark and rejects anything below it (WDY-2919, spec on
+// WDY-2489).
 service DevicePostboxService {
   rpc PullChanges(PullChangesRequest) returns (PullChangesResponse);
+  // Q8 decided (sem 2026-10-19 01:42). The device signs the
+  // newest entry it has verified with its own device key and sends it here, to
+  // cloud, over its own mTLS. Cloud can withhold an ack, never forge one: the
+  // alarm for a withheld tail is a stale last signed ack, raised operator side.
+  // pki-core is not involved.
+  // Device-signed SignedRequest (not an operator-signed method, so no
+  // wendy.signed_request option): `x5c` = the device leaf, which must be the
+  // mTLS peer. payload_type "wendycloud.v2.PostboxHeadAck".
+  // TODO(Q8): the operator-side read of the last signed ack (console staleness
+  // alarm) is not in this contract yet.
+  rpc AckHead(SignedRequest) returns (AckHeadResponse);
 }
 
 // Neither the tenant nor the target is on the wire: both are derived from the
@@ -47,4 +61,19 @@ message PostboxEntry {
   bytes tsr_response = 3;  // RFC 3161 timestamp token taken at accept
   bytes prev_hash = 4;
   bytes entry_hash = 5;
+  // The signed request's payload bytes (the JWS binds them by body_sha256) and
+  // their fully-qualified message name, so the device decodes exactly what was
+  // signed.
+  bytes request_payload = 6;
+  string payload_type = 7;
 }
+
+// The newest entry a device has verified (DevicePostboxService.AckHead).
+// Signed by the device; the device identity comes from the signing leaf.
+message PostboxHeadAck {
+  int64 entry_id = 1;
+  bytes entry_hash = 2;
+  google.protobuf.Timestamp observed_at = 3;
+}
+
+message AckHeadResponse {}
