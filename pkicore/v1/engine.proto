@@ -1436,6 +1436,9 @@ message RevokeByPrincipalRequest {
   // Block this JTI even if its relay has not reached PKI yet. This annotation
   // cannot revoke enrollment requests for any other tenant or device.
   string enrollment_request_jti = 6;
+  // Device unenrollment additionally requires device:delete authority, bound
+  // to the same signed request. False preserves certificate-only revocation.
+  bool fence_device_enrollment = 7;
 }
 message RevokeByPrincipalResponse {
   int32 revoked_count = 1; // 0 is success: nothing live to revoke
