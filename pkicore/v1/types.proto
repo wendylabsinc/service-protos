@@ -47,6 +47,10 @@ message AuthContext {
   // used by the Plan 22 signing frontend that has since been removed).
   reserved 7, 8;
   reserved "oidc", "platform_svc";
+  // ACME's EAB-bound device enrollment generation. Zero is the legacy initial
+  // generation; a device-principal revocation invalidates earlier generations.
+  int64 enrollment_epoch = 11;
+
 }
 
 // Every field is filled by the pki-core engine from its audit_log row; the
