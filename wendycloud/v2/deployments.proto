@@ -262,12 +262,14 @@ message AssetApp {
   string correlation_id = 14;
   string manifest_digest = 15;
   ApplyOutcome outcome = 16;
-  // False: cloud holds no desired state for this app on this device; the row
+  // True: cloud holds no desired state for this app on this device; the row
   // exists only because the device reported the app (unassigned but running,
   // e.g. a direct push with recording off, WDY-3207). Reporting is unconditional
   // on an enrolled device, so such an app is shown, never hidden. desired_state
-  // (5) is meaningless when false, and the row is never an assignment.
-  bool assigned = 17;
+  // (5) is meaningless when true, and the row is never an assignment. False is
+  // the default, so a cloud that predates this field reads as "assigned", which
+  // every row it serves is.
+  bool unassigned = 17;
   // The release the device reported running, when it named a release of this
   // app; app_release_id (3) stays the desired release.
   optional string reported_release_id = 18;
