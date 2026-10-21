@@ -253,6 +253,24 @@ message AssetApp {
   optional string deployment_details = 10;
   optional google.protobuf.Timestamp deployment_created_at = 11;
   ReleaseType release_type = 12;
+  // Reported state v2 (apps spec section 2, approved sem 2026-10-15): the
+  // device's own word from its latest CurrentState for this app, stored next to
+  // the desired state. Facts under the device's cert, no authority; unset or
+  // zero = the device has not reported it. Freshness is reported_at (7): a
+  // stale report is shown as stale, never as current truth.
+  int64 postbox_entry_id = 13;
+  string correlation_id = 14;
+  string manifest_digest = 15;
+  ApplyOutcome outcome = 16;
+  // False: cloud holds no desired state for this app on this device; the row
+  // exists only because the device reported the app (unassigned but running,
+  // e.g. a direct push with recording off, WDY-3207). Reporting is unconditional
+  // on an enrolled device, so such an app is shown, never hidden. desired_state
+  // (5) is meaningless when false, and the row is never an assignment.
+  bool assigned = 17;
+  // The release the device reported running, when it named a release of this
+  // app; app_release_id (3) stays the desired release.
+  optional string reported_release_id = 18;
 }
 
 message ListAssetAppsResponse {
