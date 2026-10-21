@@ -41,8 +41,8 @@ message SignedRequest {
   // The methods marked wendy.device_signed_request take a DEVICE-signed
   // SignedRequest instead (KeyDirectoryService.RegisterDeviceEncryptionKey,
   // DevicePostboxService.AckHead): `x5c` = the device leaf, which must be the
-  // mTLS peer. TODO(device signer): conformance/reqsig has no device-signer
-  // profile yet (claims, target, aud); it lands with the first implementation.
+  // mTLS peer. Profile (algorithm by device tier, claims, target, aud) and
+  // vectors: conformance/reqsig/README.md, "Device-signer profile".
   bytes signature = 3;
   // The operator's "management-request+jws", relayed verbatim as the fabric
   // Envelope signed_artifact. Required for pki-core tier-3 operations and for
