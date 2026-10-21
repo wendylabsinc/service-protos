@@ -163,7 +163,7 @@ signing time, the leaf identity against `principal` and its tenant against
 ### Vectors: `device-signed-request-vectors-v1.json`
 
 `{version, contract, generation, root_cert_der_b64, device_ca_cert_der_b64, aud,
-vectors[], recipient_key_vectors[], todo[]}`. A `vectors[]` entry gives
+vectors[], recipient_key_vectors[], head_ack_read_vectors[], todo[]}`. A `vectors[]` entry gives
 `method`, `verify_at`, `expected_tenant`, `device_tier` (the verifier's
 recorded tier for the device), `mtls_peer_cert_der_b64`, `signed_request_b64`
 and `expect`. Run them in file order with one nonce store:
@@ -190,6 +190,20 @@ is `root_cert_der_b64`:
 | `recipient-key-wrong-principal-invalid` | invalid: `principal` is not the leaf identity |
 | `recipient-key-unpinned-root-invalid` | invalid: the served chain ends in a root other than the pinned one |
 | `recipient-key-substituted-key-invalid` | invalid: `public_key` replaced after signing |
+
+`head_ack_read_vectors[]` cover the operator read of a device's last signed
+ack (`PostboxAckService.GetLastHeadAck`, `wendycloud/v2/postbox.proto`): each
+gives `organization_id`, `device`, `verify_at` and `response_b64` (a serialized
+`GetLastHeadAckResponse`). The client verifies `ack` exactly like a
+`RecipientKey` registration, with operation
+`wendycloud.v2.DevicePostboxService/AckHead` and payload_type
+`wendycloud.v2.PostboxHeadAck`, then reads the signed `entry_id` and
+`observed_at`; `received_at` and `postbox_head_entry_id` are cloud-asserted
+hints.
+
+| name | expect |
+|---|---|
+| `last-head-ack-valid` | valid; `expected_entry_id`, `expected_observed_at` |
 
 `todo[]` lists the vectors that wait on a ruling (a tier C valid vector, a
 foreign-tenant-CA vector).

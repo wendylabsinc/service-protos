@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -168,8 +169,14 @@ func claims(op, signer string, payload []byte, nonce string, iatV, expV int64) m
 }
 
 func writeJSON(path string, v any) {
-	b := must(json.MarshalIndent(v, "", "  "))
-	if err := os.WriteFile(path, append(b, '\n'), 0o644); err != nil {
+	var buf bytes.Buffer
+	e := json.NewEncoder(&buf)
+	e.SetEscapeHTML(false)
+	e.SetIndent("", "  ")
+	if err := e.Encode(v); err != nil {
+		panic(err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		panic(err)
 	}
 }
@@ -348,6 +355,19 @@ func main() {
 			"public_key replaced after signing: SHA-256(payload) != claims.body_sha256"),
 	}
 
+	// PostboxAckService.GetLastHeadAck: the stored AckHead request, verbatim,
+	// with the chain to the tenant CA and the cloud-asserted hints.
+	headAckRead := []vec{{
+		"name": "last-head-ack-valid", "organization_id": tenant, "device": deviceURI(devA), "verify_at": iat, "expect": "valid",
+		"expected_entry_id": 42, "expected_observed_at": 1789999990,
+		"response_b64": b64(cat(
+			pbBytes(1, signedRequest(ack, "wendycloud.v2.PostboxHeadAck", ackValid.compact)),
+			pbBytes(2, deviceCA.der),
+			pbBytes(3, pbVarint(1, 1790000001)),
+			pbVarint(4, 42),
+		)),
+	}}
+
 	writeJSON(filepath.Join(out, "reqsig", "device-signed-request-vectors-v1.json"), map[string]any{
 		"version":  "device-signed-request-vectors-v1",
 		"contract": "conformance/reqsig/README.md (Device-signer profile)",
@@ -361,6 +381,7 @@ func main() {
 		"aud":                    aud,
 		"vectors":                vectors,
 		"recipient_key_vectors":  recipientVectors,
+		"head_ack_read_vectors":  headAckRead,
 		"todo": []map[string]string{
 			{"name": "es256-tier-c-valid", "needs": "ruling: which device_signed_request methods a tier C (wendy-lite) device calls; today none (the registry is tier A/B only)."},
 			{"name": "recipient-key-foreign-tenant-ca-invalid", "needs": "how a tenant CA certificate names its tenant (pki-core CA shape) so the client's CA-tenant check has bytes to test."},

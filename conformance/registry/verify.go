@@ -1,7 +1,7 @@
 //go:build ignore
 
 // Reference check for the vectors generate.go writes (WDY-3958): verifies every
-// device-signer, RecipientKey and registry vector against the rules in
+// device-signer, RecipientKey, head-ack read and registry vector against the rules in
 // conformance/reqsig/README.md and conformance/registry/README.md and exits
 // non-zero on any disagreement with its `expect`.
 // Run: go run conformance/registry/verify.go conformance
@@ -234,6 +234,65 @@ func verifyDevice(top map[string]any, v map[string]any, nonces map[string]bool) 
 	return nil
 }
 
+// verifyStored checks a device-signed request that cloud stored and served
+// back (RecipientKey.registration, GetLastHeadAckResponse.ack) against the
+// pinned root, the expected principal and tenant, and the expected method.
+// It returns the signed payload.
+func verifyStored(root []byte, aud string, sr []byte, chainDER [][]byte, principal, org, method string, at int64) ([]byte, error) {
+	reg, err := fields(sr)
+	if err != nil {
+		return nil, err
+	}
+	j, err := parseAndVerify(string(one(reg, 3)))
+	if err != nil {
+		return nil, err
+	}
+	if err := chain(j.leaf, root, chainDER, at); err != nil {
+		return nil, fmt.Errorf("chain to pinned root: %w", err)
+	}
+	uri, tenant := leafURI(j.leaf)
+	if uri != principal || tenant != org {
+		return nil, errors.New("leaf identity is not the principal")
+	}
+	if string(one(reg, 2)) != payloadTypes[method] {
+		return nil, errors.New("payload_type")
+	}
+	if err := checkClaims(j, method, aud, one(reg, 1), at, false); err != nil {
+		return nil, err
+	}
+	return one(reg, 1), nil
+}
+
+func verifyHeadAckRead(root []byte, aud string, v map[string]any) error {
+	b, _ := base64.StdEncoding.DecodeString(v["response_b64"].(string))
+	resp, err := fields(b)
+	if err != nil {
+		return err
+	}
+	if one(resp, 1) == nil {
+		return errors.New("no ack")
+	}
+	payload, err := verifyStored(root, aud, one(resp, 1), resp[2], v["device"].(string), v["organization_id"].(string),
+		"wendycloud.v2.DevicePostboxService/AckHead", num(v["verify_at"]))
+	if err != nil {
+		return err
+	}
+	ack, err := fields(payload)
+	if err != nil {
+		return err
+	}
+	id, _ := binary.Uvarint(one(ack, 1))
+	ts, err := fields(one(ack, 3))
+	if err != nil {
+		return err
+	}
+	sec, _ := binary.Uvarint(one(ts, 1))
+	if int64(id) != num(v["expected_entry_id"]) || int64(sec) != num(v["expected_observed_at"]) {
+		return errors.New("signed entry_id / observed_at")
+	}
+	return nil
+}
+
 func verifyRecipient(root []byte, aud string, v map[string]any) error {
 	b, _ := base64.StdEncoding.DecodeString(v["recipient_key_b64"].(string))
 	rk, err := fields(b)
@@ -243,29 +302,12 @@ func verifyRecipient(root []byte, aud string, v map[string]any) error {
 	if string(one(rk, 1)) != v["principal"] {
 		return errors.New("principal field")
 	}
-	reg, err := fields(one(rk, 2))
+	payload, err := verifyStored(root, aud, one(rk, 2), rk[3], v["principal"].(string), v["organization_id"].(string),
+		"wendycloud.v2.KeyDirectoryService/RegisterDeviceEncryptionKey", num(v["verify_at"]))
 	if err != nil {
 		return err
 	}
-	j, err := parseAndVerify(string(one(reg, 3)))
-	if err != nil {
-		return err
-	}
-	at := num(v["verify_at"])
-	if err := chain(j.leaf, root, rk[3], at); err != nil {
-		return fmt.Errorf("chain to pinned root: %w", err)
-	}
-	uri, tenant := leafURI(j.leaf)
-	if uri != v["principal"] || tenant != v["organization_id"] {
-		return errors.New("leaf identity is not the principal")
-	}
-	if string(one(reg, 2)) != "wendycloud.v2.RegisterEncryptionKeyRequest" {
-		return errors.New("payload_type")
-	}
-	if err := checkClaims(j, "wendycloud.v2.KeyDirectoryService/RegisterDeviceEncryptionKey", aud, one(reg, 1), at, false); err != nil {
-		return err
-	}
-	req, err := fields(one(reg, 1))
+	req, err := fields(payload)
 	if err != nil {
 		return err
 	}
@@ -315,6 +357,11 @@ func main() {
 	for _, x := range top["recipient_key_vectors"].([]any) {
 		v := x.(map[string]any)
 		report(v["name"].(string), v["expect"].(string), verifyRecipient(root, top["aud"].(string), v))
+	}
+
+	for _, x := range top["head_ack_read_vectors"].([]any) {
+		v := x.(map[string]any)
+		report(v["name"].(string), v["expect"].(string), verifyHeadAckRead(root, top["aud"].(string), v))
 	}
 
 	reg := load(filepath.Join(dir, "registry", "registry-vectors-v1.json"))

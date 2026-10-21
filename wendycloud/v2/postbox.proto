@@ -24,11 +24,50 @@ service DevicePostboxService {
   // pki-core is not involved.
   // Device-signed (wendy.device_signed_request): `x5c` = the device leaf,
   // which must be the mTLS peer. payload_type "wendycloud.v2.PostboxHeadAck".
-  // TODO(Q8): the operator-side read of the last signed ack (console staleness
-  // alarm) is not in this contract yet.
+  // Operators read the stored ack with PostboxAckService.GetLastHeadAck.
   rpc AckHead(SignedRequest) returns (AckHeadResponse) {
     option (wendy.device_signed_request) = true;
   }
+}
+
+// Operator-side read of a device's last signed head ack (Q8, sem 2026-10-19
+// 01:42): the console staleness alarm. Cloud stores the newest AckHead request
+// per device verbatim and serves it with the chain, so it can withhold or serve
+// a stale ack but never forge a fresh one. The client verifies the ack itself,
+// the same way as a RecipientKey: the JWS over the payload with the `x5c` leaf;
+// that leaf through `chain_der` to its own PINNED platform root (never the
+// served chain alone), valid at the signing time; the leaf's SPIFFE URI equals
+// the requested `device` and its tenant equals organization_id; operation
+// "wendycloud.v2.DevicePostboxService/AckHead"; payload_type
+// "wendycloud.v2.PostboxHeadAck"; body_sha256; then it decodes the payload.
+// The alarm runs on the signed PostboxHeadAck.observed_at, never on the
+// cloud-asserted fields. Vectors: conformance/reqsig (head_ack_read_vectors).
+service PostboxAckService {
+  // Gate: the caller is an operator of organization_id's tenant with read
+  // access to the device.
+  // Signed; payload_type "wendycloud.v2.GetLastHeadAckRequest".
+  rpc GetLastHeadAck(SignedRequest) returns (GetLastHeadAckResponse) {
+    option (wendy.signed_request) = true;
+  }
+}
+
+message GetLastHeadAckRequest {
+  string organization_id = 1;  // tenant UUID
+  string device = 2;           // the device's SPIFFE URI
+}
+
+message GetLastHeadAckResponse {
+  // The device's newest accepted AckHead request, byte for byte as it arrived.
+  // Unset: the device has never acked (the console shows that, not "fresh").
+  SignedRequest ack = 1;
+  // Intermediates from the ack's signing leaf up to and including the tenant
+  // CA, DER. The leaf itself is the `x5c` in `ack`.
+  repeated bytes chain_der = 2;
+  // Cloud-asserted, not signed: when cloud accepted the ack, and the device's
+  // current postbox head. Display hints only; a head above the acked entry_id
+  // shows how far the device is behind, and cloud can lie about both.
+  google.protobuf.Timestamp received_at = 3;
+  int64 postbox_head_entry_id = 4;
 }
 
 // Neither the tenant nor the target is on the wire: both are derived from the
