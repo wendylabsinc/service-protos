@@ -6,10 +6,11 @@ signer's leaf certificate in the `x5c` header. Producer of record is pki-core's
 `internal/reqsig`; these let a second implementation (e.g. wendy-auth's Swift
 verifier) confirm it agrees **byte-for-byte**.
 
-This directory has two files. `signed-request-vectors-v1.json` covers the body
-envelope that operator-signed RPCs use. `reqsig-vectors-v1.json` covers the
-same JWS in its original header-carried form, which servers refuse once
-WDY-3458 lands.
+`signed-request-vectors-v1.json` covers the body envelope that operator-signed
+RPCs use. `device-signed-request-vectors-v1.json` covers the same envelope
+signed by a device (the device-signer profile below, WDY-3958).
+`reqsig-vectors-v1.json` covers the JWS in its original header-carried form,
+which servers refuse once WDY-3458 lands.
 
 ## SignedRequest envelope (WDY-3458)
 
@@ -132,6 +133,73 @@ the certificates and JWS were signed with OpenSSL `deterministic:1`. Rebuilding
 from the labels in `generation` with OpenSSL ≥ 3.5 and `buf convert` reproduces
 it byte for byte. **The labels are test private keys.** Real producers sign
 hedged (randomized), and verifiers cannot tell the difference.
+
+## Device-signer profile (WDY-3958)
+
+The methods marked `wendy.device_signed_request`
+(`KeyDirectoryService.RegisterDeviceEncryptionKey`,
+`DevicePostboxService.AckHead`) take the same `SignedRequest` and JWS as
+above, signed by the calling device. The differences:
+
+| rule | device-signed |
+|---|---|
+| algorithm | Fixed by the device's **tier**, which the verifier takes from its own device record (class C comes from the operator-signed os label at first enrollment), never from the request or the header: tier A/B = `ML-DSA-65`, tier C (wendy-lite) = `ES256` with a P-256 leaf under the Lite Device CA. Any other `alg` is refused, including `ES256` from a tier A/B device that still holds a P-256 leaf (its key moves to ML-DSA-65 at renewal, sem 2026-10-20 21:29; until then it cannot call these methods). No fallback (HARD rule 1). |
+| signer reference | `x5c` only, exactly one entry: the device leaf. `kid` is refused. |
+| leaf binding | `x5c[0]` must be byte-equal to the mTLS peer certificate of the same call. The chain is the one the mTLS handshake already validated (device leaf → Device Identity CA or its Lite sibling → tenant intermediate → platform root); it is not repeated in `x5c`. |
+| `target` | `{tenant, resource}`: `tenant` = the tenant of the leaf's SPIFFE URI, `resource` = that SPIFFE URI (`spiffe://wendy.sh/tenant/<tenant>/device/<uuid>`). No `ca`. A request naming another device is refused. |
+| `operation`, `aud`, `body_sha256`, `correlation_id` | as above. `aud` = the same broker audience. |
+| `nonce`, `iat`, `expiry` | as above: `iat` within ±60 s, `expiry` strict, nonce single use and claimed last. |
+| principal check | the principal kind is `device`; the device's identity comes from the leaf, never from the payload. |
+
+Every refusal is the same generic `PERMISSION_DENIED`. There is no
+`FAILED_PRECONDITION` retry path (no `kid`).
+
+Keys a device registers are later verified by operator clients as
+`RecipientKey` (`wendycloud/v2/registry.proto`): the JWS against its `x5c` leaf,
+that leaf through `chain_der` to the client's **pinned** platform root at the
+signing time, the leaf identity against `principal` and its tenant against
+`organization_id`, then `key_id = SHA-256(public_key)` recomputed locally.
+
+### Vectors: `device-signed-request-vectors-v1.json`
+
+`{version, contract, generation, root_cert_der_b64, device_ca_cert_der_b64, aud,
+vectors[], recipient_key_vectors[], todo[]}`. A `vectors[]` entry gives
+`method`, `verify_at`, `expected_tenant`, `device_tier` (the verifier's
+recorded tier for the device), `mtls_peer_cert_der_b64`, `signed_request_b64`
+and `expect`. Run them in file order with one nonce store:
+
+| name | expect |
+|---|---|
+| `mldsa65-ack-head-valid` | valid. Broken out like the operator vector (`payload_b64`, `claims`, `claims_jcs`, `jws_compact`, `leaf_cert_der_b64`, `spiffe_san`). |
+| `mldsa65-register-device-encryption-key-valid` | valid. Its `public_key` is the `hybrid_kem` key of `conformance/registry`. |
+| `replayed-nonce-invalid` | invalid: byte-identical to the first vector, nonce already claimed |
+| `es256-tier-ab-invalid` | invalid: tier A/B device signing `ES256` (signature and chain are valid) |
+| `kid-instead-of-x5c-invalid` | invalid: `kid` header (it names the right leaf; the signature verifies) |
+| `x5c-not-mtls-peer-invalid` | invalid: `x5c` is another device's valid leaf |
+| `expired-invalid` | invalid: `expiry` < `verify_at` |
+| `target-not-signer-invalid` | invalid: `target.resource` names another device |
+
+`recipient_key_vectors[]` give `organization_id`, `principal`, `verify_at`,
+`recipient_key_b64` (a serialized `RecipientKey`) and `expect`; the pinned root
+is `root_cert_der_b64`:
+
+| name | expect |
+|---|---|
+| `recipient-key-valid` | valid; `expected_key_id` |
+| `recipient-key-chain-missing-invalid` | invalid: empty `chain_der` |
+| `recipient-key-wrong-principal-invalid` | invalid: `principal` is not the leaf identity |
+| `recipient-key-unpinned-root-invalid` | invalid: the served chain ends in a root other than the pinned one |
+| `recipient-key-substituted-key-invalid` | invalid: `public_key` replaced after signing |
+
+`todo[]` lists the vectors that wait on a ruling (a tier C valid vector, a
+foreign-tenant-CA vector).
+
+Generation: `go run conformance/registry/generate.go conformance` (Go 1.27,
+standard library). ML-DSA keys come from `SHA-256(<label>)` and the ML-DSA
+certificates and signatures are deterministic; ES256 and HPKE are randomized, so
+verify those bytes and do not regenerate to match. **The labels are test private
+keys.** `go run conformance/registry/verify.go conformance` checks every vector
+against its `expect`.
 
 ## v1 vectors: header-carried descriptor (pki-core producer)
 

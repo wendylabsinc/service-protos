@@ -200,6 +200,15 @@ enum ApplyOutcome {
 message DesiredStateResponse {
   repeated DesiredAppState desired_app_states = 1;
   optional google.protobuf.Timestamp cert_expires_at = 2;
+  // Postbox nudge (sem 2026-10-15, postbox client section approved): the
+  // device's postbox holds entries up to this id. It carries no authority: the
+  // device runs its normal DevicePostboxService.PullChanges and verifies every
+  // entry; a forged or spurious nudge only triggers a pull that finds nothing
+  // new. Unset = no nudge; timer polling stays the fallback while the stream is
+  // down. Cloud sets it only on a message that also carries the complete
+  // desired_app_states, never on a nudge-only message: an agent that ignores
+  // this field reads an empty list as "remove every app".
+  optional int64 postbox_head_entry_id = 3;
 }
 
 message DesiredAppState {
