@@ -302,6 +302,8 @@ func main() {
 	ackKid := sign(keyA, map[string]any{"alg": "ML-DSA-65", "kid": b64u(kid[:])}, claims(ackHead, deviceURI(devA), ack, "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", iat, expiry))
 	ackEC := sign(ecKey, map[string]any{"alg": "ES256", "x5c": []string{b64(leafEC.der)}}, claims(ackHead, deviceURI(devEC), ack, "6e5d4c3b-2a19-4f8e-9d7c-6b5a4f3e2d1c", iat, expiry))
 	ackExpired := sign(keyA, x5c(leafA), claims(ackHead, deviceURI(devA), ack, "7d3a9e2f-1b6c-4d8e-a0f5-c2e4b7a9d1f3", 1789999990, 1790000005))
+	// Fresh nonce: this vector must fail on the peer binding alone.
+	ackOtherPeer := sign(keyA, x5c(leafA), claims(ackHead, deviceURI(devA), ack, "4c9e1a7b-3d5f-4b2e-8a6c-0f9d2b4e7a15", iat, expiry))
 	ackWrongTarget := sign(keyA, x5c(leafA), claims(ackHead, deviceURI(devB), ack, "8e4b0f3a-2c7d-4e9f-b1a6-d3f5c8b0e2a4", iat, expiry))
 
 	vectors := []vec{
@@ -313,8 +315,8 @@ func main() {
 			"wrong algorithm for the tier: the device is tier A/B (recorded tier, never the request), which signs ML-DSA-65 only; the ES256 signature and the P-256 leaf chain are valid"),
 		sr(base("kid-instead-of-x5c-invalid", ackHead, leafA, "invalid"), "wendycloud.v2.PostboxHeadAck", ack, ackKid,
 			"device-signed requests carry the leaf in x5c; kid is refused even though it names the mTLS peer and the signature verifies"),
-		sr(base("x5c-not-mtls-peer-invalid", ackHead, leafB, "invalid"), "wendycloud.v2.PostboxHeadAck", ack, ackValid,
-			"x5c leaf (device A) is not byte-equal to the mTLS peer certificate (device B); both chain to the Device CA"),
+		sr(base("x5c-not-mtls-peer-invalid", ackHead, leafB, "invalid"), "wendycloud.v2.PostboxHeadAck", ack, ackOtherPeer,
+			"x5c leaf (device A, the real signer; fresh nonce, signature verifies) is not byte-equal to the mTLS peer certificate (device B); both chain to the Device CA"),
 		sr(base("expired-invalid", ackHead, leafA, "invalid"), "wendycloud.v2.PostboxHeadAck", ack, ackExpired,
 			"expiry 1790000005 < verify_at 1790000010 (iat is within 60 s, the signature verifies)"),
 		sr(base("target-not-signer-invalid", ackHead, leafA, "invalid"), "wendycloud.v2.PostboxHeadAck", ack, ackWrongTarget,
@@ -333,9 +335,10 @@ func main() {
 	}
 	otherPub := must(kem.DeriveKeyPair(seed("wendy-registry-vector-other-kem-2026-10"))).PublicKey().Bytes()
 	regSubst := cat(pbBytes(1, []byte(tenant)), pbVarint(2, 1), pbBytes(3, otherPub))
+	regEC := sign(ecKey, map[string]any{"alg": "ES256", "x5c": []string{b64(leafEC.der)}}, claims(registerKey, deviceURI(devEC), reg, "d4a9f6c3-0e5b-4c8a-9f3d-7b2e9a4c0d58", iat, expiry))
 	rogueReg := sign(keyA, x5c(rogueLeaf), claims(registerKey, deviceURI(devA), reg, "c3f8e5b2-9d4a-4b7f-8e2c-6a1d8f3b9c47", iat, expiry))
 	rk := func(name, principal, body, expect, reason string) vec {
-		v := vec{"name": name, "organization_id": tenant, "principal": principal, "verify_at": iat, "recipient_key_b64": body, "expect": expect}
+		v := vec{"name": name, "organization_id": tenant, "principal": principal, "recipient_key_b64": body, "expect": expect}
 		if expect == "valid" {
 			v["expected_key_id"] = hex.EncodeToString(devKeyID[:])
 		} else {
@@ -353,12 +356,14 @@ func main() {
 			"the served chain ends in a root that is not the pinned root (a cloud-served CA)"),
 		rk("recipient-key-substituted-key-invalid", deviceURI(devA), recipient(deviceURI(devA), regSR(regValid, regSubst), deviceCA), "invalid",
 			"public_key replaced after signing: SHA-256(payload) != claims.body_sha256"),
+		rk("recipient-key-es256-under-device-ca-invalid", deviceURI(devEC), recipient(deviceURI(devEC), regSR(regEC, reg), deviceCA), "invalid",
+			"ES256 registration by a P-256 leaf under the ML-DSA Device Identity CA, which issues ML-DSA-65 signers only (signature and chain are valid)"),
 	}
 
 	// PostboxAckService.GetLastHeadAck: the stored AckHead request, verbatim,
 	// with the chain to the tenant CA and the cloud-asserted hints.
 	headAckRead := []vec{{
-		"name": "last-head-ack-valid", "organization_id": tenant, "device": deviceURI(devA), "verify_at": iat, "expect": "valid",
+		"name": "last-head-ack-valid", "organization_id": tenant, "device": deviceURI(devA), "expect": "valid",
 		"expected_entry_id": 42, "expected_observed_at": 1789999990,
 		"response_b64": b64(cat(
 			pbBytes(1, signedRequest(ack, "wendycloud.v2.PostboxHeadAck", ackValid.compact)),

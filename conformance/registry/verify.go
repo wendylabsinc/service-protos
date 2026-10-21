@@ -10,6 +10,7 @@ package main
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hkdf"
 	"crypto/hpke"
 	"crypto/mldsa"
@@ -133,22 +134,41 @@ func parseAndVerify(compact string) (*jws, error) {
 	return &j, nil
 }
 
-func chain(leaf *x509.Certificate, root []byte, intermediates [][]byte, at int64) error {
+// chain verifies leaf to root at time at and returns the leaf's issuing CA.
+func chain(leaf *x509.Certificate, root []byte, intermediates [][]byte, at int64) (*x509.Certificate, error) {
 	roots, inter := x509.NewCertPool(), x509.NewCertPool()
 	rc, err := x509.ParseCertificate(root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	roots.AddCert(rc)
 	for _, d := range intermediates {
 		c, err := x509.ParseCertificate(d)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		inter.AddCert(c)
 	}
-	_, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, CurrentTime: time.Unix(at, 0), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
-	return err
+	chains, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, CurrentTime: time.Unix(at, 0), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if err != nil {
+		return nil, err
+	}
+	return chains[0][1], nil
+}
+
+// issuerAlg is the one algorithm a device leaf under ca may sign with: the
+// ML-DSA Device Identity CA issues ML-DSA-65 signers, its P-256 Lite sibling
+// ES256 signers. Anything else issues no device signer ("").
+func issuerAlg(ca *x509.Certificate) string {
+	switch k := ca.PublicKey.(type) {
+	case *mldsa.PublicKey:
+		return "ML-DSA-65"
+	case *ecdsa.PublicKey:
+		if k.Curve == elliptic.P256() {
+			return "ES256"
+		}
+	}
+	return ""
 }
 
 func leafURI(c *x509.Certificate) (uri, tenant string) {
@@ -207,15 +227,23 @@ func verifyDevice(top map[string]any, v map[string]any, nonces map[string]bool) 
 		return errors.New("x5c leaf is not the mTLS peer")
 	}
 	// Tier gate: the algorithm is fixed by the device's recorded tier.
-	want := map[string]string{"A/B": "ML-DSA-65", "C": "ES256"}[v["device_tier"].(string)]
+	tier, _ := v["device_tier"].(string)
+	want, ok := map[string]string{"A/B": "ML-DSA-65", "C": "ES256"}[tier]
+	if !ok {
+		return fmt.Errorf("unknown or absent tier %q", tier)
+	}
 	if j.header["alg"] != want {
-		return fmt.Errorf("tier %v requires %s", v["device_tier"], want)
+		return fmt.Errorf("tier %v requires %s", tier, want)
 	}
 	root, _ := base64.StdEncoding.DecodeString(top["root_cert_der_b64"].(string))
 	ca, _ := base64.StdEncoding.DecodeString(top["device_ca_cert_der_b64"].(string))
 	at := num(v["verify_at"])
-	if err := chain(j.leaf, root, [][]byte{ca}, at); err != nil {
+	issuer, err := chain(j.leaf, root, [][]byte{ca}, at)
+	if err != nil {
 		return err
+	}
+	if issuerAlg(issuer) != want {
+		return errors.New("issuing CA does not issue signers of the tier's algorithm")
 	}
 	if _, tenant := leafURI(j.leaf); tenant != v["expected_tenant"] {
 		return errors.New("tenant")
@@ -238,7 +266,7 @@ func verifyDevice(top map[string]any, v map[string]any, nonces map[string]bool) 
 // back (RecipientKey.registration, GetLastHeadAckResponse.ack) against the
 // pinned root, the expected principal and tenant, and the expected method.
 // It returns the signed payload.
-func verifyStored(root []byte, aud string, sr []byte, chainDER [][]byte, principal, org, method string, at int64) ([]byte, error) {
+func verifyStored(root []byte, aud string, sr []byte, chainDER [][]byte, principal, org, method string) ([]byte, error) {
 	reg, err := fields(sr)
 	if err != nil {
 		return nil, err
@@ -247,8 +275,14 @@ func verifyStored(root []byte, aud string, sr []byte, chainDER [][]byte, princip
 	if err != nil {
 		return nil, err
 	}
-	if err := chain(j.leaf, root, chainDER, at); err != nil {
+	// The chain must have been valid when the device signed: at the signed iat.
+	at := num(j.claims["iat"])
+	issuer, err := chain(j.leaf, root, chainDER, at)
+	if err != nil {
 		return nil, fmt.Errorf("chain to pinned root: %w", err)
+	}
+	if a := issuerAlg(issuer); a == "" || j.header["alg"] != a {
+		return nil, errors.New("issuing CA does not issue signers of this algorithm")
 	}
 	uri, tenant := leafURI(j.leaf)
 	if uri != principal || tenant != org {
@@ -273,7 +307,7 @@ func verifyHeadAckRead(root []byte, aud string, v map[string]any) error {
 		return errors.New("no ack")
 	}
 	payload, err := verifyStored(root, aud, one(resp, 1), resp[2], v["device"].(string), v["organization_id"].(string),
-		"wendycloud.v2.DevicePostboxService/AckHead", num(v["verify_at"]))
+		"wendycloud.v2.DevicePostboxService/AckHead")
 	if err != nil {
 		return err
 	}
@@ -303,7 +337,7 @@ func verifyRecipient(root []byte, aud string, v map[string]any) error {
 		return errors.New("principal field")
 	}
 	payload, err := verifyStored(root, aud, one(rk, 2), rk[3], v["principal"].(string), v["organization_id"].(string),
-		"wendycloud.v2.KeyDirectoryService/RegisterDeviceEncryptionKey", num(v["verify_at"]))
+		"wendycloud.v2.KeyDirectoryService/RegisterDeviceEncryptionKey")
 	if err != nil {
 		return err
 	}

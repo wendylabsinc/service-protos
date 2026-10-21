@@ -143,7 +143,7 @@ above, signed by the calling device. The differences:
 
 | rule | device-signed |
 |---|---|
-| algorithm | Fixed by the device's **tier**, which the verifier takes from its own device record (class C comes from the operator-signed os label at first enrollment), never from the request or the header: tier A/B = `ML-DSA-65`, tier C (wendy-lite) = `ES256` with a P-256 leaf under the Lite Device CA. Any other `alg` is refused, including `ES256` from a tier A/B device that still holds a P-256 leaf (its key moves to ML-DSA-65 at renewal, sem 2026-10-20 21:29; until then it cannot call these methods). No fallback (HARD rule 1). |
+| algorithm | Fixed twice, never by the request or the header. (1) By the device's **tier**, which the server takes from its own device record (class C comes from the operator-signed os label at first enrollment): tier A/B = `ML-DSA-65`, tier C (wendy-lite) = `ES256`. An unknown or absent tier is refused. (2) By the **issuing CA** of the leaf, on the server and in every client check of a stored request: a leaf under the ML-DSA Device Identity CA signs `ML-DSA-65` only, a leaf under the P-256 Lite Device CA signs `ES256` only, and a tier C device must chain through the Lite Device CA. Any other combination is refused, including `ES256` from a tier A/B device that still holds a P-256 leaf under the Device Identity CA (its key moves to ML-DSA-65 at renewal, sem 2026-10-20 21:29; until then it cannot call these methods). No fallback (HARD rule 1). |
 | signer reference | `x5c` only, exactly one entry: the device leaf. `kid` is refused. |
 | leaf binding | `x5c[0]` must be byte-equal to the mTLS peer certificate of the same call. The chain is the one the mTLS handshake already validated (device leaf → Device Identity CA or its Lite sibling → tenant intermediate → platform root); it is not repeated in `x5c`. |
 | `target` | `{tenant, resource}`: `tenant` = the tenant of the leaf's SPIFFE URI, `resource` = that SPIFFE URI (`spiffe://wendy.sh/tenant/<tenant>/device/<uuid>`). No `ca`. A request naming another device is refused. |
@@ -157,8 +157,11 @@ Every refusal is the same generic `PERMISSION_DENIED`. There is no
 Keys a device registers are later verified by operator clients as
 `RecipientKey` (`wendycloud/v2/registry.proto`): the JWS against its `x5c` leaf,
 that leaf through `chain_der` to the client's **pinned** platform root at the
-signing time, the leaf identity against `principal` and its tenant against
-`organization_id`, then `key_id = SHA-256(public_key)` recomputed locally.
+JWS's signed `iat` (not the current time), the algorithm against the issuing CA
+as above, the leaf identity against `principal` and its tenant against
+`organization_id`, then `key_id = SHA-256(public_key)` recomputed locally. In
+the vectors the issuing CA is told apart by its key (the Device Identity CA is
+ML-DSA, its Lite sibling P-256).
 
 ### Vectors: `device-signed-request-vectors-v1.json`
 
@@ -175,13 +178,14 @@ and `expect`. Run them in file order with one nonce store:
 | `replayed-nonce-invalid` | invalid: byte-identical to the first vector, nonce already claimed |
 | `es256-tier-ab-invalid` | invalid: tier A/B device signing `ES256` (signature and chain are valid) |
 | `kid-instead-of-x5c-invalid` | invalid: `kid` header (it names the right leaf; the signature verifies) |
-| `x5c-not-mtls-peer-invalid` | invalid: `x5c` is another device's valid leaf |
+| `x5c-not-mtls-peer-invalid` | invalid: `x5c` is the real signer's leaf (device A, `7c1d…`) and the signature verifies with a fresh nonce, but the mTLS peer is device B (`3f8e…`) |
 | `expired-invalid` | invalid: `expiry` < `verify_at` |
 | `target-not-signer-invalid` | invalid: `target.resource` names another device |
 
-`recipient_key_vectors[]` give `organization_id`, `principal`, `verify_at`,
+`recipient_key_vectors[]` give `organization_id`, `principal`,
 `recipient_key_b64` (a serialized `RecipientKey`) and `expect`; the pinned root
-is `root_cert_der_b64`:
+is `root_cert_der_b64`, and the chain is checked at the registration's signed
+`iat`:
 
 | name | expect |
 |---|---|
@@ -190,10 +194,11 @@ is `root_cert_der_b64`:
 | `recipient-key-wrong-principal-invalid` | invalid: `principal` is not the leaf identity |
 | `recipient-key-unpinned-root-invalid` | invalid: the served chain ends in a root other than the pinned one |
 | `recipient-key-substituted-key-invalid` | invalid: `public_key` replaced after signing |
+| `recipient-key-es256-under-device-ca-invalid` | invalid: an `ES256` registration whose P-256 leaf chains to the ML-DSA Device Identity CA (signature and chain are valid) |
 
 `head_ack_read_vectors[]` cover the operator read of a device's last signed
 ack (`PostboxAckService.GetLastHeadAck`, `wendycloud/v2/postbox.proto`): each
-gives `organization_id`, `device`, `verify_at` and `response_b64` (a serialized
+gives `organization_id`, `device` and `response_b64` (a serialized
 `GetLastHeadAckResponse`). The client verifies `ack` exactly like a
 `RecipientKey` registration, with operation
 `wendycloud.v2.DevicePostboxService/AckHead` and payload_type

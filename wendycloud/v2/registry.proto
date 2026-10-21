@@ -87,13 +87,16 @@ message GetRecipientKeysRequest {
 // The client trusts `registration` and `chain_der` only as far as they chain
 // to its own pinned platform root; cloud serves them and is untrusted. It
 // verifies the JWS over the payload bytes with the `x5c` leaf, chains that
-// leaf through `chain_der` to the tenant CA (valid at the signing time), and
+// leaf through `chain_der` to the tenant CA (valid at the JWS `iat`), and
 // anchors the tenant CA to the client-pinned platform root, never to the
 // cloud-served chain alone (a compromised cloud could serve its own CA). It
 // checks the CA's tenant equals organization_id, the leaf identity equals
 // `principal`, payload_type is "wendycloud.v2.RegisterEncryptionKeyRequest",
 // the JWS operation is the matching Register* method, then decodes the payload
-// and recomputes key_id = SHA-256(public_key) locally.
+// and recomputes key_id = SHA-256(public_key) locally. For a device key the
+// issuing CA fixes the algorithm: a leaf under the Device Identity CA signs
+// ML-DSA-65 only, a leaf under the Lite Device CA ES256 only; anything else is
+// refused (conformance/reqsig/README.md, device-signer profile).
 message RecipientKey {
   string principal = 1;
   SignedRequest registration = 2;  // verbatim as registered
@@ -351,9 +354,10 @@ message KeyWrap {
 }
 
 // The content key sealed under a deployment key, once per deployment and
-// deployment key. AAD = deployment_id || manifest_digest.
-// TODO(ruling): the cipher, nonce and deployment key lengths and the exact AAD
-// encoding are not fixed yet (conformance/registry/README.md).
+// deployment key. AAD: provisionally deployment_id || manifest_digest; #135
+// asks for a length-prefixed form extended with tenant and deployment_key_id.
+// TODO(ruling): the AAD encoding, the cipher, and the nonce and deployment key
+// lengths are not fixed yet (conformance/registry/README.md).
 // Q6: rotation changes the deployment key only. The rotating client seals the
 // same content key under a new deployment key, re-wraps it to current members
 // and re-assigns each device; blobs are not re-encrypted. A leaked content key

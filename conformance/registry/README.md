@@ -30,7 +30,7 @@ strings, NOT the wrap layout. A consumer derives the key pair from `ikm_hex`
 |---|---|---|
 | `chunk-aead` | AES-256-GCM per chunk under the per-blob key; `chunk_size` plaintext bytes per chunk (65536 default); the nonce derives from (chunk index, last-chunk flag) | the 96-bit nonce layout, the chunk AAD, the ciphertext framing (`ct‖tag` per chunk, concatenated?) and the empty-blob case. Vectors then: valid, truncate, reorder, splice, cross-blob. |
 | `key-wrap` | the suite above; info binds tenant, scope, key_id and recipient_key_id (#135: length-prefixed) | the info byte layout (field order, length prefix width, scope kind encoding) and the wrap AAD |
-| `sealed-content-key` | AAD = `deployment_id ‖ manifest_digest` (#135: length-prefixed, extended with tenant and deployment_key_id) | the cipher (AES-256-GCM is the only AEAD named), nonce and deployment key lengths, the exact AAD encoding |
+| `sealed-content-key` | nothing byte-level: the AAD `deployment_id ‖ manifest_digest` in the proto is provisional (#135 asks for a length-prefixed form extended with tenant and deployment_key_id) | the cipher (AES-256-GCM is the only AEAD named), nonce and deployment key lengths, the exact AAD encoding |
 
 ## Files
 
