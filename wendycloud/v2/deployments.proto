@@ -29,6 +29,9 @@ service DeploymentService {
   // ==================== Asset App Desired Instructions (wendy-agent) ====================
   rpc HandleReportedState(stream UpdateReportedStateRequest) returns (stream DesiredStateResponse);
   rpc ListAssetApps(ListAssetAppsRequest) returns (ListAssetAppsResponse);
+  // Every device's state of one app, report-only (unassigned) rows included
+  // (WDY-4000): ListAssetApps across devices, for the app and rollout views.
+  rpc ListAppDeviceStates(ListAppDeviceStatesRequest) returns (ListAppDeviceStatesResponse);
 
   // ==================== Device Container Control ====================
   rpc ListDeviceContainers(ListDeviceContainersRequest) returns (stream DeviceContainer);
@@ -252,6 +255,32 @@ message AssetApp {
 
 message ListAssetAppsResponse {
   repeated AssetApp asset_apps = 1;
+}
+
+// ==================== List App Device States ====================
+message ListAppDeviceStatesRequest {
+  string organization_id = 1;
+  string app_id = 2;
+  // At most this many rows; 0 = the server default. The server caps it.
+  int32 page_size = 3;
+  // next_page_token of the previous page; empty = the first page.
+  string page_token = 4;
+}
+
+// One device's row for the app: the AssetApp ListAssetApps returns for that
+// device, and which device it is.
+message AppDeviceState {
+  string asset_id = 1;
+  string asset_name = 2;
+  AssetApp state = 3;
+}
+
+message ListAppDeviceStatesResponse {
+  // Ordered by asset_id. Only devices the caller may see: a hidden device is
+  // absent, and nothing counts it.
+  repeated AppDeviceState rows = 1;
+  // Empty = the last page.
+  string next_page_token = 2;
 }
 
 // ==================== Device Container Control ====================
