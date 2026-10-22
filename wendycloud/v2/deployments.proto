@@ -17,12 +17,6 @@ service DeploymentService {
     option (wendy.signed_request) = true;
   }
   rpc ListAppReleases(ListAppReleasesRequest) returns (stream ListAppReleasesResponse);
-  // Retired by the encrypted registry (registry.proto): no CLI holds a registry
-  // token. Deprecated now, deleted once cloud serves ArtifactRegistryService
-  // (expand, migrate, contract).
-  rpc GetPushImageCredentials(GetPushImageCredentialsRequest) returns (GetPushImageCredentialsResponse) {
-    option deprecated = true;
-  }
 
   // ==================== Deployments ====================
   // Signed; payload_type "wendycloud.v2.CreateDeploymentRequest".
@@ -35,12 +29,6 @@ service DeploymentService {
   // ==================== Asset App Desired Instructions (wendy-agent) ====================
   rpc HandleReportedState(stream UpdateReportedStateRequest) returns (stream DesiredStateResponse);
   rpc ListAssetApps(ListAssetAppsRequest) returns (ListAssetAppsResponse);
-  // Retired by the encrypted registry (registry.proto): devices pull through
-  // DeviceArtifactService on their own mTLS. Deprecated now, deleted once cloud
-  // serves it (expand, migrate, contract).
-  rpc GetPullCredentials(GetPullCredentialsRequest) returns (GetPullCredentialsResponse) {
-    option deprecated = true;
-  }
 
   // ==================== Device Container Control ====================
   rpc ListDeviceContainers(ListDeviceContainersRequest) returns (stream DeviceContainer);
@@ -93,19 +81,6 @@ message ListAppReleasesResponse {
   repeated AppRelease app_releases = 1;
   int32 total = 2;
   int32 offset = 3;
-}
-
-message GetPushImageCredentialsRequest {
-  string organization_id = 1;
-  string app_id = 2;
-}
-
-message GetPushImageCredentialsResponse {
-  string registry_url = 1;
-  string full_image_path = 2;
-  string access_token = 3;
-  google.protobuf.Timestamp expires_at = 4;
-  string username = 5;
 }
 
 // ==================== Deployments ====================
@@ -277,20 +252,6 @@ message AssetApp {
 
 message ListAssetAppsResponse {
   repeated AssetApp asset_apps = 1;
-}
-
-// ==================== Pull Credentials (wendy-agent / microcontrollers) ====================
-message GetPullCredentialsRequest {
-  string app_release_id = 1;
-}
-
-message GetPullCredentialsResponse {
-  string registry_url = 1;
-  string full_artifact_path = 2;
-  string access_token = 3;
-  google.protobuf.Timestamp expires_at = 4;
-  string username = 5;
-  ReleaseType release_type = 6;
 }
 
 // ==================== Device Container Control ====================
