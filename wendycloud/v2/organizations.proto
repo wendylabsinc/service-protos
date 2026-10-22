@@ -3,6 +3,7 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
+import "wendy/id_range.proto";
 import "wendy/options.proto";
 import "wendycloud/v2/signed_request.proto";
 
@@ -18,7 +19,7 @@ service OrganizationService {
   rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse) {
     option deprecated = true;
   }
-  // Stable, canonical-ID-relative traversal for durable organization clients.
+  // Stable discovery following API_GUIDELINES.md.
   // Lists only direct memberships; access derived solely from realm groups is
   // excluded.
   rpc ListOrganizationsV2(ListOrganizationsV2Request) returns (ListOrganizationsV2Response);
@@ -170,34 +171,32 @@ message ListOrganizationsResponse {
   int32 total = 2;
 }
 
-// Pages are always ordered by canonical organization UUID descending.
-// Without either anchor, start at the highest canonical organization UUID.
-// With both anchors, return only organizations with canonical UUIDs strictly
-// greater than after_organization_id and strictly less than before_organization_id.
-// With both anchors, return the highest UUIDs in the range first, continue with
-// before set to the page's last ID and after unchanged, and set more_available
-// if rows remain in the range.
+// Only canonical organization UUID ordering is currently supported.
+// Ordering and ID tie-breaking follow API_GUIDELINES.md.
+enum ListOrganizationsV2Order {
+  // Default: canonical organization UUID descending.
+  LIST_ORGANIZATIONS_V2_ORDER_UNSPECIFIED = 0;
+  // Canonical organization UUID descending.
+  LIST_ORGANIZATIONS_V2_ORDER_ID_DESCENDING = 1;
+}
+
+// Range, limit, ordering, and continuation semantics follow API_GUIDELINES.md.
 message ListOrganizationsV2Request {
-  // When used alone, return the nearest organizations with canonical UUIDs lower
-  // than this anchor; continue toward lower UUIDs using the final ID from each page.
-  optional string before_organization_id = 1;
-  // When used alone, return the nearest organizations with canonical UUIDs higher
-  // than this anchor; continue toward higher UUIDs using the first ID from each page.
-  optional string after_organization_id = 2;
-  // Required. The server accepts values from 1 through 200, capping the rows
-  // returned within the requested range.
-  int32 limit = 3;
-  // Case-insensitive substring match over organization name and domain. Clients
-  // retain the same query while traversing pages.
+  wendy.IDRange range = 1;
+  // Default: canonical organization UUID descending.
+  ListOrganizationsV2Order order = 2;
+  // Default when unset: 100. Maximum: 200.
+  // Other limit semantics follow API_GUIDELINES.md.
+  optional int32 limit = 3;
+  // Case-insensitive substring match over organization name and domain.
   optional string query = 4;
 }
 
 message ListOrganizationsV2Response {
-  // Always ordered by canonical organization UUID descending.
+  // Items in result order, following API_GUIDELINES.md.
   repeated OrganizationAccess organization_accesses = 1;
-  // Whether more organizations exist in the requested traversal direction,
-  // restricted to the requested range when both anchors are set.
-  bool more_available = 2;
+  // See API_GUIDELINES.md for has_more semantics.
+  bool has_more = 2;
 }
 
 message AddMemberRequest {
