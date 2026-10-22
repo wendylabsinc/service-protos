@@ -171,13 +171,15 @@ message ListOrganizationsResponse {
   int32 total = 2;
 }
 
-// Only canonical organization UUID ordering is currently supported.
+// Canonical organization UUID ordering in either direction.
 // Ordering and ID tie-breaking follow API_GUIDELINES.md.
 enum ListOrganizationsV2Order {
   // Default: canonical organization UUID descending.
   LIST_ORGANIZATIONS_V2_ORDER_UNSPECIFIED = 0;
   // Canonical organization UUID descending.
   LIST_ORGANIZATIONS_V2_ORDER_ID_DESC = 1;
+  // Canonical organization UUID ascending.
+  LIST_ORGANIZATIONS_V2_ORDER_ID_ASC = 2;
 }
 
 // Range, limit, ordering, and continuation semantics follow API_GUIDELINES.md.
