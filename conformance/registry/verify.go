@@ -9,6 +9,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hkdf"
@@ -355,6 +357,35 @@ func verifyRecipient(root []byte, aud string, v map[string]any) error {
 	return nil
 }
 
+func chunkNonce(index uint64, last bool) []byte {
+	n := make([]byte, 12)
+	binary.BigEndian.PutUint64(n[3:11], index)
+	if last {
+		n[11] = 1
+	}
+	return n
+}
+
+// lp appends each field as a uint16 big-endian length and its bytes.
+func lp(b []byte, fields ...string) []byte {
+	for _, f := range fields {
+		b = append(binary.BigEndian.AppendUint16(b, uint16(len(f))), f...)
+	}
+	return b
+}
+
+func gcmFor(key []byte) cipher.AEAD {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		panic(err)
+	}
+	return gcm
+}
+
 func load(path string) map[string]any {
 	var m map[string]any
 	b, err := os.ReadFile(path)
@@ -447,6 +478,87 @@ func main() {
 		return err
 	}()
 	report("hybrid-kem-open", "valid", err)
+
+	// chunk_aead: decrypt chunk by chunk; the last chunk is the one the
+	// ciphertext ends with, and only an empty blob has an empty last chunk.
+	ca := reg["chunk_aead"].(map[string]any)
+	chunk := int(num(ca["chunk_size"])) + 16
+	for _, x := range ca["vectors"].([]any) {
+		v := x.(map[string]any)
+		err := func() error {
+			ct := hx(v, "ciphertext_hex")
+			key, err := hkdf.Key(sha256.New, hx(ca, "content_key_hex"), nil, v["plaintext_digest"].(string), 32)
+			if err != nil {
+				return err
+			}
+			gcm := gcmFor(key)
+			var pt []byte
+			for i := 0; ; i++ {
+				rest := ct[min(i*chunk, len(ct)):]
+				last := len(rest) <= chunk
+				if len(rest) < 16 || last && len(rest) == 16 && i > 0 {
+					return errors.New("truncated chunk")
+				}
+				c := rest[:min(chunk, len(rest))]
+				if pt, err = gcm.Open(pt, chunkNonce(uint64(i), last), c, nil); err != nil {
+					return err
+				}
+				if last {
+					break
+				}
+			}
+			pd := sha256.Sum256(pt)
+			if "sha256:"+hex.EncodeToString(pd[:]) != v["plaintext_digest"] || !bytes.Equal(pt, hx(v, "plaintext_hex")) {
+				return errors.New("plaintext")
+			}
+			return nil
+		}()
+		report("chunk-aead "+v["name"].(string), v["expect"].(string), err)
+	}
+
+	kw := reg["key_wrap"].(map[string]any)
+	wsk, _ := hpke.MLKEM768X25519().DeriveKeyPair(hx(kw, "recipient_ikm_hex"))
+	for _, x := range kw["vectors"].([]any) {
+		v := x.(map[string]any)
+		b := v["binding"].(map[string]any)
+		str := func(k string) string { return b[k].(string) }
+		err := func() error {
+			info := append(lp([]byte("wendy-registry-wrap-v1"), str("organization_id")), byte(num(b["scope_kind"])))
+			info = lp(info, str("scope_id"), str("key_id"), fmt.Sprint(num(b["recipient_kind"])), str("recipient"), str("recipient_key_id"))
+			if !bytes.Equal(info, hx(v, "info_hex")) {
+				return errors.New("info bytes")
+			}
+			r, err := hpke.NewRecipient(hx(v, "enc_hex"), wsk, hpke.HKDFSHA256(), hpke.AES256GCM(), info)
+			if err != nil {
+				return err
+			}
+			key, err := r.Open(nil, hx(v, "ciphertext_hex"))
+			if err == nil && !bytes.Equal(key, hx(v, "wrapped_key_hex")) {
+				return errors.New("wrapped key")
+			}
+			return err
+		}()
+		report("key-wrap "+v["name"].(string), v["expect"].(string), err)
+	}
+
+	sc := reg["sealed_content_key"].(map[string]any)
+	for _, x := range sc["vectors"].([]any) {
+		v := x.(map[string]any)
+		b := v["binding"].(map[string]any)
+		str := func(k string) string { return b[k].(string) }
+		err := func() error {
+			aad := lp([]byte("wendy-registry-seal-v1"), str("organization_id"), str("deployment_id"), str("manifest_digest"), str("content_key_id"), str("deployment_key_id"))
+			if !bytes.Equal(aad, hx(v, "aad_hex")) {
+				return errors.New("aad bytes")
+			}
+			key, err := gcmFor(hx(sc, "deployment_key_hex")).Open(nil, hx(v, "nonce_hex"), hx(v, "ciphertext_hex"), aad)
+			if err == nil && !bytes.Equal(key, hx(v, "content_key_hex")) {
+				return errors.New("content key")
+			}
+			return err
+		}()
+		report("sealed-content-key "+v["name"].(string), v["expect"].(string), err)
+	}
 
 	if failed > 0 {
 		fmt.Printf("%d vector(s) disagree with expect\n", failed)
