@@ -3,6 +3,8 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
 
 // OrgTeamService manages Cloud-owned teams within an organization.
 // Teams group organization members and carry free-form permission grants.
@@ -16,18 +18,39 @@ import "google/protobuf/timestamp.proto";
 // names are free in wendycloud.v2 now that the hackathon copy is gone
 // (WDY-2859); they remain taken in wendycloud.v1 by teams.proto.
 service OrgTeamService {
-  rpc CreateTeam(CreateOrgTeamRequest) returns (OrgTeam);
+  // Signed; payload_type "wendycloud.v2.CreateOrgTeamRequest".
+  rpc CreateTeam(SignedRequest) returns (OrgTeam) {
+    option (wendy.signed_request) = true;
+  }
   rpc GetTeam(GetOrgTeamRequest) returns (OrgTeam);
-  rpc UpdateTeam(UpdateOrgTeamRequest) returns (OrgTeam);
-  rpc DeleteTeam(DeleteOrgTeamRequest) returns (DeleteOrgTeamResponse);
+  // Signed; payload_type "wendycloud.v2.UpdateOrgTeamRequest".
+  rpc UpdateTeam(SignedRequest) returns (OrgTeam) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.DeleteOrgTeamRequest".
+  rpc DeleteTeam(SignedRequest) returns (DeleteOrgTeamResponse) {
+    option (wendy.signed_request) = true;
+  }
   rpc ListTeams(ListOrgTeamsRequest) returns (ListOrgTeamsResponse);
 
-  rpc AddTeamMember(AddOrgTeamMemberRequest) returns (OrgTeamMember);
-  rpc RemoveTeamMember(RemoveOrgTeamMemberRequest) returns (RemoveOrgTeamMemberResponse);
+  // Signed; payload_type "wendycloud.v2.AddOrgTeamMemberRequest".
+  rpc AddTeamMember(SignedRequest) returns (OrgTeamMember) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.RemoveOrgTeamMemberRequest".
+  rpc RemoveTeamMember(SignedRequest) returns (RemoveOrgTeamMemberResponse) {
+    option (wendy.signed_request) = true;
+  }
   rpc ListTeamMembers(ListOrgTeamMembersRequest) returns (ListOrgTeamMembersResponse);
 
-  rpc GrantTeamPermission(GrantOrgTeamPermissionRequest) returns (OrgTeamPermission);
-  rpc RevokeTeamPermission(RevokeOrgTeamPermissionRequest) returns (RevokeOrgTeamPermissionResponse);
+  // Signed; payload_type "wendycloud.v2.GrantOrgTeamPermissionRequest".
+  rpc GrantTeamPermission(SignedRequest) returns (OrgTeamPermission) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.RevokeOrgTeamPermissionRequest".
+  rpc RevokeTeamPermission(SignedRequest) returns (RevokeOrgTeamPermissionResponse) {
+    option (wendy.signed_request) = true;
+  }
   rpc ListTeamPermissions(ListOrgTeamPermissionsRequest) returns (ListOrgTeamPermissionsResponse);
 }
 

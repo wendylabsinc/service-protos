@@ -4,7 +4,12 @@ package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
 
+// Deprecated: personal access tokens are removed from cloud in favour of
+// wendy-auth service accounts (WDY-2948). Do not add callers; this file is
+// deleted once cloud drops the PAT path (WDY-3423).
 service PersonalAccessTokenService {
+  option deprecated = true;
+
   rpc CreatePersonalAccessToken(CreatePATRequest) returns (CreatePATResponse);
   rpc ListPersonalAccessTokens(ListPATsRequest) returns (ListPATsResponse);
   rpc GetPersonalAccessToken(GetPATRequest) returns (PersonalAccessToken);
@@ -12,6 +17,8 @@ service PersonalAccessTokenService {
 }
 
 message PersonalAccessToken {
+  option deprecated = true;
+
   string id = 1;
   string user_id = 2;
   string name = 3;
@@ -24,30 +31,44 @@ message PersonalAccessToken {
 }
 
 message CreatePATRequest {
+  option deprecated = true;
+
   string name = 1;
   google.protobuf.Timestamp expires_at = 2;
 }
 
 message CreatePATResponse {
+  option deprecated = true;
+
   PersonalAccessToken token = 1;
   string raw_token = 2;
 }
 
 message ListPATsRequest {
+  option deprecated = true;
+
   int32 page_size = 1;
   int32 offset = 2;
 }
 
 message ListPATsResponse {
+  option deprecated = true;
+
   repeated PersonalAccessToken tokens = 1;
 }
 
 message GetPATRequest {
+  option deprecated = true;
+
   string id = 1;
 }
 
 message RevokePATRequest {
+  option deprecated = true;
+
   string id = 1;
 }
 
-message RevokePATResponse {}
+message RevokePATResponse {
+  option deprecated = true;
+}

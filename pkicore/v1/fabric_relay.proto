@@ -14,6 +14,12 @@ service FabricRelayService {
   // {kind:"cloud-grant+jws", value:<grant JWS>}.
   rpc RelayIssuance(wendyauth.v1.Envelope) returns (RelayIssuanceResponse);
   // W18: signed_artifact = {kind:"enrollment-request+jws", value:<operator JWS>}.
+  // WDY-3541: the JWS payload may carry an optional "label" claim (string, at
+  // most 128 characters), stored on the minted EAB key / enrollment token and
+  // returned by the list RPCs. The signer becomes the credential's created_by.
+  // A pki-core older than WDY-3541 ignores the unknown claim and mints the
+  // credential without a label, so a client sends "label" only once prod
+  // pki-core carries it.
   rpc RelayEnrollment(wendyauth.v1.Envelope) returns (RelayEnrollmentResponse);
   // Connect-time capability/version handshake.
   rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);

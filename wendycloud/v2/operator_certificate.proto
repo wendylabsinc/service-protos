@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package wendycloud.v2;
+
+import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/device_access.proto";
+import "wendycloud/v2/signed_request.proto";
+
+// Entitlement-bearing operator certificates (WDY-2901, WDY-3594). An operator
+// asks cloud for a short-lived certificate carrying its device permissions for
+// ONE target: a device, a site, a tag, or all devices. Cloud resolves the
+// caller's role permissions and device access entries, signs a grant
+// (cloud-grant+jws) and relays issuance to pki-core, which re-verifies the
+// grant and mints the leaf under the tenant's Operator Authority CA. The login
+// (identity-only) certificate is not issued here: it comes from pki-core's
+// identity frontend.
+//
+// Entitlement strings follow pki-core's grammar
+// `entitlement:{category}:{permission}[:{target}]:{effect}` with target
+// `device:<asset id>`, `site:<site id>` or `tag:<name>`, and no target segment
+// for ALL (every device, as today). A category the caller holds completely is
+// one `entitlement:{category}:*[:{target}]:allow` string.
+//
+// Device actions the agent enforces from the certificate (WDY-3887), each a
+// device-targeted catalog permission like any other:
+//   device:read     reads: device info, hardware, drivers list
+//   device:update   the device record (site, tags); no device action
+//   device:software OS and agent update, driver install and remove, reboot
+//                   and shutdown
+//   device:shell    host shell, container exec and attach
+//   device:logs     log and telemetry streaming
+//   device:network  Wi-Fi, Bluetooth and hostname changes
+service OperatorCertificateService {
+  // Gate: `certificate:request-entitled` in organization_id, plus device
+  // access: the caller's entries must reach the target. ALL is issued only
+  // when the caller has an allow entry for all devices and no deny.
+  // INVALID_ARGUMENT for an UNSPECIFIED target type, a target_ref that breaks
+  // the AccessEntry rules, a CSR that does not parse, a CSR key equal to the
+  // request-signing key, or ttl_seconds above the maximum. NOT_FOUND when the
+  // target is outside the caller's access, whether or not it exists.
+  // PERMISSION_DENIED when the caller holds no device permission.
+  // FAILED_PRECONDITION when the organization has no pki tenant, ALL is asked
+  // without an all-devices entry, or the entitlements exceed the certificate
+  // size limit (never truncated). The CSR must carry exactly one URI SAN, the
+  // caller's operator SPIFFE ID (the principal of the request signature).
+  // Signed; payload_type "wendycloud.v2.RequestEntitledCertificateRequest".
+  rpc RequestEntitledCertificate(SignedRequest) returns (RequestEntitledCertificateResponse) {
+    option (wendy.signed_request) = true;
+  }
+}
+
+message RequestEntitledCertificateRequest {
+  string organization_id = 1;
+  // PEM PKCS#10. Its key must differ from the key of the operator leaf that
+  // signed this request (AAA 5.2): the grant binds this key (csr_key_binding).
+  string csr_pem = 2;
+  // DEVICE, SITE, TAG or ALL, with target_ref as in AccessEntry (empty for
+  // ALL).
+  AccessTargetType target_type = 3;
+  string target_ref = 4;
+  // Requested lifetime. Absent = 300. At most 900: the leaf never outlives
+  // the grant, and pki-core's tenant policy may shorten it further.
+  optional int64 ttl_seconds = 5;
+}
+
+message RequestEntitledCertificateResponse {
+  // The leaf, PEM.
+  string certificate_pem = 1;
+  // Intermediates up to (not including) the root, PEM, leaf's issuer first.
+  string chain_pem = 2;
+  google.protobuf.Timestamp not_before = 3;
+  google.protobuf.Timestamp not_after = 4;
+  // The entitlement strings the grant carried, as embedded in the leaf.
+  repeated string entitlements = 5;
+  // Key id of the cloud grant signing key (the grant JWS `kid`).
+  string grant_kid = 6;
+}

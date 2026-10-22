@@ -6,6 +6,222 @@ signer's leaf certificate in the `x5c` header. Producer of record is pki-core's
 `internal/reqsig`; these let a second implementation (e.g. wendy-auth's Swift
 verifier) confirm it agrees **byte-for-byte**.
 
+`signed-request-vectors-v1.json` covers the body envelope that operator-signed
+RPCs use. `device-signed-request-vectors-v1.json` covers the same envelope
+signed by a device (the device-signer profile below, WDY-3958).
+`reqsig-vectors-v1.json` covers the JWS in its original header-carried form,
+which servers refuse once WDY-3458 lands.
+
+## SignedRequest envelope (WDY-3458)
+
+Operator-signed RPCs carry their signature in the request body. The RPCs are the
+ones marked `option (wendy.signed_request) = true` (`wendy/options.proto`); that
+option is the only list. Device-signed RPCs (`RegisterDeviceEncryptionKey`,
+`AckHead`) take the same envelope, signed with the device leaf, which must be
+the mTLS peer; they are marked `option (wendy.device_signed_request) = true`
+instead (WDY-3926) and never go to the operator verifier. Their input is `wendycloud.v2.SignedRequest`
+(`wendycloud/v2/signed_request.proto`). Headers carry only the bearer token and
+the DPoP proof. Client-streaming and bidirectional RPCs are not signed. A
+server-streaming RPC still takes a single request message, so it can be signed;
+`PKIAdminService.ListAuditLog` is.
+Responses are unchanged.
+
+| field | content |
+|---|---|
+| `payload` | the serialized request message. These exact bytes are what gets signed. |
+| `payload_type` | fully-qualified request message name. Must equal the one named in the RPC's `Signed; payload_type "…"` comment. |
+| `signature` | compact JWS (ASCII bytes), see below |
+| `pki_management_request` | pki-core tier-3 operations only: the operator's `management-request+jws`, relayed verbatim as the fabric `Envelope.signed_artifact` |
+| `channel`, `mcp_client_id`, `relay_session_id` | MCP channel marker and its audit fields (`docs/relay-mcp.md`). Not signed and not part of verification; vectors leave them unset. |
+
+### JWS
+
+- JWS Compact Serialization: three non-empty segments in canonical unpadded
+  base64url. The signing input is the exact received `header.payload` bytes.
+- Protected header: `alg` (`ML-DSA-65`, `ML-DSA-87`, `ES256`, `ES384`, `EdDSA`;
+  never `none`; must match the leaf key) and exactly one signer reference.
+  `crit` is rejected.
+  - `x5c`: one entry, the operator **leaf**, standard-base64 DER.
+  - `kid` (WDY-3463): `base64url(SHA-256(leaf DER))`, unpadded, 43 characters:
+    the RFC 7515 `x5t#S256` value of the leaf. Saves the leaf's size on every
+    call.
+  - Both or neither is rejected.
+- `OperatorSessionService.RegisterOperatorLeaf` (signed with `x5c`) checks the
+  leaf once at session start and returns its `kid`. It is optional: the broker
+  resolves any `kid` through pki-core on a cache miss.
+
+### Claims (JCS, RFC 8785)
+
+| claim | rule |
+|---|---|
+| `operation` | fully-qualified method, e.g. `wendycloud.v2.AssetService/CreateAsset`. Must equal the called method. |
+| `target` | `{tenant, ca?, resource}`. `tenant` = the signer's pki tenant UUID. `resource` follows the per-method table in cloud's `RequestSigning.md`. |
+| `body_sha256` | `base64url(SHA-256(payload))`, unpadded, computed over the `payload` bytes exactly as carried. Never re-serialize them. |
+| `nonce` | fresh and unpredictable, at most 256 bytes, single use per audience across all replicas. A request that fails any other check does not consume it. The server keeps it for `min(expiry, iat + 60s)`. |
+| `iat` / `expiry` | Unix seconds. `iat` within ±60 s of the server clock. `expiry` is strict: `now == expiry` is already expired. |
+| `aud` | the verifier's audience (cloud broker default `https://cloud.wendy.sh/broker`) |
+| `correlation_id` | 1–64 bytes of `[A-Za-z0-9._-]`. Minted once at the origin, normally a lower-case UUID. The server adopts this value, and an `x-correlation-id` header that differs from it rejects the request. It propagates unchanged to fabric envelopes and audit. |
+
+There is no `jti` claim; `nonce` serves that purpose. `pki_management_request`
+carries its own `jti`, which pki-core enforces as single use, so every retry
+needs a fresh nonce and a fresh management request.
+
+### Verification (one generic gate, before the handler)
+
+1. Parse the JWS and check the size cap, `alg` and the absence of `crit`.
+2. Get pki-core's verdict on the leaf (fail closed):
+   `ValidateOperatorCertificate` with `certificate = x5c[0]`, or with
+   `leaf_sha256 = kid`, which also returns the leaf DER. Check `alg` against the
+   leaf key family, then verify the signature. The broker may cache a valid
+   verdict by `kid`, for minutes and never past `not_after`. It drops every
+   cached leaf whose serial matches the `x509_serial` of a pki-core x509
+   `credential-change` SET (`conformance/set/README.md`). The serial is enough,
+   so the SET carries no `kid`. The per-call authority checks still run.
+3. Check the principal kind and the tenant (principal = `target.tenant` = the
+   organization's tenant = the token's tenant).
+4. Check `operation`, `aud`, `iat`/`expiry`, `body_sha256` and `correlation_id`.
+5. Check `payload_type` against the method, then decode `payload` as that
+   message.
+6. Claim the nonce last, then call the handler with the decoded message.
+7. For tier-3 methods, `pki_management_request` is required, and its `x5c` leaf
+   must be byte-equal to the `signature` leaf (the resolved one, for `kid`). Cloud does not verify its
+   signature; it relays it byte for byte and pki-core verifies it.
+
+Every rejection is one generic `PERMISSION_DENIED`, and the reason is only
+logged. That includes an unknown, revoked or expired `kid`. The one exception
+is a `kid` whose leaf the broker does not hold (cloud keeps the leaf it
+received with `x5c` in its session cache keyed by `kid`; pki-core stores no
+leaf DER and answers a `kid` with a verdict only, WDY-3647), or whose
+operator leaf pki-core minted before it recorded the key algorithm (WDY-3648,
+one operator leaf lifetime after that deploy): the broker answers
+`FAILED_PRECONDITION` "leaf not stored; present the certificate". The client retries the call once, signed
+with `x5c` (fresh nonce), and fails loudly if that is refused too. A method whose
+input is `SignedRequest` is always verified, whether or not it carries an
+option. Each consumer should test that the input is `SignedRequest` exactly
+when the method carries one of the two options, and never both.
+
+### What is signed, by whom, how the key is referenced
+
+| artifact | signer | key reference | carried in |
+|---|---|---|---|
+| `SignedRequest.signature` | operator leaf | `x5c` or `kid`; `kid` → `FAILED_PRECONDITION` "leaf not stored" means retry once with `x5c`, then fail loudly | request body |
+| `SignedRequest.signature` on `RegisterOperatorLeaf` and the postbox-relayed `DeploymentService.CreateDeployment` / `ControlContainer` | operator leaf | `x5c` only; `kid` is refused (the postbox JWS is forwarded verbatim to devices in `PostboxEntry.request_jws`) | request body, then the postbox |
+| `SignedRequest.signature` on the `wendy.device_signed_request` methods (`KeyDirectoryService.RegisterDeviceEncryptionKey`, `DevicePostboxService.AckHead`) | device leaf | `x5c` only, and it must be the mTLS peer | request body |
+| `SignedRequest.pki_management_request` (tier-3) | the same operator leaf | `x5c`, byte-equal to the resolved signature leaf | request body |
+| enrollment, over-duration request/approval/pickup JWS | operator leaf | its own format, verified by pki-core | a field of the signed payload |
+| device-originated calls (`CreateNotificationV2`) | device | the devices-mTLS leaf; nothing signed per request | TLS. `x-wendy-device-{uri,certificate-serial,timestamp,signature}` are retired with no replacement (WDY-3464) |
+
+No signature travels in a header. `x-wendy-request-signature` and
+`x-wendy-pki-management-request` are retired too.
+
+### Vectors: `signed-request-vectors-v1.json`
+
+`{version, contract, generation, root_cert_der_b64, vectors[]}`. Each vector
+gives `method`, `verify_at` (the clock to verify at), `expected_tenant`,
+`expect`, and `signed_request_b64` (the serialized `SignedRequest`, which is
+what a server receives). Producers and consumers must both pass all three:
+
+| name | expect |
+|---|---|
+| `mldsa65-create-asset-valid` | valid. Also broken out: `payload_b64`, `claims`, `claims_jcs`, `jws_compact`, `leaf_cert_der_b64`. A producer given the same inputs and keys must reproduce `claims_jcs` and `payload_b64`. |
+| `tampered-payload-invalid` | invalid: the signature verifies but `body_sha256` does not match |
+| `payload-type-mismatch-invalid` | invalid: the signature verifies but `payload_type` is not the method's request message |
+
+The file is fully deterministic. Its keys are ML-DSA-65 from
+`hexseed = SHA-256(<seed label>)` (`openssl genpkey -pkeyopt hexseed:…`), and
+the certificates and JWS were signed with OpenSSL `deterministic:1`. Rebuilding
+from the labels in `generation` with OpenSSL ≥ 3.5 and `buf convert` reproduces
+it byte for byte. **The labels are test private keys.** Real producers sign
+hedged (randomized), and verifiers cannot tell the difference.
+
+## Device-signer profile (WDY-3958)
+
+The methods marked `wendy.device_signed_request`
+(`KeyDirectoryService.RegisterDeviceEncryptionKey`,
+`DevicePostboxService.AckHead`) take the same `SignedRequest` and JWS as
+above, signed by the calling device. The differences:
+
+| rule | device-signed |
+|---|---|
+| algorithm | Fixed twice, never by the request or the header. (1) By the device's **tier**, which the server takes from its own device record (class C comes from the operator-signed os label at first enrollment): tier A/B = `ML-DSA-65`, tier C (wendy-lite) = `ES256`. An unknown or absent tier is refused. (2) By the **issuing CA** of the leaf, on the server and in every client check of a stored request: a leaf under the ML-DSA Device Identity CA signs `ML-DSA-65` only, a leaf under the P-256 Lite Device CA signs `ES256` only, and a tier C device must chain through the Lite Device CA. Any other combination is refused, including `ES256` from a tier A/B device that still holds a P-256 leaf under the Device Identity CA (its key moves to ML-DSA-65 at renewal, sem 2026-10-20 21:29; until then it cannot call these methods). No fallback (HARD rule 1). |
+| signer reference | `x5c` only, exactly one entry: the device leaf. `kid` is refused. |
+| leaf binding | `x5c[0]` must be byte-equal to the mTLS peer certificate of the same call. The chain is the one the mTLS handshake already validated (device leaf → Device Identity CA or its Lite sibling → tenant intermediate → platform root); it is not repeated in `x5c`. |
+| `target` | `{tenant, resource}`: `tenant` = the tenant of the leaf's SPIFFE URI, `resource` = that SPIFFE URI (`spiffe://wendy.sh/tenant/<tenant>/device/<uuid>`). No `ca`. A request naming another device is refused. |
+| `operation`, `aud`, `body_sha256`, `correlation_id` | as above. `aud` = the same broker audience. |
+| `nonce`, `iat`, `expiry` | as above: `iat` within ±60 s, `expiry` strict, nonce single use and claimed last. |
+| principal check | the principal kind is `device`; the device's identity comes from the leaf, never from the payload. |
+
+Every refusal is the same generic `PERMISSION_DENIED`. There is no
+`FAILED_PRECONDITION` retry path (no `kid`).
+
+Keys a device registers are later verified by operator clients as
+`RecipientKey` (`wendycloud/v2/registry.proto`): the JWS against its `x5c` leaf,
+that leaf through `chain_der` to the client's **pinned** platform root at the
+JWS's signed `iat` (not the current time), the algorithm against the issuing CA
+as above, the leaf identity against `principal` and its tenant against
+`organization_id`, then `key_id = SHA-256(public_key)` recomputed locally. In
+the vectors the issuing CA is told apart by its key (the Device Identity CA is
+ML-DSA, its Lite sibling P-256).
+
+### Vectors: `device-signed-request-vectors-v1.json`
+
+`{version, contract, generation, root_cert_der_b64, device_ca_cert_der_b64, aud,
+vectors[], recipient_key_vectors[], head_ack_read_vectors[], todo[]}`. A `vectors[]` entry gives
+`method`, `verify_at`, `expected_tenant`, `device_tier` (the verifier's
+recorded tier for the device), `mtls_peer_cert_der_b64`, `signed_request_b64`
+and `expect`. Run them in file order with one nonce store:
+
+| name | expect |
+|---|---|
+| `mldsa65-ack-head-valid` | valid. Broken out like the operator vector (`payload_b64`, `claims`, `claims_jcs`, `jws_compact`, `leaf_cert_der_b64`, `spiffe_san`). |
+| `mldsa65-register-device-encryption-key-valid` | valid. Its `public_key` is the `hybrid_kem` key of `conformance/registry`. |
+| `replayed-nonce-invalid` | invalid: byte-identical to the first vector, nonce already claimed |
+| `es256-tier-ab-invalid` | invalid: tier A/B device signing `ES256` (signature and chain are valid) |
+| `kid-instead-of-x5c-invalid` | invalid: `kid` header (it names the right leaf; the signature verifies) |
+| `x5c-not-mtls-peer-invalid` | invalid: `x5c` is the real signer's leaf (device A, `7c1d…`) and the signature verifies with a fresh nonce, but the mTLS peer is device B (`3f8e…`) |
+| `expired-invalid` | invalid: `expiry` < `verify_at` |
+| `target-not-signer-invalid` | invalid: `target.resource` names another device |
+
+`recipient_key_vectors[]` give `organization_id`, `principal`,
+`recipient_key_b64` (a serialized `RecipientKey`) and `expect`; the pinned root
+is `root_cert_der_b64`, and the chain is checked at the registration's signed
+`iat`:
+
+| name | expect |
+|---|---|
+| `recipient-key-valid` | valid; `expected_key_id` |
+| `recipient-key-chain-missing-invalid` | invalid: empty `chain_der` |
+| `recipient-key-wrong-principal-invalid` | invalid: `principal` is not the leaf identity |
+| `recipient-key-unpinned-root-invalid` | invalid: the served chain ends in a root other than the pinned one |
+| `recipient-key-substituted-key-invalid` | invalid: `public_key` replaced after signing |
+| `recipient-key-es256-under-device-ca-invalid` | invalid: an `ES256` registration whose P-256 leaf chains to the ML-DSA Device Identity CA (signature and chain are valid) |
+
+`head_ack_read_vectors[]` cover the operator read of a device's last signed
+ack (`PostboxAckService.GetLastHeadAck`, `wendycloud/v2/postbox.proto`): each
+gives `organization_id`, `device` and `response_b64` (a serialized
+`GetLastHeadAckResponse`). The client verifies `ack` exactly like a
+`RecipientKey` registration, with operation
+`wendycloud.v2.DevicePostboxService/AckHead` and payload_type
+`wendycloud.v2.PostboxHeadAck`, then reads the signed `entry_id` and
+`observed_at`; `received_at` and `postbox_head_entry_id` are cloud-asserted
+hints.
+
+| name | expect |
+|---|---|
+| `last-head-ack-valid` | valid; `expected_entry_id`, `expected_observed_at` |
+
+`todo[]` lists the vectors that wait on a ruling (a tier C valid vector, a
+foreign-tenant-CA vector).
+
+Generation: `go run conformance/registry/generate.go conformance` (Go 1.27,
+standard library). ML-DSA keys come from `SHA-256(<label>)` and the ML-DSA
+certificates and signatures are deterministic; ES256 and HPKE are randomized, so
+verify those bytes and do not regenerate to match. **The labels are test private
+keys.** `go run conformance/registry/verify.go conformance` checks every vector
+against its `expect`.
+
+## v1 vectors: header-carried descriptor (pki-core producer)
+
 Contract: pki-core `docs/integration/cloud-request-signing.md` (v1 descriptor
 schema) + `docs/reference/request-signing.md` (envelope/algorithms).
 
@@ -14,7 +230,7 @@ schema) + `docs/reference/request-signing.md` (envelope/algorithms).
 fresh snapshot per generation (ECDSA/ML-DSA are randomized) — verify these
 bytes, don't regenerate to match.
 
-## File
+### File
 
 `reqsig-vectors-v1.json` — `{version, go_toolchain, notes, algorithms, vectors[]}`.
 
@@ -36,7 +252,7 @@ Each `vectors[]` entry has `name`, `kind`, `expect`, and kind-specific fields:
 - **`kind: "canonicalization"`** — JCS only: `canonical_jcs_utf8` /
   `canonical_jcs_hex` are the required RFC 8785 output for the described input.
 
-## Coverage (v1)
+### Coverage (v1)
 
 | name | what it pins |
 |---|---|
@@ -45,7 +261,7 @@ Each `vectors[]` entry has `name`, `kind`, `expect`, and kind-specific fields:
 | `tampered-payload-invalid` | signature must not verify over a swapped payload |
 | `jcs-edge-key-ordering-nonascii-int` | JCS key sorting, bare integers, raw-UTF-8 non-ASCII value, nested/`null`/`bool` |
 
-## Notes / limitations
+### Notes / limitations
 
 - **Signatures are a fresh snapshot per generation run** (ECDSA and ML-DSA are
   randomized). Verify these bytes; do not regenerate to match. The
@@ -57,7 +273,7 @@ Each `vectors[]` entry has `name`, `kind`, `expect`, and kind-specific fields:
 - Freshness/replay (`nonce`/`iat`/`expiry`) is each side's own concern — not
   covered here.
 
-## Regenerating
+### Regenerating
 
 From the pki-core repo (needs Go 1.27+):
 

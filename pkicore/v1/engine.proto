@@ -66,6 +66,24 @@ service CAEngine {
   // verify during rotation.
   rpc GetTunnelAttestationJWKS(GetTunnelAttestationJWKSRequest) returns (GetTunnelAttestationJWKSResponse);
 
+  // Security event transmitter (WDY-3410): pki-core signs CAEP credential-change
+  // (x509 revoke) SETs; see conformance/set/README.md. Every leaf revocation writes
+  // a durable outbox row in the same transaction. The engine has no internet
+  // egress, so the fabric frontend drains the outbox and pushes to the receivers.
+  //
+  // GetSecurityEventJWKS returns the public halves of the dedicated ML-DSA-65 SET
+  // signing key(s) as a JWKS document. The codesign public frontend serves it at
+  // <issuer>/.well-known/ssf-jwks.json.
+  rpc GetSecurityEventJWKS(GetSecurityEventJWKSRequest) returns (GetSecurityEventJWKSResponse);
+  // ClaimSecurityEvents leases up to `limit` due outbox rows (lease = the row's
+  // next retry time) and returns each as a freshly signed SET: fresh iat/exp,
+  // stable jti. A crashed caller loses nothing; the lease runs out and the row is
+  // claimed again. Receivers dedup on jti.
+  rpc ClaimSecurityEvents(ClaimSecurityEventsRequest) returns (ClaimSecurityEventsResponse);
+  // AckSecurityEvent records one push outcome: delivered marks the row done, and
+  // anything else is audited and retried with capped backoff. Rows are never dropped.
+  rpc AckSecurityEvent(AckSecurityEventRequest) returns (AckSecurityEventResponse);
+
   // CA lifecycle (admin-API):
   rpc BootstrapPlatformCodeSigningRoot(BootstrapPlatformCodeSigningRootRequest)   returns (BootstrapPlatformCodeSigningRootResponse);
   rpc ProvisionPlatformCodeSigningActive(ProvisionPlatformCodeSigningActiveRequest) returns (ProvisionPlatformCodeSigningActiveResponse);
@@ -89,13 +107,25 @@ service CAEngine {
   // the resolved tenant.
   rpc RecordCodeSignDenial(RecordCodeSignDenialRequest)                           returns (RecordCodeSignDenialResponse);
 
+  // ACME account standing (WDY-3497). Before serving a kid-signed request the
+  // ACME frontend asks whether the account's lineage still stands. It does
+  // not when the account's latest leaf is revoked (RevokeByPrincipal, the
+  // principal-disable cascade, OffboardTenant, revoke-cert), its principal is
+  // disabled, the tenant is not active, or the latest leaf has expired on an
+  // account that does not re-attest each order. The frontend then marks the
+  // account revoked. The engine writes one audit row per revoked verdict.
+  rpc CheckACMEAccount(CheckACMEAccountRequest)                                   returns (CheckACMEAccountResponse);
+
   // SSF/CAEP receiver relay (AAA contract §6). The private-only fabric frontend
   // verifies an inbound wendyauth.v1 security-event token (RISC
-  // account-disabled / account-purged) against the realm JWKS, then relays the
-  // already-verified fact to the key-holding engine over the internal hop via
-  // this RPC. The engine idempotently records the disabled principal (keyed on
-  // the SET jti) and drives the renewal-refusal gate. Fail-safe / revoke-only:
-  // it only ever removes a principal's ability to renew, never grants.
+  // account-disabled / account-purged, CAEP session-revoked) against the realm
+  // JWKS, then relays the already-verified fact to the key-holding engine over
+  // the internal hop via this RPC. For account-disabled / account-purged the
+  // engine idempotently records the disabled principal (keyed on the SET jti)
+  // and drives the renewal-refusal gate. session-revoked (WDY-3448) is audit
+  // only: one ssf.session_revoked row, no disable, no revocation. Any other
+  // event_type is refused. Fail-safe / revoke-only: it only ever removes a
+  // principal's ability to renew, never grants.
   rpc RecordPrincipalDisable(RecordPrincipalDisableRequest)                       returns (RecordPrincipalDisableResponse);
 
   // SSF/CAEP tenant-lifecycle receiver relay (AAA contract §5.9/§6, WDY-3177).
@@ -113,6 +143,20 @@ service CAEngine {
   // offboarded, retain audit rows (WDY-3177 v1: delete nothing). Fail-safe /
   // revoke-only. The raw SET is never relayed, persisted, or logged.
   rpc RecordTenantDeleted(RecordTenantDeletedRequest)                             returns (RecordTenantDeletedResponse);
+
+  // Tenant disable / enable relay (WDY-3543). Sibling of RecordTenantDeleted for
+  // the system-realm-signed tenant-disabled and tenant-enabled SETs (realm
+  // disabled / re-enabled in wendy-auth). disabled stops all issuance and
+  // renewal for the tenant; certificates, CAs and CRLs stay as they are.
+  // enabled reverses a disable and nothing else: it never reactivates an
+  // offboarded tenant. The engine applies a change only when event_time is
+  // newer than the last one it applied, so a late retry cannot undo a newer
+  // change. Replayed jti, offboarded or unknown tenant: no change, one audit
+  // row. tenant-renamed (WDY-3876) moves the tenant's slug to new_slug and
+  // keeps old_slug resolving to the same tenant until alias_expires_unix; it is
+  // ordered by event_time on its own clock (never against disable/enable). Any
+  // other event_type is refused.
+  rpc RecordTenantLifecycle(RecordTenantLifecycleRequest)                         returns (RecordTenantLifecycleResponse);
 
   // Enrollment-token revoke relay (AAA contract §5.4, W18). The private-only
   // fabric frontend verifies an inbound cloud-origin token-revoke security-event
@@ -225,6 +269,19 @@ service CAEngine {
   rpc PickupOverDurationCertificate(PickupOverDurationCertificateRequest)     returns (PickupOverDurationCertificateResponse);
   rpc ListPendingOverDurationRequests(ListPendingOverDurationRequestsRequest) returns (ListPendingOverDurationRequestsResponse);
   rpc GetPendingOverDurationRequest(GetPendingOverDurationRequestRequest)     returns (GetPendingOverDurationRequestResponse);
+  // Refuses a pending over-duration request before it expires (WDY-3409).
+  // Mints nothing and records nothing but the denial; the request moves to a
+  // terminal state and can no longer be approved or collected. Authority is
+  // the operator-signed management request (op "deny_over_duration") plus
+  // signed_rights; the transport grants nothing.
+  rpc DenyOverDurationIssuance(DenyOverDurationIssuanceRequest)               returns (DenyOverDurationIssuanceResponse);
+
+  // Revokes every live (unexpired, unrevoked) leaf whose SPIFFE principal is
+  // exactly `principal`, in the authenticated tenant only (WDY-3409). The
+  // operator-facing face of the cascade the SSF account-disabled/purged path
+  // already runs; the member stays a member. Authority is the operator-signed
+  // management request (op "revoke_principal") plus signed_rights.
+  rpc RevokeByPrincipal(RevokeByPrincipalRequest)                             returns (RevokeByPrincipalResponse);
 
   // Operator-authority status (WDY-2217). Answers "has this operator leaf's
   // authority been withdrawn?" from the revocation state pki-core ALREADY owns
@@ -271,18 +328,40 @@ message IssueCertificateRequest {
   // "cloud-grant+jws"). When present, the engine re-verifies it (D7) and mints
   // an entitlement-bearing cert gated by the grant. Empty => ordinary issuance.
   bytes grant = 7;
+  // Optional, relay-for-issuance only: the serialized wendycloud.v2.SignedRequest
+  // the operator sent cloud for this grant (RequestEntitledCertificate), relayed
+  // verbatim; its JWS must carry the operator leaf in x5c. When present, pki-core's
+  // fabric verifies it against the tenant's Operator Authority CA and refuses unless
+  // signer SPIFFE == grant principal == CSR URI SAN, target.tenant == envelope
+  // tenant, body_sha256 matches, and the signed csr_pem is this CSR. Never
+  // forwarded to the engine.
+  bytes operator_signed_request = 8;
 }
 
 message IssueCertificateResponse {
   bytes certificate = 1; // DER leaf
   bytes chain       = 2; // DER intermediates (not root)
   bytes ocsp_staple = 3; // pre-generated OCSP response for offline carry
+  // DER of the tenant's Lite Operator Authority on a device-tier-c leaf of a
+  // non-system tenant (absent on a renewal that could not attach it); the
+  // EST/CSR/renew frontends relay it as the device's operator anchor
+  // (docs/lite-relay-v1.md § Operator dual-key, Anchor delivery).
+  bytes lite_operator_authority = 4;
 }
 
 message RevokeCertificateRequest {
   string ca_id  = 1;
   bytes  serial = 2;
   int32  reason = 3; // RFC 5280 reason code
+  // WDY-3409: the operator's management-request JWS (op "revoke_certificate"),
+  // relayed verbatim from Envelope.signed_artifact. The engine verifies it and
+  // takes ca_id/serial/reason and the single-use jti from its payload; the
+  // unsigned fields above must match. Empty on the admin path.
+  bytes signed_request = 4;
+  // WDY-3409: cloud-signed rights attestation ("cloud-rights+jws") that the
+  // signing operator holds pki:cert-revoke now. Same shape and verification as
+  // ApproveOverDurationIssuanceRequest.signed_rights.
+  bytes signed_rights = 5;
 }
 message RevokeCertificateResponse {}
 
@@ -304,7 +383,24 @@ message ListCertMetadataRequest {
   // enforces single-use of the signed request (empty on the admin path => no
   // replay check). Same posture as RotateCARequest.source_jti.
   string source_jti = 4;
+  // WDY-3409 filters; empty/UNSPECIFIED = no filter, all set filters AND.
+  // On the fabric they are read from the signed management request, like
+  // page_size/page_token.
+  string   principal     = 5; // exact SPIFFE URI SAN
+  string   status_filter = 6; // "active" | "revoked" | "expired" | "" (all)
+  CertType cert_type     = 7;
+  bytes    serial        = 8; // exact serial: a single-certificate read
 }
+
+// CertType is derived by pki-core from the leaf's SPIFFE principal kind
+// (WDY-3409). UNSPECIFIED = any other leaf (no SAN, code signing, TSA, ...).
+enum CertType {
+  CERT_TYPE_UNSPECIFIED = 0;
+  CERT_TYPE_OPERATOR    = 1;
+  CERT_TYPE_DEVICE      = 2;
+  CERT_TYPE_SERVICE     = 3;
+}
+
 message CertMetadata {
   bytes  serial      = 1;
   string principal   = 2; // SPIFFE URI SAN ("" when the leaf had none)
@@ -312,6 +408,12 @@ message CertMetadata {
   string expires_at  = 4; // RFC3339
   bytes  fingerprint = 5; // SHA-256 of the leaf DER
   int32  revoke_reason = 6; // RFC 5280; 0 and status!="revoked" ⇒ not revoked
+  // WDY-3409: inventory fields.
+  string   ca_id      = 7;  // issuing CA
+  string   profile    = 8;  // issuance profile name
+  string   issued_at  = 9;  // RFC3339
+  string   not_before = 10; // RFC3339, from the leaf
+  CertType cert_type  = 11;
 }
 message ListCertMetadataResponse {
   repeated CertMetadata items           = 1;
@@ -395,11 +497,36 @@ message GetAuditLogRequest {
   // W20/WDY-2216: originating tier-3 management-request jti; single-use enforced
   // by the engine when set (empty on the admin path => no replay check).
   string source_jti = 6;
+  // WDY-3508 (expand phase). On the fabric both are read from the signed
+  // management request (op "get_audit_log"), like page_size/page_token, and
+  // copied here; the engine applies them. Unset = today's behaviour.
+  // before_id: when non-zero, only rows with id < before_id
+  // (AuditLogEntry.id). The newest-first cursor: pass the last entry's id.
+  int64         before_id = 7;
+  AuditLogOrder order     = 8;
+}
+
+enum AuditLogOrder {
+  AUDIT_LOG_ORDER_UNSPECIFIED = 0; // = ASC, the pre-WDY-3508 behaviour
+  AUDIT_LOG_ORDER_ASC         = 1; // oldest first, by id
+  AUDIT_LOG_ORDER_DESC        = 2; // newest first, by id
 }
 
 // GetCACerts returns all active CA certificates for the authenticated tenant.
 // Tenant is taken from x-tenant-id gRPC metadata. Used by the EST cacerts endpoint.
-message GetCACertsRequest {}
+message GetCACertsRequest {
+  // Empty preserves the tenant's normal chain. ECDSA_P256 returns only the
+  // classical self-signed twin of the tenant's Lite Device CA (same key and
+  // subject as the CA the tenant Intermediate signs) for Tier-C firmware
+  // without ML-DSA support; empty until an operator-signed token mint has
+  // created that CA.
+  string chain_algorithm = 1;
+  // With chain_algorithm ECDSA_P256 only: return instead, for ML-capable
+  // verifiers, the Lite Device CA as signed by the tenant Intermediate plus
+  // its ancestors below the platform Root (tenant Intermediate, Customer
+  // Intermediate); never the twin. Invalid without chain_algorithm.
+  bool full_chain = 2;
+}
 message GetCACertsResponse {
   repeated bytes certs = 1; // DER-encoded CA certificates (root → device CA order)
 }
@@ -417,6 +544,8 @@ message VerifyEABSignatureResponse {
   string profile              = 3;
   bool   attestation_required = 4;
   string device_id            = 5;
+  // Persist on the ACME account and carry in AuthContext on every finalize.
+  int64 enrollment_epoch = 6;
 }
 
 // --- Tenant policy ---
@@ -477,6 +606,17 @@ enum CARole {
   // (tenant="system"); CA_ROLE_TENANT_CODE_SIGNING is tenant-tier.
   CA_ROLE_TENANT_CODE_SIGNING = 8; // "tenant_code_signing"
   CA_ROLE_CODE_SIGNING_ACTIVE = 9; // "code_signing_active"
+
+  // The tenant's P-256 Lite Operator Authority (lite-relay-v1 § Operator
+  // dual-key), signed by the tenant Intermediate. Never an operator trust anchor except on the Lite
+  // lane opt-in; consumers selecting CA_ROLE_TENANT_OPERATOR_AUTHORITY never
+  // see it.
+  CA_ROLE_TENANT_LITE_OPERATOR_AUTHORITY = 10; // "tenant_lite_operator_authority"
+  // The tenant's P-256 Lite Device CA: a sibling of the Device Identity CA
+  // under the tenant Intermediate, issuing device-tier-c leaves. Tier-C
+  // callers receive its classical self-signed twin; consumers selecting
+  // CA_ROLE_TENANT_DEVICE_IDENTITY never see it.
+  CA_ROLE_TENANT_LITE_DEVICE_IDENTITY = 11; // "tenant_lite_device_identity"
 }
 
 message CAInfo {
@@ -490,6 +630,12 @@ message CAInfo {
   string not_after   = 4;  // RFC3339
   bytes  certificate = 5; // DER
   CARole role        = 6;  // WDY-3144; UNSPECIFIED until pki-core populates it (hop 2)
+  // WDY-3409: revocation publishing status. Empty when the CA publishes no
+  // CRL (e.g. the offline root).
+  string crl_url         = 7; // e.g. https://crl.pki.wendy.dev/<ca_id>/crl.der
+  string crl_this_update = 8; // RFC3339, last full CRL publish
+  string crl_next_update = 9; // RFC3339, next scheduled full CRL publish
+  string ocsp_url        = 10;
 }
 message ListCAsResponse {
   repeated CAInfo cas = 1;
@@ -515,6 +661,10 @@ message CreateEABKeyRequest {
   bool   attestation_required = 5;
   // W18: originating enrollment-request jti; when set the engine enforces single-use of the signed request (empty on the admin path => no replay check).
   string source_jti           = 6;
+  // WDY-3541: optional operator-chosen display name (UTF-8, at most 128
+  // characters). On the relay path the fabric copies it from the operator's
+  // signed enrollment request ("label" claim), never from unsigned input.
+  string label                = 7;
 }
 message CreateEABKeyResponse {
   string key_id   = 1;
@@ -535,6 +685,12 @@ message EABKeyInfo {
   bool   attestation_required  = 5;
   string status                = 6;
   string created_at            = 7; // RFC3339
+  // WDY-3541. Empty for keys created before pki-core stored these.
+  string label                 = 8;
+  // Tenant SPIFFE URI of the operator whose verified signed request created
+  // the key; empty when the creator was not a verified principal (admin path).
+  string created_by            = 9;
+  string revoked_at            = 10; // RFC3339; empty unless status is "revoked"
 }
 message ListEABKeysResponse {
   repeated EABKeyInfo keys            = 1;
@@ -557,6 +713,12 @@ message CreateEnrollmentTokenRequest {
   int64  ttl_seconds = 5;
   // W18: originating enrollment-request jti; when set the engine enforces single-use of the signed request (empty on the admin path => no replay check).
   string source_jti  = 6;
+  // WDY-3541: optional display name; same rules as CreateEABKeyRequest.label.
+  string label       = 7;
+  // Empty preserves ca_id. ECDSA_P256 selects the tenant's Lite Device CA
+  // (created here on first use, under the tenant Intermediate), permitted
+  // only for device-tier-c.
+  string chain_algorithm = 8;
 }
 message CreateEnrollmentTokenResponse {
   string token_id    = 1;
@@ -575,8 +737,14 @@ message EnrollmentTokenInfo {
   string device_id  = 2;
   string profile    = 3;
   string expires_at = 4; // RFC3339
+  // True only once the token was redeemed. A revoked, never-used token has
+  // consumed = false and revoked_at set: read revoked_at before consumed.
   bool   consumed   = 5;
   string created_at = 6; // RFC3339
+  // WDY-3541: label and created_by as on EABKeyInfo.
+  string label      = 7;
+  string created_by = 8;
+  string revoked_at = 9; // RFC3339; empty unless revoked
 }
 message ListEnrollmentTokensResponse {
   repeated EnrollmentTokenInfo tokens         = 1;
@@ -619,6 +787,13 @@ message IssueOperatorCertRequest {
   // the proof's expiry (unix seconds), bounding the replay-cache row's TTL.
   string          dpop_jti      = 10;
   int64           dpop_exp      = 11;
+  // Lite operator leaf (lite-relay-v1 § Operator dual-key): the token's
+  // cnf.jkt (RFC 7638 thumbprint of the session key), which the identity
+  // frontend verified as the DPoP proof key. Set only when the CSR key differs
+  // from it (a P-256 Lite CSR over an ML-DSA session); the engine then requires
+  // it to be the key of an active, unrevoked ML-DSA primary leaf of the same
+  // principal. Empty => CSR key == session key, as before.
+  string          session_jkt   = 12;
 }
 message IssueOperatorCertResponse {
   bytes certificate = 1; // DER leaf
@@ -697,6 +872,34 @@ message GetTunnelAttestationJWKSRequest {}
 message GetTunnelAttestationJWKSResponse {
   bytes jwks = 1; // {"keys":[<AKP JWK>...]} — public keys only, served verbatim
 }
+
+message GetSecurityEventJWKSRequest {}
+message GetSecurityEventJWKSResponse {
+  bytes jwks = 1; // {"keys":[<AKP JWK>...]} — public keys only, served verbatim
+}
+
+message ClaimSecurityEventsRequest {
+  int32 limit = 1; // 1..100; 0 = server default
+}
+message ClaimedSecurityEvent {
+  string jti       = 1; // SET jti == outbox row id; use as Envelope.correlation_id
+  string tenant_id = 2; // Envelope.tenant
+  bytes  set_jws   = 3; // compact JWS, typ secevent+jwt -> Envelope.signed_artifact{kind:"set+jwt"}
+}
+message ClaimSecurityEventsResponse {
+  repeated ClaimedSecurityEvent events = 1;
+}
+
+message AckSecurityEventRequest {
+  string jti       = 1;
+  bool   delivered = 2; // true = the receiver acked (accepted, or already seen)
+  string error     = 3; // when !delivered: why (transport error, or receiver rejected)
+  // when !delivered: the receiver verified the SET and refused it (accepted=false,
+  // or InvalidArgument). The engine stops a row after 5 of these (failed_permanent);
+  // anything else is transient and retried forever.
+  bool   permanent = 4;
+}
+message AckSecurityEventResponse {}
 
 message BootstrapPlatformCodeSigningRootRequest {
   string label              = 1;
@@ -864,6 +1067,19 @@ message RecordCodeSignDenialRequest {
 }
 message RecordCodeSignDenialResponse {}
 
+message CheckACMEAccountRequest {
+  string tenant_id            = 1; // injected from gRPC metadata x-tenant-id
+  string account_id           = 2; // ACME account UUID (audit only)
+  bytes  serial               = 3; // the account's latest issued leaf; empty before its first issuance
+  string device_id            = 4; // the account's device_id (EAB-bound); empty for non-device accounts
+  bool   attestation_required = 5; // the account re-attests every order, so expiry alone does not end its lineage
+  int64 enrollment_epoch = 6; // EAB-bound generation, including before first issuance
+  string eab_key_id = 7; // the EAB key the account registered with; a leafless account rests on this key alone (empty: account predates the binding)
+}
+message CheckACMEAccountResponse {
+  bool revoked = 1; // true: the lineage is over; the account must not be served
+}
+
 // RecordPrincipalDisableRequest carries the fact extracted from a verified
 // wendyauth.v1 security-event token by the fabric frontend. The token itself
 // (the raw SET) is NEVER relayed to the engine — only this extracted fact — and
@@ -871,7 +1087,7 @@ message RecordCodeSignDenialResponse {}
 message RecordPrincipalDisableRequest {
   string tenant_id     = 1; // injected from gRPC metadata x-tenant-id
   string principal_uri = 2; // SPIFFE URI of the disabled principal (authority: from the verified SET sub_id)
-  string event_type    = 3; // RISC short form: "account-disabled" | "account-purged"
+  string event_type    = 3; // short form: "account-disabled" | "account-purged" (RISC; disable) | "session-revoked" (CAEP; audit only, WDY-3448)
   string source_jti    = 4; // the SET jti — idempotency key for the replay cache
   int64  set_exp_unix  = 5; // the SET exp (unix seconds) — bounds the replay-cache row TTL
 }
@@ -890,6 +1106,22 @@ message RecordTenantDeletedRequest {
   int64  set_exp_unix = 3; // the SET exp (unix seconds) — bounds the replay-cache row TTL
 }
 message RecordTenantDeletedResponse {}
+
+// RecordTenantLifecycleRequest carries the fact extracted from a verified
+// system-realm-signed tenant-disabled / tenant-enabled (WDY-3543) or
+// tenant-renamed (WDY-3876) SET. The raw SET is never relayed, persisted or
+// logged.
+message RecordTenantLifecycleRequest {
+  string tenant_id          = 1; // injected from gRPC metadata x-tenant-id (from the verified SET sub_id)
+  string event_type         = 2; // short form: "tenant-disabled" | "tenant-enabled" | "tenant-renamed"
+  string source_jti         = 3; // the SET jti — idempotency key for the replay cache
+  int64  set_exp_unix       = 4; // the SET exp (unix seconds) — bounds the replay-cache row TTL
+  int64  event_time_unix    = 5; // the event's event_timestamp — orders disable/enable, and separately renames (the fabric refuses one later than iat + skew)
+  string old_slug           = 6; // tenant-renamed only: the slug the realm was renamed away from
+  string new_slug           = 7; // tenant-renamed only: the realm's slug after the rename
+  int64  alias_expires_unix = 8; // tenant-renamed only: until when old_slug still names this tenant (wendy-auth's alias grace)
+}
+message RecordTenantLifecycleResponse {}
 
 // RecordEnrollmentTokenRevokeRequest carries the fact extracted from a verified
 // cloud-origin token-revoke security-event token by the fabric frontend. The
@@ -1003,6 +1235,19 @@ message RenewCertificateRequest {
   bytes  grant          = 3; // optional: W9-shaped operator grant (D14 grant-accept)
   string actor          = 4;
   string correlation_id = 5;
+  // Proof that the caller holds presented_cert's private key, which the engine
+  // verifies itself (the frontend's mTLS handshake is not evidence the engine
+  // can check). Required for every non-device (operator/service) renewal,
+  // with or without a grant (WDY-3437). Device lineages do not use it.
+  // JWS Compact signed with presented_cert's key (alg per the key: ML-DSA-44/
+  // 65/87, ES256, ES384, EdDSA), payload JSON, no other members:
+  //   {"op":"renew",
+  //    "cert_sha256":"<base64url, no padding, SHA-256 of presented_cert>",
+  //    "csr_sha256":"<base64url, no padding, SHA-256 of csr>",
+  //    "jti":"<unique, at most 128 bytes>","iat":<unix seconds>}
+  // iat must be within the last 5 minutes (60s future skew); jti is single-use
+  // per tenant.
+  bytes  possession_proof = 6;
 }
 
 // RenewOutcome distinguishes renewal's outcomes, which issuance does not have.
@@ -1022,6 +1267,7 @@ message RenewCertificateResponse {
   bytes        ocsp_staple    = 4; // pre-generated OCSP response for offline carry
   string       correlation_id = 5;
   string       detail         = 6; // human-readable reason for DENIED / NEEDS_GRANT
+  bytes        lite_operator_authority = 7; // as IssueCertificateResponse.lite_operator_authority
 }
 
 enum OverDurationOutcome {
@@ -1158,6 +1404,58 @@ message ListPendingOverDurationRequestsResponse {
   repeated PendingOverDurationRequest requests = 1;
 }
 message GetPendingOverDurationRequestRequest { string id = 1; }
+
+message DenyOverDurationIssuanceRequest {
+  string pending_request_id = 1;
+  // Originating tier-3 management-request jti; single-use enforced.
+  string source_jti         = 2;
+  // Cloud-signed rights attestation that the signing operator holds
+  // pki:approve-over-duration now (denying is the approver's call). Same shape
+  // as ApproveOverDurationIssuanceRequest.signed_rights.
+  bytes  signed_rights      = 3;
+  // WDY-3411: the operator's management-request JWS (op "deny_over_duration"),
+  // relayed verbatim from Envelope.signed_artifact. The engine verifies it and
+  // derives the denier's principal and source_jti from it; that principal is
+  // the subject signed_rights must attest. The unsigned fields above must match.
+  bytes  signed_request     = 4;
+}
+message DenyOverDurationIssuanceResponse {}
+
+message RevokeByPrincipalRequest {
+  string tenant_id     = 1; // injected from gRPC metadata x-tenant-id
+  string principal     = 2; // SPIFFE URI; must belong to tenant_id
+  int32  reason        = 3; // RFC 5280 reason code, applied to every leaf
+  // The operator's management-request JWS (op "revoke_principal"), relayed
+  // verbatim from Envelope.signed_artifact. The engine verifies it and takes
+  // principal/reason and the single-use jti from its payload; the unsigned
+  // fields above must match.
+  bytes  signed_request = 4;
+  // Cloud-signed rights attestation that the signing operator holds
+  // pki:cert-revoke (or device:delete for a fence) now. Same shape as
+  // RevokeCertificateRequest.signed_rights.
+  bytes  signed_rights  = 5;
+  // Cloud's pending enrollment request, scoped by the signed device principal.
+  // Block this JTI even if its relay has not reached PKI yet. This annotation
+  // cannot revoke enrollment requests for any other tenant or device.
+  string enrollment_request_jti = 6;
+  // Device unenrollment additionally requires device:delete authority, bound
+  // to the same signed request. False preserves certificate-only revocation.
+  // The fence is per (tenant_id, device UUID), the UUID being the device
+  // segment of principal; it advances pki-core's own enrollment epoch. A
+  // deleted device is gone from records: nothing reserves its UUID. A
+  // deliberate re-enroll mints a new UUID, so no replacement guard is needed.
+  bool fence_device_enrollment = 7;
+}
+message RevokeByPrincipalResponse {
+  int32 revoked_count = 1; // 0 is success: nothing live to revoke
+  // True only for a device principal after its generation was advanced,
+  // bootstrap credentials revoked, pending request blocked and certificate
+  // revocation committed atomically. Old implementations default to false.
+  bool device_enrollment_fenced = 2;
+  // Echo of the pending request actually blocked by the engine. Cloud checks
+  // this so an older fabric that drops the request annotation fails closed.
+  string fenced_enrollment_request_jti = 3;
+}
 message GetPendingOverDurationRequestResponse { PendingOverDurationRequest request = 1; }
 
 // --- Operator-authority status (WDY-2217) ---
@@ -1196,7 +1494,21 @@ message ValidateOperatorCertificateRequest {
   // extraction, SHA-256 fingerprint — and the caller never parses X.509.
   // Presented intermediates are deliberately NOT accepted: pki-core validates
   // against the CA material it owns, not against what the requester supplied.
+  // Set exactly one of certificate and leaf_sha256.
   bytes certificate = 1;
+  // The leaf by reference (WDY-3463): base64url, unpadded, of SHA-256 over the
+  // leaf DER (the RFC 7515 x5t#S256 value; the `kid` of a SignedRequest JWS).
+  // pki-core looks the leaf up in the authenticated tenant's
+  // certificate_ledger rows and answers from the row (WDY-3647): issuing CA in
+  // the tenant's live Operator-Authority pool, ML-DSA non-Lite key, operator
+  // principal of the tenant, validity window, revocation, disabled principal.
+  // No row in that tenant, including a leaf of another tenant, is
+  // "not_issued". The ledger keeps no leaf DER, so the answer is a verdict
+  // only: the caller verifies signatures with the leaf it hashed. An operator
+  // row minted before pki-core recorded the key algorithm (WDY-3648) is the
+  // gRPC error FAILED_PRECONDITION "leaf not stored; present the certificate",
+  // not a verdict: ask again with certificate.
+  string leaf_sha256 = 2;
 }
 
 message ValidateOperatorCertificateResponse {
@@ -1209,7 +1521,11 @@ message ValidateOperatorCertificateResponse {
   //   "malformed"          — leaf does not parse as an X.509 certificate
   //   "untrusted"          — does not chain to the tenant's Operator-Authority
   //                          CA (also covers a leaf of a DIFFERENT tenant:
-  //                          anchors are strictly per-tenant)
+  //                          anchors are strictly per-tenant; a Lite operator
+  //                          leaf never chains here)
+  //   "operator_class"     — chains, but is not an ML-DSA operator leaf (a
+  //                          non-ML-DSA key or the Lite marker; lite-relay-v1
+  //                          § Operator dual-key). This RPC has no Lite opt-in.
   //   "not_operator"       — chains, but the SPIFFE SAN is not an operator
   //                          principal of the tenant
   //   "not_yet_valid"      — NotBefore is in the future
@@ -1228,4 +1544,8 @@ message ValidateOperatorCertificateResponse {
   // RFC3339 leaf NotAfter, set only when valid. Hard upper bound for any
   // caller-side caching of this verdict.
   string not_after = 4;
+  // Deprecated (WDY-3647): never populated. pki-core #254 returned the stored
+  // leaf DER here for leaf_sha256 lookups; pki-core stopped storing leaf DER
+  // with WDY-3648 and leaves this empty. Do not read it; never reuse field 5.
+  bytes certificate = 5;
 }

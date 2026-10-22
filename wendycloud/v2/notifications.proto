@@ -4,18 +4,26 @@ package wendycloud.v2;
 
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
 import "wendycloud/v2/organizations.proto";
+import "wendycloud/v2/signed_request.proto";
 
 service NotificationService {
   // Legacy single-user creation API. Kept for existing dashboard and legacy clients.
   // MIGRATION(wendycloud.v2): Remove this RPC and request; see API_V2_MIGRATION.md.
-  rpc CreateNotification(CreateNotificationRequest) returns (Notification) {
+  // Signed; payload_type "wendycloud.v2.CreateNotificationRequest".
+  rpc CreateNotification(SignedRequest) returns (Notification) {
+    option (wendy.signed_request) = true;
     option deprecated = true;
   }
   // Creates per-user Notifications for the union of users, organization teams, and roles.
   // User credentials and provisioned-device credentials are both supported.
   // notification_id is the caller-chosen resource UUID. Any reuse of its canonical UUID,
   // including an otherwise identical request, fails with ALREADY_EXISTS.
+  // A provisioned device is authenticated by its devices-mTLS leaf alone. The
+  // x-wendy-device-uri, x-wendy-device-certificate-serial,
+  // x-wendy-device-timestamp and x-wendy-device-signature proof headers are
+  // retired with no body replacement (WDY-3464).
   rpc CreateNotificationV2(CreateNotificationV2Request) returns (CreateNotificationV2Response);
   // Legacy server-streamed offset pagination.
   rpc ListNotifications(ListNotificationsRequest) returns (stream ListNotificationsResponse);
@@ -365,7 +373,12 @@ message DeleteNotificationsThroughRequest {
 }
 
 message DeleteNotificationsThroughResponse {
+  // At most 1000 active recipient rows per call, newest-first by
+  // (created_at, notification_id). Previously deleted rows do not count.
   int32 deleted_count = 1;
+  // More matching rows remain at or before the same anchor. Repeat the same
+  // request until false; the anchor remains valid after its recipient row is deleted.
+  bool more_available = 2;
 }
 
 message MarkAsReadRequest {
@@ -401,7 +414,12 @@ message SetNotificationReadStatusThroughRequest {
 }
 
 message SetNotificationReadStatusThroughResponse {
+  // At most 1000 changed recipient rows per call, newest-first by
+  // (created_at, notification_id). Rows already in the requested state do not count.
   int32 updated_count = 1;
+  // More matching rows still need the requested read state at or before the same
+  // anchor. Repeat the same request until false.
+  bool more_available = 2;
 }
 
 message CountNotificationsRequest {

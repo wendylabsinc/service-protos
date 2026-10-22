@@ -45,10 +45,16 @@ Each `vectors[]` entry:
 - **Subject shape, per receiver:**
   - cloud-bound: per-event `subject: {format:"iss_sub", iss, sub}`, no top-level
     `sub_id`.
-  - pki-core-bound (RISC account-disabled/purged): additionally top-level
+  - pki-core-bound (RISC account-disabled/purged, CAEP session-revoked): additionally
+    top-level
     `sub_id: {format:"uri", uri:"spiffe://wendy.sh/tenant/<tenant_uuid>/<kind>/<sub>"}`
     with `<kind>` ∈ {`operator`, `service`} — byte-matching the SAN pki-core mints
     via `spiffeid.BuildTenantURI`.
+- **pki-core effect, per event-type:** account-disabled / account-purged disable the
+  principal and revoke its live certificates. session-revoked (WDY-3448) is **audit
+  only**: one `ssf.session_revoked` row, no disable, no revocation — a session revoke
+  is not a certificate revoke. All three are verified the same way (realm-bound
+  issuer, system realm rejected).
 
 ## Tenant-lifecycle events (WDY-3177)
 
@@ -110,6 +116,183 @@ offboard — there is no operator signature in this path (the cloud-initiated
 notified-only per AAA §5.9). pki-core offboards directly on its own SET copy, no
 cloud in the loop (wendy-self-hosted no-SaaS-dependency rule).
 
+### tenant-disabled / tenant-enabled (WDY-3543)
+
+Event-types `https://schemas.wendy.sh/secevent/tenant-disabled` and
+`https://schemas.wendy.sh/secevent/tenant-enabled`: the realm was disabled or
+re-enabled in wendy-auth. Realm IS tenant. They are tenant-lifecycle types, so
+everything above holds for them: `iss == system`, bare tenant `sub_id`, the
+bidirectional binding, body `event_timestamp` + `reason_admin`. Fan-out =
+**[pki-core]**; cloud does not consume them.
+
+- **pki-core effect.** disabled: the tenant can no longer obtain anything new
+  (ACME, EST, operator and every other issuance, and renewals); certificates,
+  CAs and CRLs are untouched, and revocation keeps working. enabled: reverses a
+  disable. tenant-deleted stays the purge and is terminal: enabled never
+  reactivates a deleted tenant, and disabled/enabled for a deleted tenant change
+  nothing.
+- **Ordering.** `event_timestamp` is required on these two. The emitter MUST make
+  it strictly increase per tenant across disable/enable: when the next event would
+  carry the same second (or an earlier one), it uses the last value + 1. The
+  receiver applies one only when its `event_timestamp` is not older than the last
+  disable/enable it applied for that tenant, so a retried older event cannot undo
+  a newer one. The receiver refuses (does not ack) a SET whose `event_timestamp` is
+  later than its `iat` plus the receiver's clock-skew allowance: a future-dated
+  event would make every real one after it stale. tenant-deleted is not ordered:
+  it always wins.
+- **Ack.** Replayed `jti`, unknown or never-provisioned tenant, deleted tenant,
+  stale event: `accepted=true`, no change, one audit row.
+- **Grant direction.** enabled is the one tenant-lifecycle event that restores
+  something. It restores only what disabled took away; principal disables,
+  revocations and the purge are never undone by it.
+
+The tenant-disabled/enabled vectors are hand-built to the SETBuilder canonical
+form above (same inputs as `pki-tenant-deleted-sub-id`, only the event-type and
+`reason_admin` differ). wendy-auth's generator must reproduce them byte for byte
+when it starts emitting.
+
+| vector | iss | event-type | expect |
+|---|---|---|---|
+| `pki-tenant-disabled-sub-id` | system | tenant-disabled | accept |
+| `pki-tenant-enabled-sub-id` | system | tenant-enabled | accept |
+| `pki-tenant-disabled-wrong-issuer-reject` | tenant realm | tenant-disabled | reject |
+
+### tenant-renamed (WDY-3876)
+
+Event-type `https://schemas.wendy.sh/secevent/tenant-renamed`: the realm's slug
+(the issuer path segment) was renamed in wendy-auth (WDY-3870). Realm IS tenant:
+the tenant UUID in `sub_id` is the identity and does not change; only its name
+does. A tenant-lifecycle type, so `iss == system`, bare tenant `sub_id` and the
+bidirectional binding above all hold (a tenant realm cannot rename itself or
+another tenant). Fan-out = **[cloud, pki-core]** (one aud-specific vector each).
+
+- **Body:** `{alias_expires_at, event_timestamp, new_slug, old_slug, reason_admin}`.
+  `old_slug` / `new_slug` are the slugs before and after (both valid slugs, never
+  `system`, never equal). `alias_expires_at` (unix seconds, later than
+  `event_timestamp`) is when wendy-auth stops redirecting `old_slug`.
+- **pki-core effect.** The tenant's slug becomes `new_slug`, so SETs whose `iss`
+  names `new_slug` resolve to the tenant. SETs whose `iss` names `old_slug`
+  keep resolving to the same tenant until `alias_expires_at`, then are refused
+  as an unknown realm. A live tenant's own slug always wins over another
+  tenant's alias. Every other check is unchanged: a principal SET must still
+  name a principal of the issuer's tenant.
+- **cloud effect.** cloud rewrites the tenant's issuer-keyed identity to the
+  new issuer in one transaction: the organization's issuer, its users'
+  identities (`iss`), and the issuer prefix of its group grants (WDY-3875).
+- **Ordering.** `event_timestamp` is required and orders renames per tenant on
+  their own clock (never against disable/enable). The emitter MUST make it
+  strictly increase per tenant across renames (last value + 1 when the next
+  would carry the same second or an earlier one). A rename applies only when its
+  `event_timestamp` is later than the last rename applied; an equal or older
+  one is a late delivery, changes no slug, but still keeps its `old_slug`
+  resolving until its `alias_expires_at`. An alias is never recorded for a slug
+  another tenant holds live, never shortens a later alias and never takes
+  another tenant's unexpired one. Same future-dated refusal as disable/enable.
+- **Delivery order (emitter).** pki-core refuses a SET from `new_slug`'s issuer
+  as an unknown realm until it has applied the rename, so wendy-auth must deliver
+  tenant-renamed to each receiver before any SET that the renamed realm signs
+  (per-realm FIFO: the realm's later SETs wait behind an unacked rename).
+- **Re-delivery (emitter).** Each delivery attempt is signed afresh: new `jti`,
+  `iat` and `exp`, the same event body (same `event_timestamp`). A SET's `exp`
+  is minutes, so resending the first attempt's bytes would be refused once it
+  expires. pki-core treats a re-signed copy of a rename it already applied as a
+  late delivery: no slug moves, the `old_slug` alias is kept, one audit row.
+- **Ack.** Replayed `jti`, unknown or offboarded tenant: `accepted=true`, no
+  change, one audit row. pki-core's ack of every tenant-renamed it processed
+  echoes the SET's `jti`. An ack with an empty `jti` comes from a pki-core fabric
+  that predates this type and dropped it, so the emitter counts it as not
+  delivered and retries it.
+- **Refusals.** A `new_slug` another live pki tenant holds: `Aborted`, nothing
+  written, retried (that tenant may still rename away). Never applicable, so
+  terminal with one `tenant.rename_refused` audit row: `old_slug` is neither the
+  tenant's slug nor one of its unexpired aliases, or `new_slug` names an
+  offboarded tenant or another tenant's unexpired alias (`FailedPrecondition`).
+  The emitter retries `Unavailable`, `ResourceExhausted`, `Aborted`,
+  `DeadlineExceeded` and `Internal` with backoff. Every other code, and a
+  retryable one after the outbox's attempt limit, is dead-lettered (audited),
+  which releases the realm's FIFO so its later SETs (disable, delete) still
+  arrive.
+- **Roll order (pki-core).** Engine first, then fabric, both on a release that
+  knows tenant-renamed before wendy-auth emits it. A new fabric in front of an old
+  engine is refused `InvalidArgument` (terminal: the rename is dead-lettered and
+  lost). An old fabric drops it with an empty-`jti` ack (see Ack).
+
+Hand-built to the SETBuilder canonical form (same inputs as
+`pki-tenant-disabled-sub-id`; event-type, body and `reason_admin` differ).
+wendy-auth's generator must reproduce them byte for byte when it starts emitting.
+
+| vector | iss | event-type | expect |
+|---|---|---|---|
+| `cloud-tenant-renamed-sub-id` | system | tenant-renamed | accept |
+| `pki-tenant-renamed-sub-id` | system | tenant-renamed | accept |
+| `pki-tenant-renamed-wrong-issuer-reject` | tenant realm | tenant-renamed | reject |
+
+## Certificate-revoked events (WDY-3409)
+
+Event-type CAEP `https://schemas.openid.net/secevent/caep/event-type/credential-change`
+with `credential_type: "x509"`, `change_type: "revoke"`. **Transmitter = pki-core**,
+not wendy-auth. Cloud already receives `credential-change` from wendy-auth for realm
+credentials; the issuer and `credential_type` keep the two apart at dispatch.
+
+- **Issuer** = pki-core's public hostname per env: dev `https://dev.pki.wendy.sh`,
+  prod `https://pki.wendy.dev`. pki-core publishes the JWKS on that host.
+- **Signing key** = a dedicated ML-DSA-65 event-signing key, never a CA key.
+- **Binding** is bidirectional, like tenant-lifecycle: an x509 `credential-change`
+  REQUIRES `iss == pki-core`, and a pki-core issuer is rejected for any other
+  event-type or `credential_type`. Realm SETs keep the `iss->realm` rule.
+- **Audience** cloud `https://cloud.wendy.sh/fabric/ssf`, the same cloud fabric aud
+  wendy-auth uses. wendy-auth and devices join when they have a receiver (WDY-3403);
+  each gets its own aud-specific SET.
+- **One SET per revoked serial.** A by-principal revoke of N leaves emits N SETs.
+- **Subject** top-level `sub_id: {format:"uri", uri:<leaf SPIFFE principal>}`; for a
+  leaf with no SPIFFE SAN, the tenant URI `spiffe://wendy.sh/tenant/<tenant_uuid>`.
+  No per-event `iss_sub` (pki-core holds no realm subject).
+- **Event body** `{event_timestamp, credential_type, change_type, ca_id, x509_serial,
+  reason}`: `x509_serial` is the CAEP claim, lowercase hex without separators;
+  `ca_id` (the issuing CA, as in `CertMetadata.ca_id`) and `reason` (the RFC 5280
+  reason code) are Wendy extension claims.
+- `exp = iat + 300`, as above. The SET is a notification; CRL/OCSP stay the
+  revocation authority for relying parties.
+
+- **JWKS** at `<iss>/.well-known/ssf-jwks.json` (AKP keys, `alg: ML-DSA-65`). The SET
+  header is `{alg: "ML-DSA-65", kid, typ: "secevent+jwt"}`; unlike the realm SETs above,
+  this type is never ES256.
+- `jti` (== `txn`) is stable across delivery retries; each retry is re-signed with a fresh
+  `iat`/`exp`. Receivers dedup on `jti`.
+- `x509_serial` is the hex of the certificate serial's big-endian integer bytes (Go
+  `big.Int.Bytes()`), so it can start with `0`.
+
+Vectors for this type come from the producer (pki-core) with WDY-3410, the same way
+wendy-auth owns the payload bytes for its types. They carry `"producer": "pki-core"`.
+Their canonical bytes are Go `encoding/json` (sorted keys, compact, no HTML escaping), so
+forward slashes are **not** escaped. As above, verify the signed bytes as-is.
+
+## Membership refresh hint (WDY-3545)
+
+Event-type `https://schemas.wendy.sh/secevent/membership-changed`, a Wendy-minted type: "the
+membership of (realm, sub) changed". **Transmitter = wendy-auth, receiver = cloud only.**
+
+- **A principal event**, verified like the RISC/CAEP ones: issuer = the member's realm
+  (`iss->realm`, subject realm == issuer), never the `system` realm. Per-event subject
+  `{format:"iss_sub", iss, sub}`, no `sub_id`. `sub` is the global account sub.
+- **Body** = `event_timestamp` and `reason_admin` only. `reason_admin` is audit text; a receiver
+  never dispatches on it.
+- **It carries no state and grants nothing.** The receiver dedups on `jti`, then re-reads the
+  member through `wendyauth.v1.AuthFabric/ListRealmMembers` (`tenant_uuid` = `Envelope.tenant`,
+  `sub`) and converges its own mirror from that answer: absent there means removed. It must not
+  grant, remove or change anything from the SET content itself. Replays, reordering and duplicates
+  are therefore harmless (the last read wins).
+- A receiver that does not know the type acks it and ignores it. The read is advertised through
+  `GetCapabilities`; a caller that does not see it there does not call it.
+- **Emission is off by default** in wendy-auth (`WENDY_AUTH_SET_MEMBERSHIP_CHANGED`) and is switched
+  on only once cloud on prod handles the hint (expand → migrate → contract; see
+  `docs/contract-ledger.md`).
+
+| vector | iss | expect |
+|---|---|---|
+| `cloud-membership-changed-iss-sub` | member realm | accept |
+| `cloud-membership-changed-system-issuer-reject` | system | reject |
+
 ## Coverage (v1)
 
 | name | what it pins |
@@ -120,10 +303,20 @@ cloud in the loop (wendy-self-hosted no-SaaS-dependency rule).
 | `cloud-account-disabled-iss-sub` | RISC account-disabled as cloud sees it |
 | `pki-account-disabled-operator-sub-id` | RISC account-disabled, top-level SPIFFE sub_id, kind `operator` |
 | `pki-account-purged-service-sub-id` | RISC account-purged, kind `service` |
+| `pki-session-revoked-operator-sub-id` | CAEP session-revoked, kind `operator`, pki aud (accept; audit only, no revoke) |
 | `cloud-tenant-deleted-sub-id` | tenant-deleted, system-realm iss, tenant sub_id, cloud aud (accept) |
 | `pki-tenant-deleted-sub-id` | tenant-deleted, system-realm iss, tenant sub_id, pki aud (accept) |
 | `cloud-tenant-deleted-wrong-issuer-reject` | tenant-deleted signed by a tenant realm — MUST reject |
 | `pki-account-purged-system-issuer-reject` | principal event signed by system realm — MUST reject |
+| `cloud-x509-revoke-spiffe-sub-id` | pki-core x509 credential-change, leaf SPIFFE sub_id, cloud aud (accept) |
+| `cloud-x509-revoke-tenant-sub-id` | same, leaf without a SPIFFE SAN: tenant URI sub_id (accept) |
+| `cloud-x509-revoke-realm-issuer-reject` | x509 credential-change from a realm issuer — MUST reject |
+| `cloud-pki-issuer-session-revoked-reject` | pki-core issuer on a non-x509 event — MUST reject |
+| `cloud-membership-changed-iss-sub` | membership-changed refresh hint, cloud shape (accept) |
+| `cloud-membership-changed-system-issuer-reject` | membership-changed signed by the system realm — MUST reject |
+| `pki-tenant-disabled-sub-id` | tenant-disabled, system-realm iss, tenant sub_id, pki aud (accept) |
+| `pki-tenant-enabled-sub-id` | tenant-enabled, system-realm iss, tenant sub_id, pki aud (accept) |
+| `pki-tenant-disabled-wrong-issuer-reject` | tenant-disabled signed by a tenant realm — MUST reject |
 
 ## Notes / limitations
 
@@ -135,5 +328,8 @@ cloud in the loop (wendy-self-hosted no-SaaS-dependency rule).
 ## Regenerating
 
 wendy-auth: `WENDY_AUTH_GENERATE_SET_VECTORS=<out.json> swift test --filter SETVectorGeneration`
-(then verify determinism by generating twice and diffing). Regeneration is only
+(then verify determinism by generating twice and diffing).
+pki-core (the `producer: pki-core` vectors): `PKICORE_GENERATE_SET_VECTORS=<out.json> go test
+-run TestSETVectors_MatchServiceProtos ./internal/ca/`. Without the variable, that test checks
+pki-core's bytes against this file. Regeneration is only
 legitimate when the CONTRACT changes — receivers conform to the committed bytes.
