@@ -177,7 +177,7 @@ enum ListOrganizationsV2Order {
   // Default: canonical organization UUID descending.
   LIST_ORGANIZATIONS_V2_ORDER_UNSPECIFIED = 0;
   // Canonical organization UUID descending.
-  LIST_ORGANIZATIONS_V2_ORDER_ID_DESCENDING = 1;
+  LIST_ORGANIZATIONS_V2_ORDER_ID_DESC = 1;
 }
 
 // Range, limit, ordering, and continuation semantics follow API_GUIDELINES.md.
