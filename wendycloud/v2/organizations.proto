@@ -19,6 +19,8 @@ service OrganizationService {
     option deprecated = true;
   }
   // Stable, canonical-ID-relative traversal for durable organization clients.
+  // Lists only direct memberships; access derived solely from realm groups is
+  // excluded.
   rpc ListOrganizationsV2(ListOrganizationsV2Request) returns (ListOrganizationsV2Response);
 
   // Signed; payload_type "wendycloud.v2.AddMemberRequest".
@@ -116,8 +118,8 @@ message OrganizationMember {
   string role_source = 9;
 }
 
-// An organization together with the authenticated caller's explicit membership.
-// V2 discovery is membership-scoped, so member is always present.
+// An organization together with the authenticated caller's direct membership.
+// Member is always present, including when the member has no personal role.
 message OrganizationAccess {
   Organization organization = 1;
   OrganizationMember member = 2;
@@ -169,12 +171,16 @@ message ListOrganizationsResponse {
 }
 
 message ListOrganizationsV2Request {
-  // Return organizations with canonical UUIDs lower than this anchor. Continue
-  // the initial highest-ID-first traversal using the final ID from each page.
-  optional string before_organization_id = 1;
-  // Return organizations with canonical UUIDs higher than this anchor. before
-  // and after are mutually exclusive.
-  optional string after_organization_id = 2;
+  // Without an anchor, start at the highest canonical organization UUID.
+  oneof anchor {
+    // Return the nearest organizations with canonical UUIDs lower than this
+    // anchor. Continue toward lower UUIDs using the final ID from each page.
+    string before_organization_id = 1;
+    // Return the nearest organizations with canonical UUIDs higher than this
+    // anchor. Pages remain descending; continue toward higher UUIDs using the
+    // first ID from each page.
+    string after_organization_id = 2;
+  }
   // Required. The server accepts values from 1 through 200.
   int32 limit = 3;
   // Case-insensitive substring match over organization name and domain. Clients
