@@ -38,6 +38,9 @@ Start and end are independent. Each `oneof` selects at most one bound at its own
 end; it does not prevent using both ends together. A missing bound means no bound
 at that end of the filtered, ordered results. `limit` counts from the start of the
 range.
+To page toward the other end, flip the order: for example, request `ID_ASC` with
+`after: <anchor>` to get the nearest higher IDs, then reverse the page on the
+client for a descending display.
 
 All nine combinations are valid. In this table, A and B are anchor IDs and
 "first" and "last" refer to the request's result order, not numeric ID order.
