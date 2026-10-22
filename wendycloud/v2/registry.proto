@@ -290,9 +290,8 @@ message EncryptedBlob {
 // sealed under that per-blob key with a nonce derived from (chunk index,
 // last-chunk flag): truncation, reorder and splice fail authentication.
 // Symmetric, so post-quantum safe as is.
-// Byte layouts and vectors: conformance/registry/README.md. The per-blob key
-// is pinned there; the chunk nonce layout, chunk AAD and ciphertext framing
-// await a ruling (TODO vectors in that directory).
+// Byte layouts and vectors: conformance/registry/README.md (per-blob key,
+// chunk nonce, framing; no chunk AAD).
 enum AeadSuite {
   AEAD_SUITE_UNSPECIFIED = 0;
   AEAD_SUITE_AES_256_GCM_CHUNKED = 1;
@@ -340,9 +339,8 @@ message WrapScope {
 
 // One key sealed to one recipient public key (HPKE base mode). The HPKE info
 // binds tenant, scope, key_id and recipient_key_id, so a wrap moved to another
-// scope or recipient does not open.
-// TODO(ruling): the info byte layout and the wrap AAD are not fixed yet
-// (conformance/registry/README.md); the suite itself is pinned there.
+// scope or recipient does not open. Info layout (AAD empty) and vectors:
+// conformance/registry/README.md.
 message KeyWrap {
   WrapScope scope = 1;
   RecipientKind recipient_kind = 2;
@@ -354,10 +352,9 @@ message KeyWrap {
 }
 
 // The content key sealed under a deployment key, once per deployment and
-// deployment key. AAD: provisionally deployment_id || manifest_digest; #135
-// asks for a length-prefixed form extended with tenant and deployment_key_id.
-// TODO(ruling): the AAD encoding, the cipher, and the nonce and deployment key
-// lengths are not fixed yet (conformance/registry/README.md).
+// deployment key: AES-256-GCM, 12-byte nonce, AAD length-prefixed over
+// tenant, deployment_id, manifest_digest, content_key_id and
+// deployment_key_id (conformance/registry/README.md).
 // Q6: rotation changes the deployment key only. The rotating client seals the
 // same content key under a new deployment key, re-wraps it to current members
 // and re-assigns each device; blobs are not re-encrypted. A leaked content key

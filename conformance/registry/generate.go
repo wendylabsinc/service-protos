@@ -9,6 +9,8 @@ package main
 import (
 	"bytes"
 	"crypto"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hkdf"
@@ -198,6 +200,11 @@ func main() {
 	plaintext := seed("wendy-registry-vector-deployment-key-2026-10")
 	enc, sender := must2s(hpke.NewSender(devKEM.PublicKey(), kdf, aead, info))
 	ct := must(sender.Seal(aad, plaintext))
+	prevReg := previous(filepath.Join(out, "registry", "registry-vectors-v1.json"))
+	if h, _ := prevReg["hybrid_kem"].(map[string]any); h != nil && h["public_key_hex"] == hex.EncodeToString(devPub) &&
+		h["info_hex"] == hex.EncodeToString(info) && h["aad_hex"] == hex.EncodeToString(aad) && h["plaintext_hex"] == hex.EncodeToString(plaintext) {
+		enc, ct = unhex(h["enc_hex"]), unhex(h["ciphertext_hex"])
+	}
 	if pt, err := must(hpke.NewRecipient(enc, devKEM, kdf, aead, info)).Open(aad, ct); err != nil || string(pt) != string(plaintext) {
 		panic("hpke round trip")
 	}
@@ -208,8 +215,126 @@ func main() {
 	for _, label := range []string{"vector layer one", "vector layer two"} {
 		pd := sha256.Sum256([]byte(label))
 		digest := "sha256:" + hex.EncodeToString(pd[:])
-		k := must(hkdf.Key(sha256.New, contentKey, nil, digest, 32))
+		k := blobKey(contentKey, digest, 65536)
 		blobs = append(blobs, map[string]any{"plaintext_digest": digest, "blob_key_hex": hex.EncodeToString(k)})
+	}
+
+	// ---------- chunk AEAD, key wrap, sealed content key ----------
+	// Layouts: orchestrator ruling 2026-10-22 20:26 under the 2026-10-20
+	// primitives decisions (README.md).
+	const chunkSize = 16 // vectors only; the manifest default is 65536
+	encryptBlob := func(pt []byte) (string, []byte) {
+		pd := sha256.Sum256(pt)
+		digest := "sha256:" + hex.EncodeToString(pd[:])
+		gcm := gcmFor(blobKey(contentKey, digest, chunkSize))
+		var ct []byte
+		for i := 0; ; i++ {
+			start, end := i*chunkSize, min((i+1)*chunkSize, len(pt))
+			last := end == len(pt)
+			ct = gcm.Seal(ct, chunkNonce(uint64(i), last), pt[start:end], nil)
+			if last {
+				return digest, ct
+			}
+		}
+	}
+	chunkVector := func(name, expect string, pt []byte, digest string, ct []byte) map[string]any {
+		cd := sha256.Sum256(ct)
+		return map[string]any{"name": name, "expect": expect, "plaintext_hex": hex.EncodeToString(pt), "plaintext_digest": digest,
+			"plaintext_size": len(pt), "ciphertext_hex": hex.EncodeToString(ct), "ciphertext_digest": "sha256:" + hex.EncodeToString(cd[:])}
+	}
+	var chunkVectors []map[string]any
+	for _, c := range []struct {
+		name string
+		size int
+	}{{"empty-blob-valid", 0}, {"one-short-chunk-valid", 5}, {"two-full-chunks-valid", 32}, {"three-chunks-short-last-valid", 40}} {
+		pt := []byte("wendy registry chunk vector plaintext, forty bytes!!")[:c.size]
+		digest, ct := encryptBlob(pt)
+		chunkVectors = append(chunkVectors, chunkVector(c.name, "valid", pt, digest, ct))
+	}
+	blobPT := []byte("wendy registry chunk vector plaintext, forty bytes!!")[:40]
+	fullDigest, fullCT := encryptBlob(blobPT)
+	emptyDigest, emptyCT := encryptBlob(nil)
+	otherPT := []byte("another blob of the same release, three chunks or more")
+	_, otherCT := encryptBlob(otherPT)
+	const cc = chunkSize + 16
+	chunkVectors = append(chunkVectors,
+		chunkVector("truncated-last-chunk-invalid", "invalid", blobPT, fullDigest, fullCT[:2*cc]),
+		chunkVector("reordered-chunks-invalid", "invalid", blobPT, fullDigest, cat(fullCT[cc:2*cc], fullCT[:cc], fullCT[2*cc:])),
+		// Chunk 0 of another blob: same index, same flag, so only the
+		// per-blob key tells them apart.
+		chunkVector("spliced-chunk-from-other-blob-invalid", "invalid", blobPT, fullDigest, cat(otherCT[:cc], fullCT[cc:])),
+		chunkVector("zero-length-ciphertext-invalid", "invalid", nil, emptyDigest, nil),
+		chunkVector("empty-blob-extra-chunk-invalid", "invalid", nil, emptyDigest, cat(emptyCT, emptyCT)),
+	)
+
+	deploymentKey := plaintext
+	dkID := sha256.Sum256(deploymentKey)
+	deploymentID := "4b2d8f6e-1c3a-4e5b-9d7f-2a6c8e0b1d3f"
+	releaseID := "9e1f3a5c-7b2d-4c6e-8f0a-1b3d5e7f9a2c"
+	type wrapBinding struct {
+		OrganizationID string `json:"organization_id"`
+		ScopeKind      byte   `json:"scope_kind"`
+		ScopeID        string `json:"scope_id"`
+		KeyID          string `json:"key_id"`
+		RecipientKind  byte   `json:"recipient_kind"`
+		Recipient      string `json:"recipient"`
+		RecipientKeyID string `json:"recipient_key_id"`
+	}
+	wrapVector := func(name, expect string, b wrapBinding, opened wrapBinding, key []byte) map[string]any {
+		info := wrapInfo(b.OrganizationID, b.ScopeKind, b.ScopeID, b.KeyID, b.RecipientKind, b.Recipient, b.RecipientKeyID)
+		enc, s := must2s(hpke.NewSender(devKEM.PublicKey(), kdf, aead, info))
+		ct := must(s.Seal(nil, key))
+		openInfo := wrapInfo(opened.OrganizationID, opened.ScopeKind, opened.ScopeID, opened.KeyID, opened.RecipientKind, opened.Recipient, opened.RecipientKeyID)
+		if old := named(prevReg, "key_wrap", name); old != nil && old["info_hex"] == hex.EncodeToString(openInfo) && old["wrapped_key_hex"] == hex.EncodeToString(key) {
+			enc, ct = unhex(old["enc_hex"]), unhex(old["ciphertext_hex"])
+		}
+		return map[string]any{"name": name, "expect": expect, "binding": opened, "info_hex": hex.EncodeToString(openInfo),
+			"wrapped_key_hex": hex.EncodeToString(key), "enc_hex": hex.EncodeToString(enc), "ciphertext_hex": hex.EncodeToString(ct)}
+	}
+	devWrap := wrapBinding{tenant, 1, deploymentID, hex.EncodeToString(dkID[:]), 1, deviceURI("7c1d3e5f-2a4b-4c6d-8e9f-0a1b2c3d4e5f"), hex.EncodeToString(devKeyID[:])}
+	custodianWrap := wrapBinding{tenant, 2, releaseID, hex.EncodeToString(ckID[:]), 3, "", hex.EncodeToString(devKeyID[:])}
+	otherTenant := "6a1f0c3e-8d2b-4f7a-9e5c-3b1d0a8f6e4c"
+	otherKeyID := sha256.Sum256([]byte("wendy-registry-vector-other-recipient-key-2026-10"))
+	moved := func(f func(*wrapBinding)) wrapBinding { b := devWrap; f(&b); return b }
+	movedWrap := moved(func(b *wrapBinding) { b.ScopeID = "0d9c8b7a-6f5e-4d3c-8b2a-1f0e9d8c7b6a" })
+	wrapVectors := []map[string]any{
+		wrapVector("device-deployment-wrap-valid", "valid", devWrap, devWrap, deploymentKey),
+		wrapVector("custodian-release-wrap-valid", "valid", custodianWrap, custodianWrap, contentKey),
+		wrapVector("wrong-scope-id-invalid", "invalid", devWrap, movedWrap, deploymentKey),
+		wrapVector("wrong-scope-kind-invalid", "invalid", devWrap, moved(func(b *wrapBinding) { b.ScopeKind = 2 }), deploymentKey),
+		wrapVector("wrong-organization-invalid", "invalid", devWrap, moved(func(b *wrapBinding) { b.OrganizationID = otherTenant }), deploymentKey),
+		wrapVector("wrong-key-id-invalid", "invalid", devWrap, moved(func(b *wrapBinding) { b.KeyID = hex.EncodeToString(ckID[:]) }), deploymentKey),
+		wrapVector("wrong-recipient-invalid", "invalid", devWrap, moved(func(b *wrapBinding) { b.Recipient = deviceURI("3f8e2d1c-9b7a-4e6f-8d5c-4b3a2f1e0d9c") }), deploymentKey),
+		wrapVector("wrong-recipient-key-id-invalid", "invalid", devWrap, moved(func(b *wrapBinding) { b.RecipientKeyID = hex.EncodeToString(otherKeyID[:]) }), deploymentKey),
+	}
+
+	type sealBinding struct {
+		OrganizationID  string `json:"organization_id"`
+		DeploymentID    string `json:"deployment_id"`
+		ManifestDigest  string `json:"manifest_digest"`
+		ContentKeyID    string `json:"content_key_id"`
+		DeploymentKeyID string `json:"deployment_key_id"`
+	}
+	md := sha256.Sum256([]byte("vector manifest"))
+	seal := sealBinding{tenant, deploymentID, "sha256:" + hex.EncodeToString(md[:]), hex.EncodeToString(ckID[:]), hex.EncodeToString(dkID[:])}
+	sealNonce := seed("wendy-registry-vector-seal-nonce-2026-10")[:12]
+	sealCT := gcmFor(deploymentKey).Seal(nil, sealNonce, contentKey, sealAAD(seal.OrganizationID, seal.DeploymentID, seal.ManifestDigest, seal.ContentKeyID, seal.DeploymentKeyID))
+	sealVector := func(name, expect string, b sealBinding) map[string]any {
+		return map[string]any{"name": name, "expect": expect, "binding": b,
+			"aad_hex":         hex.EncodeToString(sealAAD(b.OrganizationID, b.DeploymentID, b.ManifestDigest, b.ContentKeyID, b.DeploymentKeyID)),
+			"nonce_hex":       hex.EncodeToString(sealNonce),
+			"ciphertext_hex":  hex.EncodeToString(sealCT),
+			"content_key_hex": hex.EncodeToString(contentKey)}
+	}
+	movedSeal := func(f func(*sealBinding)) sealBinding { b := seal; f(&b); return b }
+	otherMD := sha256.Sum256([]byte("another vector manifest"))
+	sealVectors := []map[string]any{
+		sealVector("sealed-content-key-valid", "valid", seal),
+		sealVector("wrong-deployment-id-invalid", "invalid", movedSeal(func(b *sealBinding) { b.DeploymentID = movedWrap.ScopeID })),
+		sealVector("wrong-manifest-digest-invalid", "invalid", movedSeal(func(b *sealBinding) { b.ManifestDigest = "sha256:" + hex.EncodeToString(otherMD[:]) })),
+		sealVector("wrong-content-key-id-invalid", "invalid", movedSeal(func(b *sealBinding) { b.ContentKeyID = hex.EncodeToString(dkID[:]) })),
+		sealVector("wrong-deployment-key-id-invalid", "invalid", movedSeal(func(b *sealBinding) { b.DeploymentKeyID = hex.EncodeToString(ckID[:]) })),
+		sealVector("wrong-organization-invalid", "invalid", movedSeal(func(b *sealBinding) { b.OrganizationID = otherTenant })),
 	}
 
 	writeJSON(filepath.Join(out, "registry", "registry-vectors-v1.json"), map[string]any{
@@ -221,9 +346,10 @@ func main() {
 			"warning": "TEST KEYS ONLY. HPKE encapsulation is randomized: verify enc/ciphertext, do not regenerate to match.",
 		},
 		"per_blob_key": map[string]any{
-			"rule":            "blob_key = HKDF-SHA256(IKM = content key, salt = none, info = UTF-8 of EncryptedBlob.plaintext_digest, L = 32)",
+			"rule":            "blob_key = HKDF-SHA256(IKM = content key, salt = none, info = UTF-8 of EncryptedBlob.plaintext_digest || u32 big-endian ArtifactManifest.chunk_size, L = 32)",
 			"content_key_hex": hex.EncodeToString(contentKey),
 			"content_key_id":  hex.EncodeToString(ckID[:]),
+			"chunk_size":      65536,
 			"blobs":           blobs,
 		},
 		"hybrid_kem": map[string]any{
@@ -241,10 +367,21 @@ func main() {
 			"enc_hex":         hex.EncodeToString(enc),
 			"ciphertext_hex":  hex.EncodeToString(ct),
 		},
-		"todo": []map[string]string{
-			{"name": "chunk-aead", "needs": "ruling: 96-bit nonce layout from (chunk index, last-chunk flag), chunk AAD, ciphertext framing, empty blob. Negatives then: truncate, reorder, splice, cross-blob."},
-			{"name": "key-wrap", "needs": "ruling: KeyWrap HPKE info byte layout (tenant, scope kind and id, key_id, recipient_key_id; #135 says length-prefixed) and the wrap AAD."},
-			{"name": "sealed-content-key", "needs": "ruling: SealedContentKey cipher, nonce length, deployment key length and the AAD encoding (#135: length-prefixed, extended with tenant and deployment_key_id)."},
+		"chunk_aead": map[string]any{
+			"rule":            "per chunk: AES-256-GCM under the per-blob key (HKDF info binds chunk_size), nonce = 11-byte big-endian chunk index || last-chunk flag (0x01 last, else 0x00), no AAD; ciphertext = concatenated ct||16-byte tag per chunk; every chunk holds chunk_size plaintext bytes except the last (1..chunk_size); an empty blob is one empty last chunk; chunk index <= 2^32",
+			"content_key_hex": hex.EncodeToString(contentKey),
+			"chunk_size":      chunkSize,
+			"vectors":         chunkVectors,
+		},
+		"key_wrap": map[string]any{
+			"rule":              "HPKE base mode with the hybrid_kem suite; info = \"wendy-registry-wrap-v1\" || lp(organization_id) || u8 scope kind (1 deployment_id, 2 app_release_id) || lp(scope id) || lp(key_id) || u8 recipient_kind || lp(recipient) || lp(recipient_key_id); lp = uint16 big-endian length || UTF-8 bytes, a field over 65535 bytes is refused; AAD empty; plaintext = the 32-byte key",
+			"recipient_ikm_hex": hex.EncodeToString(devIKM),
+			"vectors":           wrapVectors,
+		},
+		"sealed_content_key": map[string]any{
+			"rule":               "AES-256-GCM under the 32-byte deployment key, 12-byte random nonce (SealedContentKey.nonce; fixed here for the vector only); AAD = \"wendy-registry-seal-v1\" || lp(organization_id) || lp(deployment_id) || lp(manifest_digest) || lp(content_key_id) || lp(deployment_key_id); plaintext = the 32-byte content key",
+			"deployment_key_hex": hex.EncodeToString(deploymentKey),
+			"vectors":            sealVectors,
 		},
 	})
 
@@ -373,6 +510,16 @@ func main() {
 		)),
 	}}
 
+	prevDev := previous(filepath.Join(out, "reqsig", "device-signed-request-vectors-v1.json"))
+	for section, list := range map[string][]vec{"vectors": vectors, "recipient_key_vectors": recipientVectors} {
+		for i, v := range list {
+			if v["name"] == "es256-tier-ab-invalid" || v["name"] == "recipient-key-es256-under-device-ca-invalid" {
+				if old := named(prevDev, section, v["name"].(string)); old != nil {
+					list[i] = old
+				}
+			}
+		}
+	}
 	writeJSON(filepath.Join(out, "reqsig", "device-signed-request-vectors-v1.json"), map[string]any{
 		"version":  "device-signed-request-vectors-v1",
 		"contract": "conformance/reqsig/README.md (Device-signer profile)",
@@ -395,6 +542,71 @@ func main() {
 }
 
 func withSigner(c *cert, s crypto.Signer) *cert { c.signer = s; return c }
+
+// chunkNonce, lp, wrapInfo and sealAAD are the ruled layouts (README.md).
+func chunkNonce(index uint64, last bool) []byte {
+	n := make([]byte, 12)
+	binary.BigEndian.PutUint64(n[3:11], index)
+	if last {
+		n[11] = 1
+	}
+	return n
+}
+
+func lp(b []byte, fields ...string) []byte {
+	for _, f := range fields {
+		if len(f) > 65535 {
+			panic("lp field over 65535 bytes")
+		}
+		b = append(binary.BigEndian.AppendUint16(b, uint16(len(f))), f...)
+	}
+	return b
+}
+
+func wrapInfo(org string, scopeKind byte, scopeID, keyID string, recipientKind byte, recipient, recipientKeyID string) []byte {
+	b := append(lp([]byte("wendy-registry-wrap-v1"), org), scopeKind)
+	b = append(lp(b, scopeID, keyID), recipientKind)
+	return lp(b, recipient, recipientKeyID)
+}
+
+// blobKey = HKDF-SHA256(content key, info = plaintext_digest || u32 BE chunk_size).
+func blobKey(contentKey []byte, digest string, chunkSize uint32) []byte {
+	return must(hkdf.Key(sha256.New, contentKey, nil, string(binary.BigEndian.AppendUint32([]byte(digest), chunkSize)), 32))
+}
+
+// previous is the committed vector file, if any. Randomized bytes (HPKE
+// encapsulations, ES256 signatures) are carried over from it while their
+// deterministic inputs are unchanged, so a rerun does not churn pinned copies.
+func previous(path string) map[string]any {
+	var m map[string]any
+	if raw, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(raw, &m)
+	}
+	return m
+}
+
+// named returns the entry called name in prev[section]["vectors"] (or in
+// prev[section] when that is the list itself).
+func named(prev map[string]any, section, name string) map[string]any {
+	list, _ := prev[section].([]any)
+	if s, ok := prev[section].(map[string]any); ok {
+		list, _ = s["vectors"].([]any)
+	}
+	for _, x := range list {
+		if m, _ := x.(map[string]any); m != nil && m["name"] == name {
+			return m
+		}
+	}
+	return nil
+}
+
+func unhex(v any) []byte { s, _ := v.(string); return must(hex.DecodeString(s)) }
+
+func sealAAD(org, deploymentID, manifestDigest, contentKeyID, deploymentKeyID string) []byte {
+	return lp([]byte("wendy-registry-seal-v1"), org, deploymentID, manifestDigest, contentKeyID, deploymentKeyID)
+}
+
+func gcmFor(key []byte) cipher.AEAD { return must(cipher.NewGCM(must(aes.NewCipher(key)))) }
 
 func must2s(enc []byte, s *hpke.Sender, err error) ([]byte, *hpke.Sender) {
 	if err != nil {
