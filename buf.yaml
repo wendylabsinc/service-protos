@@ -58,11 +58,3 @@ breaking:
       # wendy-auth service accounts. v1 oauth.proto stays (legacy prod contract).
       # Drop this entry once master no longer has the file.
       - wendycloud/v2/oauth.proto
-    # WDY-3966 (registry T6): GetPushImageCredentials / GetPullCredentials and their
-    # messages are deleted now that cloud serves the encrypted registry; no
-    # caller (contract phase, docs/contract-ledger.md). Drop these entries once
-    # master no longer has them.
-    MESSAGE_NO_DELETE:
-      - wendycloud/v2/deployments.proto
-    RPC_NO_DELETE:
-      - wendycloud/v2/deployments.proto
