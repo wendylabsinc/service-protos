@@ -181,12 +181,11 @@ Use soft deletion with tombstones. A tombstone keeps only the ID, owner
 the tombstone after 30 days. Include tombstones when resolving anchors, but
 exclude them from results. They are never returned to clients.
 
-Deleting an anchor must still allow the next item to be returned while the
-tombstone is retained. An anchor the caller could not access while it existed
-gets the same error as not found. After purge, the anchor errors and the client
-restarts. The decisions also allow unknown anchors in ID order without a lookup;
-how an ID-only API distinguishes a purged anchor from another unknown ID is not
-specified yet.
+In ID order, anchors work without a lookup. Deletion and purge do not affect
+them, and no tombstone is needed for the anchor. In non-ID orders, the server
+resolves the anchor's sort value from the tombstone so paging can continue after
+deletion. After purge, that anchor errors and the client restarts. An anchor the
+caller could not access while it existed gets the same error as not found.
 
 If an item's sort value changes, for example after a rename, use its current
 value. Paging may rarely repeat or skip an item as a result; document this
