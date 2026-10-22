@@ -366,12 +366,21 @@ func chunkNonce(index uint64, last bool) []byte {
 	return n
 }
 
-// lp appends each field as a uint16 big-endian length and its bytes.
-func lp(b []byte, fields ...string) []byte {
+// lp appends each field as a uint16 big-endian length and its bytes; a field
+// over 65535 bytes is refused.
+func lp(b []byte, fields ...string) ([]byte, error) {
 	for _, f := range fields {
+		if len(f) > 65535 {
+			return nil, errors.New("binding field over 65535 bytes")
+		}
 		b = append(binary.BigEndian.AppendUint16(b, uint16(len(f))), f...)
 	}
-	return b
+	return b, nil
+}
+
+// blobKey = HKDF-SHA256(content key, info = plaintext_digest || u32 BE chunk_size).
+func blobKey(contentKey []byte, digest string, chunkSize uint32) ([]byte, error) {
+	return hkdf.Key(sha256.New, contentKey, nil, string(binary.BigEndian.AppendUint32([]byte(digest), chunkSize)), 32)
 }
 
 func gcmFor(key []byte) cipher.AEAD {
@@ -433,7 +442,7 @@ func main() {
 	pb := reg["per_blob_key"].(map[string]any)
 	for _, x := range pb["blobs"].([]any) {
 		b := x.(map[string]any)
-		k, err := hkdf.Key(sha256.New, hx(pb, "content_key_hex"), nil, b["plaintext_digest"].(string), 32)
+		k, err := blobKey(hx(pb, "content_key_hex"), b["plaintext_digest"].(string), uint32(num(pb["chunk_size"])))
 		if err == nil && !bytes.Equal(k, hx(b, "blob_key_hex")) {
 			err = errors.New("blob key differs")
 		}
@@ -487,7 +496,7 @@ func main() {
 		v := x.(map[string]any)
 		err := func() error {
 			ct := hx(v, "ciphertext_hex")
-			key, err := hkdf.Key(sha256.New, hx(ca, "content_key_hex"), nil, v["plaintext_digest"].(string), 32)
+			key, err := blobKey(hx(ca, "content_key_hex"), v["plaintext_digest"].(string), uint32(num(ca["chunk_size"])))
 			if err != nil {
 				return err
 			}
@@ -523,8 +532,16 @@ func main() {
 		b := v["binding"].(map[string]any)
 		str := func(k string) string { return b[k].(string) }
 		err := func() error {
-			info := append(lp([]byte("wendy-registry-wrap-v1"), str("organization_id")), byte(num(b["scope_kind"])))
-			info = lp(info, str("scope_id"), str("key_id"), fmt.Sprint(num(b["recipient_kind"])), str("recipient"), str("recipient_key_id"))
+			info, err := lp([]byte("wendy-registry-wrap-v1"), str("organization_id"))
+			if err != nil {
+				return err
+			}
+			if info, err = lp(append(info, byte(num(b["scope_kind"]))), str("scope_id"), str("key_id")); err != nil {
+				return err
+			}
+			if info, err = lp(append(info, byte(num(b["recipient_kind"]))), str("recipient"), str("recipient_key_id")); err != nil {
+				return err
+			}
 			if !bytes.Equal(info, hx(v, "info_hex")) {
 				return errors.New("info bytes")
 			}
@@ -547,7 +564,10 @@ func main() {
 		b := v["binding"].(map[string]any)
 		str := func(k string) string { return b[k].(string) }
 		err := func() error {
-			aad := lp([]byte("wendy-registry-seal-v1"), str("organization_id"), str("deployment_id"), str("manifest_digest"), str("content_key_id"), str("deployment_key_id"))
+			aad, err := lp([]byte("wendy-registry-seal-v1"), str("organization_id"), str("deployment_id"), str("manifest_digest"), str("content_key_id"), str("deployment_key_id"))
+			if err != nil {
+				return err
+			}
 			if !bytes.Equal(aad, hx(v, "aad_hex")) {
 				return errors.New("aad bytes")
 			}
