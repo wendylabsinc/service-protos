@@ -170,18 +170,22 @@ message ListOrganizationsResponse {
   int32 total = 2;
 }
 
+// Pages are always ordered by canonical organization UUID descending.
+// Without either anchor, start at the highest canonical organization UUID.
+// With both anchors, return only organizations with canonical UUIDs strictly
+// greater than after_organization_id and strictly less than before_organization_id.
+// With both anchors, return the highest UUIDs in the range first, continue with
+// before set to the page's last ID and after unchanged, and set more_available
+// if rows remain in the range.
 message ListOrganizationsV2Request {
-  // Without an anchor, start at the highest canonical organization UUID.
-  oneof anchor {
-    // Return the nearest organizations with canonical UUIDs lower than this
-    // anchor. Continue toward lower UUIDs using the final ID from each page.
-    string before_organization_id = 1;
-    // Return the nearest organizations with canonical UUIDs higher than this
-    // anchor. Pages remain descending; continue toward higher UUIDs using the
-    // first ID from each page.
-    string after_organization_id = 2;
-  }
-  // Required. The server accepts values from 1 through 200.
+  // When used alone, return the nearest organizations with canonical UUIDs lower
+  // than this anchor; continue toward lower UUIDs using the final ID from each page.
+  optional string before_organization_id = 1;
+  // When used alone, return the nearest organizations with canonical UUIDs higher
+  // than this anchor; continue toward higher UUIDs using the first ID from each page.
+  optional string after_organization_id = 2;
+  // Required. The server accepts values from 1 through 200, capping the rows
+  // returned within the requested range.
   int32 limit = 3;
   // Case-insensitive substring match over organization name and domain. Clients
   // retain the same query while traversing pages.
@@ -191,7 +195,8 @@ message ListOrganizationsV2Request {
 message ListOrganizationsV2Response {
   // Always ordered by canonical organization UUID descending.
   repeated OrganizationAccess organization_accesses = 1;
-  // Whether more organizations exist in the requested traversal direction.
+  // Whether more organizations exist in the requested traversal direction,
+  // restricted to the requested range when both anchors are set.
   bool more_available = 2;
 }
 
