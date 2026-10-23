@@ -200,7 +200,8 @@ is `root_cert_der_b64`, and the chain is checked at the registration's signed
 ack (`PostboxAckService.GetLastHeadAck`, `wendycloud/v2/postbox.proto`): each
 gives `organization_id`, `device` and `response_b64` (a serialized
 `GetLastHeadAckResponse`), and optionally `last_seen` (`entry_id`,
-`observed_at`: what the client already accepted for this device).
+`observed_at`, optionally `entry_hash_b64`: what the client already accepted
+for this device).
 
 ### Head-ack read: client rule (WDY-4014)
 
@@ -215,15 +216,25 @@ The client refuses the response at the first failing step:
    `wendycloud.v2.DevicePostboxService/AckHead`, `aud`, `body_sha256`.
 3. Entry hash: the signed `PostboxHeadAck.entry_hash` is byte-equal to
    `acked_entry_hash` (the hash cloud holds at the signed `entry_id`). Absent is
-   a refusal.
+   a refusal. `acked_entry_hash` and `postbox_head_entry_hash` are
+   cloud-asserted: steps 3 and 4 catch cloud's own store disagreeing with what
+   the device acked, and a third party substituting either side. They do not
+   catch a lying cloud, which copies the signed hash. The signed `entry_hash`
+   is the authority.
 4. Head: `postbox_head_entry_id` is not below the signed `entry_id`; when equal,
    `postbox_head_entry_hash` is byte-equal to the signed `entry_hash`.
    Above it, both are display hints (how far the device is behind), like
    `received_at`.
 5. Monotonicity, per device: neither the signed `entry_id` nor the signed
    `observed_at` is lower than the highest the client has accepted for that
-   device. Equal is the same ack served again. A lower value is a refusal,
-   never a display. On success the client keeps the new values.
+   device. A lower value is a refusal, never a display. An equal `entry_id`
+   with the kept signed `entry_hash` is the same ack served again; an equal
+   `entry_id` with a different signed `entry_hash` is a refusal (equivocation:
+   the device acked two different entries at one id, so the postbox forked).
+   On success the client keeps the new `entry_id`, `entry_hash` and
+   `observed_at`, persisted per device. A client that lost them is at first
+   contact: an older ack then passes, and only the `observed_at` staleness
+   alarm covers it.
 
 The staleness alarm runs on the signed `observed_at` only. The `refusal` codes
 below are vector labels for the failing check, not wire values; every refusal
@@ -236,6 +247,7 @@ reads the same to the user.
 | `head-hash-mismatch-invalid` | `head_hash_mismatch`: head id = acked id, head hash differs |
 | `entry-id-regressed-invalid` | `entry_id_regressed`: `last_seen.entry_id` 43 > signed 42 |
 | `observed-at-regressed-invalid` | `observed_at_regressed`: `last_seen.observed_at` newer than the signed one |
+| `entry-hash-equivocation-invalid` | `entry_hash_equivocation`: `last_seen.entry_id` 42 = signed, `last_seen.entry_hash_b64` differs from the signed hash |
 | `wrong-signer-invalid` | `wrong_signer`: device B's valid ack served for device A |
 | `other-tenant-ca-invalid` | `wrong_tenant`: a valid ack of another tenant's device under that tenant's Device Identity CA (chains to the pinned root) |
 | `chain-missing-invalid` | `chain_missing`: empty `chain_der` |

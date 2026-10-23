@@ -360,6 +360,11 @@ func verifyHeadAckRead(root []byte, aud string, v map[string]any) error {
 		if id < num(last["entry_id"]) {
 			return refusal("entry_id_regressed")
 		}
+		if kept, ok := last["entry_hash_b64"].(string); ok && id == num(last["entry_id"]) {
+			if k, _ := base64.StdEncoding.DecodeString(kept); !bytes.Equal(k, hash) {
+				return refusal("entry_hash_equivocation")
+			}
+		}
 		if int64(sec) < num(last["observed_at"]) {
 			return refusal("observed_at_regressed")
 		}

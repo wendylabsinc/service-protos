@@ -556,6 +556,12 @@ func main() {
 			"the client already accepted entry_id 43 for this device; signed entry_id 42 is lower"), 43, 1789999980),
 		withLastSeen(hr("observed-at-regressed-invalid", deviceURI(devA), "observed_at_regressed", okResp,
 			"the client already accepted observed_at 1789999995 for this device; signed observed_at 1789999990 is older"), 42, 1789999995),
+		func() vec {
+			v := withLastSeen(hr("entry-hash-equivocation-invalid", deviceURI(devA), "entry_hash_equivocation", okResp,
+				"the client already accepted a different signed entry_hash at entry_id 42 for this device: the postbox forked at that id"), 42, 1789999990)
+			v["last_seen"].(map[string]any)["entry_hash_b64"] = b64(seed("vector postbox entry 42 forked"))
+			return v
+		}(),
 		hr("wrong-signer-invalid", deviceURI(devA), "wrong_signer",
 			readResp(ackSR(ackB, ack), 42, entryHash, entryHash, deviceCA),
 			"the ack is device B's own valid ack (same tenant, same CA); the requested device is A"),
