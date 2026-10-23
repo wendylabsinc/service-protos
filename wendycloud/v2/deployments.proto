@@ -171,6 +171,11 @@ enum ApplyOutcome {
   APPLY_OUTCOME_REJECTED_UNWRAP = 6;
   APPLY_OUTCOME_PULL_REFUSED = 7;
   APPLY_OUTCOME_SUPERSEDED = 8;
+  // The entry passed every verification check, but the device failed to carry
+  // it out (e.g. the container did not start). Never reported as a
+  // REJECTED_* value: those mean the device refused the entry itself. The
+  // failure reason stays in the device's audit log.
+  APPLY_OUTCOME_APPLY_FAILED = 9;
 }
 
 // this is to be called by the wendy-agent to get the desired state of an app on an asset
