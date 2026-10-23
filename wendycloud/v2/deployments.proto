@@ -121,6 +121,10 @@ message CreateDeploymentRequest {
   // non-empty targeting that matches no device is refused with FAILED_PRECONDITION.
   repeated string target_tags = 6;
   repeated string target_device_ids = 7;
+  // Instruction validity (WDY-4015 item 3, sem 2026-10-23 22:27), under the
+  // operator's signature: required when cloud relays the request to a device
+  // postbox. Rules: conformance/postbox-entry/README.md.
+  google.protobuf.Timestamp valid_until = 8;
 }
 
 message GetDeploymentRequest {
@@ -315,6 +319,10 @@ message ControlContainerRequest {
   // "myapp" for whole app; "myapp.web" for one service container
   string container_name = 3;
   ContainerAction action = 4;
+  // Instruction validity (WDY-4015 item 3, sem 2026-10-23 22:27), under the
+  // operator's signature: required when cloud relays the request to a device
+  // postbox. Rules: conformance/postbox-entry/README.md.
+  google.protobuf.Timestamp valid_until = 5;
 }
 
 enum ContainerAction {
