@@ -3,6 +3,7 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
+import "wendy/id_range.proto";
 import "wendy/options.proto";
 import "wendycloud/v2/signed_request.proto";
 
@@ -14,7 +15,14 @@ service OrganizationService {
     option (wendy.signed_request) = true;
   }
   rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
-  rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse);
+  // Legacy server-streamed offset pagination. New clients use ListOrganizationsV2.
+  rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse) {
+    option deprecated = true;
+  }
+  // Stable discovery following API_GUIDELINES.md.
+  // Lists only direct memberships; access derived solely from realm groups is
+  // excluded.
+  rpc ListOrganizationsV2(ListOrganizationsV2Request) returns (ListOrganizationsV2Response);
 
   // Signed; payload_type "wendycloud.v2.AddMemberRequest".
   rpc AddMember(SignedRequest) returns (OrganizationMember) {
@@ -117,6 +125,13 @@ message OrganizationMember {
   optional int32 device_access_count = 10;
 }
 
+// An organization together with the authenticated caller's direct membership.
+// Member is always present, including when the member has no personal role.
+message OrganizationAccess {
+  Organization organization = 1;
+  OrganizationMember member = 2;
+}
+
 message CreateOrganizationRequest {
   string name = 1;
   string details = 2;
@@ -144,6 +159,8 @@ message DeleteOrganizationResponse {
 }
 
 message ListOrganizationsRequest {
+  option deprecated = true;
+
   optional int32 offset = 1;
   optional int32 limit = 2;
   // Free-text search over organization name and domain, case-insensitive
@@ -154,8 +171,40 @@ message ListOrganizationsRequest {
 }
 
 message ListOrganizationsResponse {
+  option deprecated = true;
+
   Organization organization = 1;
   int32 total = 2;
+}
+
+// Canonical organization UUID ordering in either direction.
+// Ordering and ID tie-breaking follow API_GUIDELINES.md.
+enum ListOrganizationsV2Order {
+  // Default: canonical organization UUID descending.
+  LIST_ORGANIZATIONS_V2_ORDER_UNSPECIFIED = 0;
+  // Canonical organization UUID descending.
+  LIST_ORGANIZATIONS_V2_ORDER_ID_DESC = 1;
+  // Canonical organization UUID ascending.
+  LIST_ORGANIZATIONS_V2_ORDER_ID_ASC = 2;
+}
+
+// Range, limit, ordering, and continuation semantics follow API_GUIDELINES.md.
+message ListOrganizationsV2Request {
+  wendy.IDRange range = 1;
+  // Default: canonical organization UUID descending.
+  ListOrganizationsV2Order order = 2;
+  // Default when unset: 100. Maximum: 200.
+  // Other limit semantics follow API_GUIDELINES.md.
+  optional int32 limit = 3;
+  // Case-insensitive substring match over organization name and domain.
+  optional string query = 4;
+}
+
+message ListOrganizationsV2Response {
+  // Items in result order, following API_GUIDELINES.md.
+  repeated OrganizationAccess organization_accesses = 1;
+  // See API_GUIDELINES.md for has_more semantics.
+  bool has_more = 2;
 }
 
 message AddMemberRequest {
