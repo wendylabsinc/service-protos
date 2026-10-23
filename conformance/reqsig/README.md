@@ -66,6 +66,12 @@ There is no `jti` claim; `nonce` serves that purpose. `pki_management_request`
 carries its own `jti`, which pki-core enforces as single use, so every retry
 needs a fresh nonce and a fresh management request.
 
+`iat`/`expiry` bound the call to cloud only. A device applying a
+postbox-relayed request (`PostboxEntry.request_jws`) checks neither `expiry`
+nor the ±60 s `iat` window: the payload's own validity (`valid_until`, or
+`DeviceAssignment.expires_at`) governs it there
+(`conformance/postbox-entry/README.md`, WDY-4015).
+
 ### Verification (one generic gate, before the handler)
 
 1. Parse the JWS and check the size cap, `alg` and the absence of `crit`.
