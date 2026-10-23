@@ -82,11 +82,15 @@ type cert struct {
 }
 
 func issue(serial int64, cn, uri string, pub crypto.PublicKey, isCA bool, parent *cert, signer crypto.Signer) *cert {
+	return issueUntil(serial, cn, uri, pub, isCA, parent, signer, 2082758400) // 2036-01-01
+}
+
+func issueUntil(serial int64, cn, uri string, pub crypto.PublicKey, isCA bool, parent *cert, signer crypto.Signer, notAfter int64) *cert {
 	t := &x509.Certificate{
 		SerialNumber: big.NewInt(serial),
 		Subject:      pkix.Name{CommonName: cn},
 		NotBefore:    time.Unix(1767225600, 0).UTC(), // 2026-01-01
-		NotAfter:     time.Unix(2082758400, 0).UTC(), // 2036-01-01
+		NotAfter:     time.Unix(notAfter, 0).UTC(),
 	}
 	if isCA {
 		t.IsCA, t.BasicConstraintsValid = true, true
@@ -405,7 +409,8 @@ func main() {
 	rogueRoot = withSigner(issue(1, "Rogue Root", "", rogueRoot.signer.Public(), true, nil, rogueRoot.signer), rogueRoot.signer)
 	rogueLeaf := issue(13, devA, deviceURI(devA), keyA.Public(), false, rogueRoot, rogueRoot.signer)
 
-	ack := cat(pbVarint(1, 42), pbBytes(2, seed("vector postbox entry 42")), pbBytes(3, pbVarint(1, 1789999990)))
+	entryHash := seed("vector postbox entry 42")
+	ack := cat(pbVarint(1, 42), pbBytes(2, entryHash), pbBytes(3, pbVarint(1, 1789999990)))
 	reg := cat(pbBytes(1, []byte(tenant)), pbVarint(2, 1), pbBytes(3, devPub))
 	x5c := func(c *cert) map[string]any { return map[string]any{"alg": "ML-DSA-65", "x5c": []string{b64(c.der)}} }
 
@@ -498,22 +503,94 @@ func main() {
 	}
 
 	// PostboxAckService.GetLastHeadAck: the stored AckHead request, verbatim,
-	// with the chain to the tenant CA and the cloud-asserted hints.
-	headAckRead := []vec{{
-		"name": "last-head-ack-valid", "organization_id": tenant, "device": deviceURI(devA), "expect": "valid",
-		"expected_entry_id": 42, "expected_observed_at": 1789999990,
-		"response_b64": b64(cat(
-			pbBytes(1, signedRequest(ack, "wendycloud.v2.PostboxHeadAck", ackValid.compact)),
-			pbBytes(2, deviceCA.der),
-			pbBytes(3, pbVarint(1, 1790000001)),
-			pbVarint(4, 42),
-		)),
-	}}
+	// with the chain to the tenant CA, the cloud-asserted hints and the entry
+	// hashes cloud holds (WDY-4014). Each invalid vector names the one check that
+	// must fail (`refusal`); the rest of its response passes.
+	ackSR := func(j jwsOut, payload []byte) []byte {
+		return signedRequest(payload, "wendycloud.v2.PostboxHeadAck", j.compact)
+	}
+	readResp := func(sr []byte, head int64, ackedHash, headHash []byte, chain ...*cert) string {
+		m := pbBytes(1, sr)
+		for _, c := range chain {
+			m = append(m, pbBytes(2, c.der)...)
+		}
+		return b64(cat(m, pbBytes(3, pbVarint(1, 1790000001)), pbVarint(4, uint64(head)), pbBytes(5, ackedHash), pbBytes(6, headHash)))
+	}
+	okResp := readResp(ackSR(ackValid, ack), 42, entryHash, entryHash, deviceCA)
+	hr := func(name, device, refusal, response, reason string) vec {
+		return vec{"name": name, "organization_id": tenant, "device": device, "response_b64": response, "expect": "invalid", "refusal": refusal, "invalid_reason": reason}
+	}
+	withLastSeen := func(v vec, entryID, observedAt int64) vec {
+		v["last_seen"] = map[string]any{"entry_id": entryID, "observed_at": observedAt}
+		return v
+	}
+
+	ackB := sign(keyB, x5c(leafB), claims(ackHead, deviceURI(devB), ack, "2f7a9c1e-6b3d-4e8f-a2c5-9d1b7e4f0a63", iat, expiry))
+	// Another tenant's Device Identity CA under the same pinned root, and one
+	// of its devices acking for itself.
+	otherCAKey := detSigner{mldsaKey("wendy-device-request-vector-other-tenant-device-ca-2026-10")}
+	otherCA := withSigner(issue(3, "Vector Device Identity CA (other tenant)", "", otherCAKey.Public(), true, root, root.signer), otherCAKey)
+	otherURI := "spiffe://wendy.sh/tenant/" + otherTenant + "/device/9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+	keyO := detSigner{mldsaKey("wendy-device-request-vector-other-tenant-device-2026-10")}
+	leafO := issue(14, "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", otherURI, keyO.Public(), false, otherCA, otherCA.signer)
+	otherClaims := claims(ackHead, otherURI, ack, "5e1c8a3f-7d2b-4f9e-b6a4-0c3e8d1f5b92", iat, expiry)
+	otherClaims["target"] = map[string]any{"tenant": otherTenant, "resource": otherURI}
+	ackO := sign(keyO, x5c(leafO), otherClaims)
+	ackRogue := sign(keyA, x5c(rogueLeaf), claims(ackHead, deviceURI(devA), ack, "a6d2f8b4-1e7c-4a3d-9f5b-8c0e2a6d4f17", iat, expiry))
+	leafExp := issueUntil(15, devA, deviceURI(devA), keyA.Public(), false, deviceCA, deviceCA.signer, 1780272000) // 2026-06-01, before iat
+	ackExp := sign(keyA, x5c(leafExp), claims(ackHead, deviceURI(devA), ack, "e3b9d5a1-4c8f-4e2b-a7d3-6f1c9b5e8a24", iat, expiry))
+	ack43 := cat(pbVarint(1, 43), pbBytes(2, seed("vector postbox entry 43")), pbBytes(3, pbVarint(1, 1789999995)))
+	ackECRead := sign(ecKey, map[string]any{"alg": "ES256", "x5c": []string{b64(leafEC.der)}}, claims(ackHead, deviceURI(devEC), ack, "c8f4a2e6-9b1d-4f7c-8e3a-5d2b0f6c9a41", iat, expiry))
+	other41 := seed("vector postbox entry 41")
+
+	headAckRead := []vec{
+		{"name": "last-head-ack-valid", "organization_id": tenant, "device": deviceURI(devA), "expect": "valid",
+			"expected_entry_id": 42, "expected_observed_at": 1789999990, "response_b64": okResp},
+		hr("substituted-entry-hash-invalid", deviceURI(devA), "entry_hash_mismatch",
+			readResp(ackSR(ackValid, ack), 42, seed("vector postbox entry 42 rewritten"), seed("vector postbox entry 42 rewritten"), deviceCA),
+			"acked_entry_hash (cloud's entry at the signed entry_id) differs from the signed entry_hash"),
+		hr("head-hash-mismatch-invalid", deviceURI(devA), "head_hash_mismatch",
+			readResp(ackSR(ackValid, ack), 42, entryHash, other41, deviceCA),
+			"postbox_head_entry_id equals the signed entry_id but postbox_head_entry_hash differs from the signed entry_hash"),
+		withLastSeen(hr("entry-id-regressed-invalid", deviceURI(devA), "entry_id_regressed", okResp,
+			"the client already accepted entry_id 43 for this device; signed entry_id 42 is lower"), 43, 1789999980),
+		withLastSeen(hr("observed-at-regressed-invalid", deviceURI(devA), "observed_at_regressed", okResp,
+			"the client already accepted observed_at 1789999995 for this device; signed observed_at 1789999990 is older"), 42, 1789999995),
+		hr("wrong-signer-invalid", deviceURI(devA), "wrong_signer",
+			readResp(ackSR(ackB, ack), 42, entryHash, entryHash, deviceCA),
+			"the ack is device B's own valid ack (same tenant, same CA); the requested device is A"),
+		hr("other-tenant-ca-invalid", deviceURI(devA), "wrong_tenant",
+			readResp(ackSR(ackO, ack), 42, entryHash, entryHash, otherCA),
+			"the ack is a valid ack of another tenant's device, under that tenant's Device Identity CA (chains to the pinned root); its leaf tenant is not organization_id"),
+		hr("chain-missing-invalid", deviceURI(devA), "chain_missing",
+			readResp(ackSR(ackValid, ack), 42, entryHash, entryHash),
+			"chain_der is empty: the leaf cannot be chained to the pinned root"),
+		hr("unpinned-root-invalid", deviceURI(devA), "unpinned_root",
+			readResp(ackSR(ackRogue, ack), 42, entryHash, entryHash, rogueRoot),
+			"leaf for device A under a root that is not the pinned root, served as chain_der"),
+		hr("leaf-expired-at-iat-invalid", deviceURI(devA), "leaf_expired_at_iat",
+			readResp(ackSR(ackExp, ack), 42, entryHash, entryHash, deviceCA),
+			"the signing leaf expired 1780272000, before the signed iat 1790000000"),
+		hr("wrong-payload-type-invalid", deviceURI(devA), "wrong_payload_type",
+			readResp(signedRequest(reg, "wendycloud.v2.RegisterEncryptionKeyRequest", regValid.compact), 42, entryHash, entryHash, deviceCA),
+			"device A's stored RegisterDeviceEncryptionKey request served as its ack"),
+		hr("body-digest-mismatch-invalid", deviceURI(devA), "body_digest_mismatch",
+			readResp(ackSR(ackValid, ack43), 43, seed("vector postbox entry 43"), seed("vector postbox entry 43"), deviceCA),
+			"payload replaced (entry_id 43) under the JWS signed over entry_id 42: SHA-256(payload) != claims.body_sha256"),
+		hr("es256-under-device-ca-invalid", deviceURI(devEC), "algorithm_not_issuer",
+			readResp(ackSR(ackECRead, ack), 42, entryHash, entryHash, deviceCA),
+			"ES256 ack by a P-256 leaf under the ML-DSA Device Identity CA, which issues ML-DSA-65 signers only (signature and chain are valid)"),
+		hr("never-acked-invalid", deviceURI(devA), "never_acked", "",
+			"empty response (ack unset): the device has never acked; the console shows that, never \"fresh\""),
+		hr("head-below-ack-invalid", deviceURI(devA), "head_below_ack",
+			readResp(ackSR(ackValid, ack), 41, entryHash, other41, deviceCA),
+			"postbox_head_entry_id 41 is below the signed entry_id 42"),
+	}
 
 	prevDev := previous(filepath.Join(out, "reqsig", "device-signed-request-vectors-v1.json"))
-	for section, list := range map[string][]vec{"vectors": vectors, "recipient_key_vectors": recipientVectors} {
+	for section, list := range map[string][]vec{"vectors": vectors, "recipient_key_vectors": recipientVectors, "head_ack_read_vectors": headAckRead} {
 		for i, v := range list {
-			if v["name"] == "es256-tier-ab-invalid" || v["name"] == "recipient-key-es256-under-device-ca-invalid" {
+			if v["name"] == "es256-tier-ab-invalid" || v["name"] == "recipient-key-es256-under-device-ca-invalid" || v["name"] == "es256-under-device-ca-invalid" {
 				if old := named(prevDev, section, v["name"].(string)); old != nil {
 					list[i] = old
 				}

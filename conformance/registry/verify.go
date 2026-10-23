@@ -67,6 +67,11 @@ func fields(b []byte) (map[int][][]byte, error) {
 	return out, nil
 }
 
+// refusal is a check that failed with the code a head_ack_read vector names.
+type refusal string
+
+func (r refusal) Error() string { return string(r) }
+
 func one(f map[int][][]byte, n int) []byte {
 	if len(f[n]) == 0 {
 		return nil
@@ -192,7 +197,7 @@ func checkClaims(j *jws, method, aud string, payload []byte, now int64, checkTim
 	}
 	body := sha256.Sum256(payload)
 	if c["body_sha256"] != base64.RawURLEncoding.EncodeToString(body[:]) {
-		return errors.New("body_sha256")
+		return refusal("body_digest_mismatch")
 	}
 	if checkTime {
 		if d := now - num(c["iat"]); d > 60 || d < -60 {
@@ -277,21 +282,34 @@ func verifyStored(root []byte, aud string, sr []byte, chainDER [][]byte, princip
 	if err != nil {
 		return nil, err
 	}
+	if len(chainDER) == 0 {
+		return nil, refusal("chain_missing")
+	}
 	// The chain must have been valid when the device signed: at the signed iat.
 	at := num(j.claims["iat"])
 	issuer, err := chain(j.leaf, root, chainDER, at)
-	if err != nil {
+	var unknown x509.UnknownAuthorityError
+	var invalid x509.CertificateInvalidError
+	switch {
+	case errors.As(err, &unknown):
+		return nil, refusal("unpinned_root")
+	case errors.As(err, &invalid) && invalid.Reason == x509.Expired:
+		return nil, refusal("leaf_expired_at_iat")
+	case err != nil:
 		return nil, fmt.Errorf("chain to pinned root: %w", err)
 	}
 	if a := issuerAlg(issuer); a == "" || j.header["alg"] != a {
-		return nil, errors.New("issuing CA does not issue signers of this algorithm")
+		return nil, refusal("algorithm_not_issuer")
 	}
 	uri, tenant := leafURI(j.leaf)
-	if uri != principal || tenant != org {
-		return nil, errors.New("leaf identity is not the principal")
+	if tenant != org {
+		return nil, refusal("wrong_tenant")
+	}
+	if uri != principal {
+		return nil, refusal("wrong_signer")
 	}
 	if string(one(reg, 2)) != payloadTypes[method] {
-		return nil, errors.New("payload_type")
+		return nil, refusal("wrong_payload_type")
 	}
 	if err := checkClaims(j, method, aud, one(reg, 1), at, false); err != nil {
 		return nil, err
@@ -306,7 +324,7 @@ func verifyHeadAckRead(root []byte, aud string, v map[string]any) error {
 		return err
 	}
 	if one(resp, 1) == nil {
-		return errors.New("no ack")
+		return refusal("never_acked")
 	}
 	payload, err := verifyStored(root, aud, one(resp, 1), resp[2], v["device"].(string), v["organization_id"].(string),
 		"wendycloud.v2.DevicePostboxService/AckHead")
@@ -317,13 +335,36 @@ func verifyHeadAckRead(root []byte, aud string, v map[string]any) error {
 	if err != nil {
 		return err
 	}
-	id, _ := binary.Uvarint(one(ack, 1))
+	u, _ := binary.Uvarint(one(ack, 1))
+	id := int64(u)
+	hash := one(ack, 2)
 	ts, err := fields(one(ack, 3))
 	if err != nil {
 		return err
 	}
+	// ponytail: observed_at compared on seconds; the vectors carry no nanos.
 	sec, _ := binary.Uvarint(one(ts, 1))
-	if int64(id) != num(v["expected_entry_id"]) || int64(sec) != num(v["expected_observed_at"]) {
+	// The cloud-asserted entry hashes and head must agree with what the device signed.
+	if len(hash) == 0 || !bytes.Equal(one(resp, 5), hash) {
+		return refusal("entry_hash_mismatch")
+	}
+	head, _ := binary.Uvarint(one(resp, 4))
+	if int64(head) < id {
+		return refusal("head_below_ack")
+	}
+	if int64(head) == id && !bytes.Equal(one(resp, 6), hash) {
+		return refusal("head_hash_mismatch")
+	}
+	// Monotonicity per device against what the client already accepted.
+	if last, ok := v["last_seen"].(map[string]any); ok {
+		if id < num(last["entry_id"]) {
+			return refusal("entry_id_regressed")
+		}
+		if int64(sec) < num(last["observed_at"]) {
+			return refusal("observed_at_regressed")
+		}
+	}
+	if want, ok := v["expected_entry_id"]; ok && (id != num(want) || int64(sec) != num(v["expected_observed_at"])) {
 		return errors.New("signed entry_id / observed_at")
 	}
 	return nil
@@ -435,7 +476,13 @@ func main() {
 
 	for _, x := range top["head_ack_read_vectors"].([]any) {
 		v := x.(map[string]any)
-		report(v["name"].(string), v["expect"].(string), verifyHeadAckRead(root, top["aud"].(string), v))
+		err := verifyHeadAckRead(root, top["aud"].(string), v)
+		// An invalid vector must fail on the check it names, not on another.
+		if want, _ := v["refusal"].(string); want != "" && err != nil && err.Error() != want {
+			err = fmt.Errorf("%w (want refusal %s)", err, want)
+			v["expect"] = "refusal " + want
+		}
+		report(v["name"].(string), v["expect"].(string), err)
 	}
 
 	reg := load(filepath.Join(dir, "registry", "registry-vectors-v1.json"))
