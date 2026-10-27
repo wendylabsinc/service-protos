@@ -1,8 +1,9 @@
 # API guidelines
 
-These guidelines record the API decisions approved on 2026-10-22. They describe
-the target contract for new and changed APIs. The migration section distinguishes
-existing behavior from that target.
+These guidelines record the API decisions approved on 2026-10-22 and the
+tombstone rule clarified on 2026-10-27. They describe the target contract for
+new and changed APIs. The migration section distinguishes existing behavior from
+that target.
 
 ## List APIs and pagination
 
@@ -65,9 +66,9 @@ All nine combinations are valid. In this table, A and B are anchor IDs and
 - If both ends name the same item, the range contains that item only when both
   ends are inclusive. Otherwise it is empty. Filters, deletion and limit still
   determine whether the item is returned.
-- In ID order, an unknown anchor works without a lookup: its ID defines the
-  boundary. In other orders, an unknown anchor is an error because its sort value
-  cannot be resolved.
+- Resolve every anchor against a live record or retained tombstone the caller
+  is authorized to access, including in ID order. Unknown or purged anchors are
+  errors.
 - An inaccessible anchor gets the same error as a not-found anchor. Do not reveal
   whether an item the caller cannot access exists. AAA applies.
 
@@ -179,22 +180,21 @@ order, so the server looks up the anchor's creation time.
 
 ### Deleted anchors and changed sort values
 
-Use soft deletion with tombstones. A tombstone keeps only the ID, owner
-(organization or user) and sort-key columns. Erase content on deletion and purge
-the tombstone after 30 days. Include tombstones when resolving anchors, but
-exclude them from results. They are never returned to clients.
+Every list API uses soft deletion with tombstones, including ID-ordered lists.
+A tombstone keeps only the ID, owner (organization or user) and sort-key columns.
+Erase content on deletion and purge the tombstone after 30 days by default.
+Never return tombstones in results.
 
-In ID order, anchors work without a lookup. Deletion and purge do not affect
-them, and no tombstone is needed for the anchor. In non-ID orders, the server
-resolves the anchor's sort value from the tombstone so paging can continue after
-deletion. After purge, that anchor errors and the client restarts. An anchor the
+Keep tombstones even if the current order does not need retained sort values:
+future supported orders must work under the same deletion policy. Resolve
+anchors against live records or retained tombstones the caller is authorized to
+access. After purge, the anchor errors and the client restarts. An anchor the
 caller could not access while it existed gets the same error as not found.
 
 If an item's sort value changes, for example after a rename, use its current
 value. Paging may rarely repeat or skip an item as a result; document this
-behavior. Apply tombstone handling to new list APIs first and to existing APIs
-when they are next changed. This is Cloud deletion work and is subject to AAA.
-The guide and shared proto do not implement that storage behavior.
+behavior. Cloud deletion changes are subject to AAA. The guide and shared proto
+do not implement that storage behavior.
 
 ### Migration of existing APIs
 
