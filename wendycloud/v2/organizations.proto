@@ -188,7 +188,8 @@ enum ListOrganizationsV2Order {
   LIST_ORGANIZATIONS_V2_ORDER_ID_ASC = 2;
 }
 
-// Range, limit, ordering, and continuation semantics follow API_GUIDELINES.md.
+// Range, limit, ordering, continuation, and tombstone semantics follow
+// API_GUIDELINES.md for every order.
 message ListOrganizationsV2Request {
   wendy.IDRange range = 1;
   // Default: canonical organization UUID descending.
