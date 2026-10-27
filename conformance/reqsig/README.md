@@ -66,6 +66,12 @@ There is no `jti` claim; `nonce` serves that purpose. `pki_management_request`
 carries its own `jti`, which pki-core enforces as single use, so every retry
 needs a fresh nonce and a fresh management request.
 
+`iat`/`expiry` bound the call to cloud only. A device applying a
+postbox-relayed request (`PostboxEntry.request_jws`) checks neither `expiry`
+nor the ±60 s `iat` window: the payload's own validity (`valid_until`, or
+`DeviceAssignment.expires_at`) governs it there
+(`conformance/postbox-entry/README.md`, WDY-4015).
+
 ### Verification (one generic gate, before the handler)
 
 1. Parse the JWS and check the size cap, `alg` and the absence of `crit`.
@@ -199,16 +205,69 @@ is `root_cert_der_b64`, and the chain is checked at the registration's signed
 `head_ack_read_vectors[]` cover the operator read of a device's last signed
 ack (`PostboxAckService.GetLastHeadAck`, `wendycloud/v2/postbox.proto`): each
 gives `organization_id`, `device` and `response_b64` (a serialized
-`GetLastHeadAckResponse`). The client verifies `ack` exactly like a
-`RecipientKey` registration, with operation
-`wendycloud.v2.DevicePostboxService/AckHead` and payload_type
-`wendycloud.v2.PostboxHeadAck`, then reads the signed `entry_id` and
-`observed_at`; `received_at` and `postbox_head_entry_id` are cloud-asserted
-hints.
+`GetLastHeadAckResponse`), and optionally `last_seen` (`entry_id`,
+`observed_at`, optionally `entry_hash_b64`: what the client already accepted
+for this device).
 
-| name | expect |
+### Head-ack read: client rule (WDY-4014)
+
+The client refuses the response at the first failing step:
+
+1. `ack` unset: never acked. The console shows "never acked", never "fresh".
+2. `ack` verified exactly like a `RecipientKey` registration: `chain_der`
+   non-empty; the `x5c` leaf chains through it to the **pinned** root at the
+   signed `iat`; the issuing CA fixes the algorithm; the leaf's tenant equals
+   `organization_id` and its SPIFFE URI equals `device`; payload_type
+   `wendycloud.v2.PostboxHeadAck`; operation
+   `wendycloud.v2.DevicePostboxService/AckHead`, `aud`, `body_sha256`.
+3. Entry hash: the signed `PostboxHeadAck.entry_hash` is byte-equal to
+   `acked_entry_hash` (the hash cloud holds at the signed `entry_id`). Absent is
+   a refusal. `acked_entry_hash` and `postbox_head_entry_hash` are
+   cloud-asserted: steps 3 and 4 catch cloud's own store disagreeing with what
+   the device acked, and a third party substituting either side. They do not
+   catch a lying cloud, which copies the signed hash. The signed `entry_hash`
+   is the authority.
+4. Head: `postbox_head_entry_id` is not below the signed `entry_id`; when equal,
+   `postbox_head_entry_hash` is byte-equal to the signed `entry_hash`.
+   Above it, both are display hints (how far the device is behind), like
+   `received_at`.
+5. Monotonicity, per device: neither the signed `entry_id` nor the signed
+   `observed_at` is lower than the highest the client has accepted for that
+   device. A lower value is a refusal, never a display. An equal `entry_id`
+   with the kept signed `entry_hash` is the same ack served again; an equal
+   `entry_id` with a different signed `entry_hash` is a refusal (equivocation:
+   the device acked two different entries at one id, so the postbox forked).
+   On success the client keeps the new `entry_id`, `entry_hash` and
+   `observed_at`, persisted per device. A client that lost them is at first
+   contact: an older ack then passes, and only the `observed_at` staleness
+   alarm covers it.
+
+The staleness alarm runs on the signed `observed_at` only. The `refusal` codes
+below are vector labels for the failing check, not wire values; every refusal
+reads the same to the user.
+
+| name | expect (`refusal`) |
 |---|---|
-| `last-head-ack-valid` | valid; `expected_entry_id`, `expected_observed_at` |
+| `last-head-ack-valid` | valid; `expected_entry_id` 42, `expected_observed_at` |
+| `substituted-entry-hash-invalid` | `entry_hash_mismatch`: `acked_entry_hash` differs from the signed hash |
+| `head-hash-mismatch-invalid` | `head_hash_mismatch`: head id = acked id, head hash differs |
+| `entry-id-regressed-invalid` | `entry_id_regressed`: `last_seen.entry_id` 43 > signed 42 |
+| `observed-at-regressed-invalid` | `observed_at_regressed`: `last_seen.observed_at` newer than the signed one |
+| `entry-hash-equivocation-invalid` | `entry_hash_equivocation`: `last_seen.entry_id` 42 = signed, `last_seen.entry_hash_b64` differs from the signed hash |
+| `wrong-signer-invalid` | `wrong_signer`: device B's valid ack served for device A |
+| `other-tenant-ca-invalid` | `wrong_tenant`: a valid ack of another tenant's device under that tenant's Device Identity CA (chains to the pinned root) |
+| `chain-missing-invalid` | `chain_missing`: empty `chain_der` |
+| `unpinned-root-invalid` | `unpinned_root`: leaf and chain under a root other than the pinned one |
+| `leaf-expired-at-iat-invalid` | `leaf_expired_at_iat`: the leaf expired before the signed `iat` |
+| `wrong-payload-type-invalid` | `wrong_payload_type`: the device's stored RegisterDeviceEncryptionKey request served as the ack |
+| `body-digest-mismatch-invalid` | `body_digest_mismatch`: payload replaced (entry 43) under the JWS over entry 42 |
+| `es256-under-device-ca-invalid` | `algorithm_not_issuer`: `ES256` ack by a P-256 leaf under the ML-DSA Device Identity CA |
+| `never-acked-invalid` | `never_acked`: empty response |
+| `head-below-ack-invalid` | `head_below_ack`: `postbox_head_entry_id` 41 < signed 42 |
+
+The other-tenant vector refuses on the leaf's tenant. A leaf naming tenant T
+under tenant T′'s CA waits on the same todo as
+`recipient-key-foreign-tenant-ca-invalid`.
 
 `todo[]` lists the vectors that wait on a ruling (a tier C valid vector, a
 foreign-tenant-CA vector).

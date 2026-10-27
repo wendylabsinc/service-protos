@@ -9,6 +9,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hkdf"
@@ -64,6 +66,11 @@ func fields(b []byte) (map[int][][]byte, error) {
 	}
 	return out, nil
 }
+
+// refusal is a check that failed with the code a head_ack_read vector names.
+type refusal string
+
+func (r refusal) Error() string { return string(r) }
 
 func one(f map[int][][]byte, n int) []byte {
 	if len(f[n]) == 0 {
@@ -190,7 +197,7 @@ func checkClaims(j *jws, method, aud string, payload []byte, now int64, checkTim
 	}
 	body := sha256.Sum256(payload)
 	if c["body_sha256"] != base64.RawURLEncoding.EncodeToString(body[:]) {
-		return errors.New("body_sha256")
+		return refusal("body_digest_mismatch")
 	}
 	if checkTime {
 		if d := now - num(c["iat"]); d > 60 || d < -60 {
@@ -275,21 +282,34 @@ func verifyStored(root []byte, aud string, sr []byte, chainDER [][]byte, princip
 	if err != nil {
 		return nil, err
 	}
+	if len(chainDER) == 0 {
+		return nil, refusal("chain_missing")
+	}
 	// The chain must have been valid when the device signed: at the signed iat.
 	at := num(j.claims["iat"])
 	issuer, err := chain(j.leaf, root, chainDER, at)
-	if err != nil {
+	var unknown x509.UnknownAuthorityError
+	var invalid x509.CertificateInvalidError
+	switch {
+	case errors.As(err, &unknown):
+		return nil, refusal("unpinned_root")
+	case errors.As(err, &invalid) && invalid.Reason == x509.Expired:
+		return nil, refusal("leaf_expired_at_iat")
+	case err != nil:
 		return nil, fmt.Errorf("chain to pinned root: %w", err)
 	}
 	if a := issuerAlg(issuer); a == "" || j.header["alg"] != a {
-		return nil, errors.New("issuing CA does not issue signers of this algorithm")
+		return nil, refusal("algorithm_not_issuer")
 	}
 	uri, tenant := leafURI(j.leaf)
-	if uri != principal || tenant != org {
-		return nil, errors.New("leaf identity is not the principal")
+	if tenant != org {
+		return nil, refusal("wrong_tenant")
+	}
+	if uri != principal {
+		return nil, refusal("wrong_signer")
 	}
 	if string(one(reg, 2)) != payloadTypes[method] {
-		return nil, errors.New("payload_type")
+		return nil, refusal("wrong_payload_type")
 	}
 	if err := checkClaims(j, method, aud, one(reg, 1), at, false); err != nil {
 		return nil, err
@@ -304,7 +324,7 @@ func verifyHeadAckRead(root []byte, aud string, v map[string]any) error {
 		return err
 	}
 	if one(resp, 1) == nil {
-		return errors.New("no ack")
+		return refusal("never_acked")
 	}
 	payload, err := verifyStored(root, aud, one(resp, 1), resp[2], v["device"].(string), v["organization_id"].(string),
 		"wendycloud.v2.DevicePostboxService/AckHead")
@@ -315,13 +335,41 @@ func verifyHeadAckRead(root []byte, aud string, v map[string]any) error {
 	if err != nil {
 		return err
 	}
-	id, _ := binary.Uvarint(one(ack, 1))
+	u, _ := binary.Uvarint(one(ack, 1))
+	id := int64(u)
+	hash := one(ack, 2)
 	ts, err := fields(one(ack, 3))
 	if err != nil {
 		return err
 	}
+	// ponytail: observed_at compared on seconds; the vectors carry no nanos.
 	sec, _ := binary.Uvarint(one(ts, 1))
-	if int64(id) != num(v["expected_entry_id"]) || int64(sec) != num(v["expected_observed_at"]) {
+	// The cloud-asserted entry hashes and head must agree with what the device signed.
+	if len(hash) == 0 || !bytes.Equal(one(resp, 5), hash) {
+		return refusal("entry_hash_mismatch")
+	}
+	head, _ := binary.Uvarint(one(resp, 4))
+	if int64(head) < id {
+		return refusal("head_below_ack")
+	}
+	if int64(head) == id && !bytes.Equal(one(resp, 6), hash) {
+		return refusal("head_hash_mismatch")
+	}
+	// Monotonicity per device against what the client already accepted.
+	if last, ok := v["last_seen"].(map[string]any); ok {
+		if id < num(last["entry_id"]) {
+			return refusal("entry_id_regressed")
+		}
+		if kept, ok := last["entry_hash_b64"].(string); ok && id == num(last["entry_id"]) {
+			if k, _ := base64.StdEncoding.DecodeString(kept); !bytes.Equal(k, hash) {
+				return refusal("entry_hash_equivocation")
+			}
+		}
+		if int64(sec) < num(last["observed_at"]) {
+			return refusal("observed_at_regressed")
+		}
+	}
+	if want, ok := v["expected_entry_id"]; ok && (id != num(want) || int64(sec) != num(v["expected_observed_at"])) {
 		return errors.New("signed entry_id / observed_at")
 	}
 	return nil
@@ -353,6 +401,44 @@ func verifyRecipient(root []byte, aud string, v map[string]any) error {
 		return errors.New("key_id")
 	}
 	return nil
+}
+
+func chunkNonce(index uint64, last bool) []byte {
+	n := make([]byte, 12)
+	binary.BigEndian.PutUint64(n[3:11], index)
+	if last {
+		n[11] = 1
+	}
+	return n
+}
+
+// lp appends each field as a uint16 big-endian length and its bytes; a field
+// over 65535 bytes is refused.
+func lp(b []byte, fields ...string) ([]byte, error) {
+	for _, f := range fields {
+		if len(f) > 65535 {
+			return nil, errors.New("binding field over 65535 bytes")
+		}
+		b = append(binary.BigEndian.AppendUint16(b, uint16(len(f))), f...)
+	}
+	return b, nil
+}
+
+// blobKey = HKDF-SHA256(content key, info = plaintext_digest || u32 BE chunk_size).
+func blobKey(contentKey []byte, digest string, chunkSize uint32) ([]byte, error) {
+	return hkdf.Key(sha256.New, contentKey, nil, string(binary.BigEndian.AppendUint32([]byte(digest), chunkSize)), 32)
+}
+
+func gcmFor(key []byte) cipher.AEAD {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		panic(err)
+	}
+	return gcm
 }
 
 func load(path string) map[string]any {
@@ -395,14 +481,20 @@ func main() {
 
 	for _, x := range top["head_ack_read_vectors"].([]any) {
 		v := x.(map[string]any)
-		report(v["name"].(string), v["expect"].(string), verifyHeadAckRead(root, top["aud"].(string), v))
+		err := verifyHeadAckRead(root, top["aud"].(string), v)
+		// An invalid vector must fail on the check it names, not on another.
+		if want, _ := v["refusal"].(string); want != "" && err != nil && err.Error() != want {
+			err = fmt.Errorf("%w (want refusal %s)", err, want)
+			v["expect"] = "refusal " + want
+		}
+		report(v["name"].(string), v["expect"].(string), err)
 	}
 
 	reg := load(filepath.Join(dir, "registry", "registry-vectors-v1.json"))
 	pb := reg["per_blob_key"].(map[string]any)
 	for _, x := range pb["blobs"].([]any) {
 		b := x.(map[string]any)
-		k, err := hkdf.Key(sha256.New, hx(pb, "content_key_hex"), nil, b["plaintext_digest"].(string), 32)
+		k, err := blobKey(hx(pb, "content_key_hex"), b["plaintext_digest"].(string), uint32(num(pb["chunk_size"])))
 		if err == nil && !bytes.Equal(k, hx(b, "blob_key_hex")) {
 			err = errors.New("blob key differs")
 		}
@@ -447,6 +539,98 @@ func main() {
 		return err
 	}()
 	report("hybrid-kem-open", "valid", err)
+
+	// chunk_aead: decrypt chunk by chunk; the last chunk is the one the
+	// ciphertext ends with, and only an empty blob has an empty last chunk.
+	ca := reg["chunk_aead"].(map[string]any)
+	chunk := int(num(ca["chunk_size"])) + 16
+	for _, x := range ca["vectors"].([]any) {
+		v := x.(map[string]any)
+		err := func() error {
+			ct := hx(v, "ciphertext_hex")
+			key, err := blobKey(hx(ca, "content_key_hex"), v["plaintext_digest"].(string), uint32(num(ca["chunk_size"])))
+			if err != nil {
+				return err
+			}
+			gcm := gcmFor(key)
+			var pt []byte
+			for i := 0; ; i++ {
+				rest := ct[min(i*chunk, len(ct)):]
+				last := len(rest) <= chunk
+				if len(rest) < 16 || last && len(rest) == 16 && i > 0 {
+					return errors.New("truncated chunk")
+				}
+				c := rest[:min(chunk, len(rest))]
+				if pt, err = gcm.Open(pt, chunkNonce(uint64(i), last), c, nil); err != nil {
+					return err
+				}
+				if last {
+					break
+				}
+			}
+			pd := sha256.Sum256(pt)
+			if "sha256:"+hex.EncodeToString(pd[:]) != v["plaintext_digest"] || !bytes.Equal(pt, hx(v, "plaintext_hex")) {
+				return errors.New("plaintext")
+			}
+			return nil
+		}()
+		report("chunk-aead "+v["name"].(string), v["expect"].(string), err)
+	}
+
+	kw := reg["key_wrap"].(map[string]any)
+	wsk, _ := hpke.MLKEM768X25519().DeriveKeyPair(hx(kw, "recipient_ikm_hex"))
+	for _, x := range kw["vectors"].([]any) {
+		v := x.(map[string]any)
+		b := v["binding"].(map[string]any)
+		str := func(k string) string { return b[k].(string) }
+		err := func() error {
+			info, err := lp([]byte("wendy-registry-wrap-v1"), str("organization_id"))
+			if err != nil {
+				return err
+			}
+			if info, err = lp(append(info, byte(num(b["scope_kind"]))), str("scope_id"), str("key_id")); err != nil {
+				return err
+			}
+			if info, err = lp(append(info, byte(num(b["recipient_kind"]))), str("recipient"), str("recipient_key_id")); err != nil {
+				return err
+			}
+			if !bytes.Equal(info, hx(v, "info_hex")) {
+				return errors.New("info bytes")
+			}
+			r, err := hpke.NewRecipient(hx(v, "enc_hex"), wsk, hpke.HKDFSHA256(), hpke.AES256GCM(), info)
+			if err != nil {
+				return err
+			}
+			key, err := r.Open(nil, hx(v, "ciphertext_hex"))
+			if err == nil && !bytes.Equal(key, hx(v, "wrapped_key_hex")) {
+				return errors.New("wrapped key")
+			}
+			return err
+		}()
+		report("key-wrap "+v["name"].(string), v["expect"].(string), err)
+	}
+
+	sc := reg["sealed_content_key"].(map[string]any)
+	for _, x := range sc["vectors"].([]any) {
+		v := x.(map[string]any)
+		b := v["binding"].(map[string]any)
+		str := func(k string) string { return b[k].(string) }
+		err := func() error {
+			aad, err := lp([]byte("wendy-registry-seal-v1"), str("organization_id"), str("deployment_id"), str("manifest_digest"), str("content_key_id"), str("deployment_key_id"))
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(aad, hx(v, "aad_hex")) {
+				return errors.New("aad bytes")
+			}
+			key, err := gcmFor(hx(sc, "deployment_key_hex")).Open(nil, hx(v, "nonce_hex"), hx(v, "ciphertext_hex"), aad)
+			if err == nil && !bytes.Equal(key, hx(v, "content_key_hex")) {
+				return errors.New("content key")
+			}
+			return err
+		}()
+		report("sealed-content-key "+v["name"].(string), v["expect"].(string), err)
+	}
 
 	if failed > 0 {
 		fmt.Printf("%d vector(s) disagree with expect\n", failed)
