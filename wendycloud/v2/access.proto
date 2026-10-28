@@ -20,8 +20,10 @@ import "wendycloud/v2/signed_request.proto";
 // Invariants, refused with INVALID_ARGUMENT unless stated otherwise:
 // 1. The role is built-in or a role of the same organization (else NOT_FOUND).
 // 2. An organization-kind role (RoleKind) binds only at ORGANIZATION scope.
-// 3. Owner binds only a USER principal, with effect ALLOW, at ORGANIZATION
-//    scope. Owner is never denied.
+// 3. An Owner binding names a USER principal, with effect ALLOW, at
+//    ORGANIZATION scope. Owner is never denied. CreateBinding never writes an
+//    Owner binding: ownership moves only through
+//    OrganizationService.TransferOwnership.
 // 4. A DEVICE principal binds only device-kind roles.
 //
 // Each RPC comment names its gate (the catalog permission the caller must hold
@@ -41,15 +43,17 @@ service AccessService {
   // Gate: `access:create`, or the share rule.
   //
   // Share rule (caller without `access:create`): the scope is DEVICE, the
-  // role is device kind, the effect is ALLOW, and the caller holds every
-  // permission of the role on that device.
+  // role is device kind, the effect is ALLOW, the caller holds `device:share`
+  // on that device, and the caller holds every permission of the role on that
+  // device.
   //
   // Escalation guard, for every caller: the role's permissions must be a
-  // subset of the caller's own. So only an Owner binds Owner; ownership moves
-  // only through OrganizationService.TransferOwnership.
+  // subset of the caller's own.
   //
-  // INVALID_ARGUMENT for an UNSPECIFIED type or effect, an id/ref that breaks
-  // the Binding rules, or a broken invariant; NOT_FOUND if the principal, role
+  // FAILED_PRECONDITION if the role is Owner (ownership moves only through
+  // OrganizationService.TransferOwnership). INVALID_ARGUMENT for an
+  // UNSPECIFIED type or effect, an id/ref that breaks the Binding rules, or a
+  // broken invariant; NOT_FOUND if the principal, role
   // or device/site scope is not in the organization; PERMISSION_DENIED under
   // the escalation guard or the share rule; ALREADY_EXISTS for a binding with
   // the same principal, role, scope and effect.
@@ -60,7 +64,8 @@ service AccessService {
   // Gate: `access:delete`, or the caller created the binding (created_by).
   // NOT_FOUND if the binding is not in the organization;
   // PERMISSION_DENIED for a caller without `access:delete` who did not create
-  // it; FAILED_PRECONDITION if it is the organization's last Owner binding.
+  // it, or for an Owner binding when the caller does not hold Owner;
+  // FAILED_PRECONDITION if it is the organization's last Owner binding.
   // Signed; payload_type "wendycloud.v2.DeleteBindingRequest".
   rpc DeleteBinding(SignedRequest) returns (DeleteBindingResponse) {
     option (wendy.signed_request) = true;
@@ -69,10 +74,12 @@ service AccessService {
   // grant it. With device_id: the permissions it holds on that device. Without:
   // the organization view, where a device-targeted permission appears when it
   // is held on at least one device. Ceiling-clipped and denied permissions are
-  // absent. Gate: `permission:read`; none when the principal is the caller.
+  // absent. Gate: `permission:read`; none when the principal is the caller,
+  // which principal_type USER with an empty principal_id also means.
   // Bearer. Replaces RoleService.ListEffectivePermissions.
-  // INVALID_ARGUMENT for an UNSPECIFIED principal type; NOT_FOUND if the
-  // principal or the device is not in the organization.
+  // INVALID_ARGUMENT for an UNSPECIFIED principal type, or an empty
+  // principal_id with any type but USER; NOT_FOUND if the principal or the
+  // device is not in the organization.
   rpc GetEffectivePermissions(GetEffectivePermissionsRequest) returns (GetEffectivePermissionsResponse);
   // "Who has this role": the bindings naming the role, allow and deny, with
   // group principals left unexpanded. Ordered and hidden as ListBindings.
@@ -203,6 +210,8 @@ message DeleteBindingResponse {}
 message GetEffectivePermissionsRequest {
   string organization_id = 1;
   BindingPrincipalType principal_type = 2;
+  // USER with an empty principal_id = the caller (the self-read, no gate).
+  // Empty with any other type is INVALID_ARGUMENT.
   string principal_id = 3;
   // Asset.id; empty = the organization view.
   string device_id = 4;
