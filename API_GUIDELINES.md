@@ -1,7 +1,7 @@
 # API guidelines
 
 These guidelines record the API decisions approved on 2026-10-22 and the
-tombstone rule clarified on 2026-10-27. They describe the target contract for
+tombstone lifecycle refined on 2026-10-28. They describe the target contract for
 new and changed APIs. The migration section distinguishes existing behavior from
 that target.
 
@@ -66,14 +66,13 @@ All nine combinations are valid. In this table, A and B are anchor IDs and
 - If both ends name the same item, the range contains that item only when both
   ends are inclusive. Otherwise it is empty. Filters, deletion and limit still
   determine whether the item is returned.
-- Resolve every anchor against a live record or retained tombstone the caller
-  is authorized to access, including in ID order. Unknown or purged anchors are
-  errors.
+- Resolve every anchor against a live record or permanent tombstone the caller
+  is authorized to access, including in ID order. Unknown anchors are errors.
 - An inaccessible anchor gets the same error as a not-found anchor. Do not reveal
   whether an item the caller cannot access exists. AAA applies.
 
-The decisions do not select a specific status code for not-found, inaccessible
-or purged anchors. An API must not infer different errors that reveal existence.
+The decisions do not select a specific status code for not-found or inaccessible
+anchors. An API must not infer different errors that reveal existence.
 
 Use `optional int32 limit`:
 
@@ -181,15 +180,17 @@ order, so the server looks up the anchor's creation time.
 ### Deleted anchors and changed sort values
 
 Every list API uses soft deletion with tombstones, including ID-ordered lists.
-A tombstone keeps only the ID, owner (organization or user) and sort-key columns.
-Erase content on deletion and purge the tombstone after 30 days by default.
-Never return tombstones in results.
+Deletion hides the item from results and removes its live authority. Keep the
+full item content intact in the tombstone for the retention period, 30 days by
+default. After retention, erase content if needed, but keep the ID, owner
+(organization or user) and sort-key columns forever. IDs are never reused.
+Tombstones are never returned in results.
 
 Keep tombstones even if the current order does not need retained sort values:
 future supported orders must work under the same deletion policy. Resolve
-anchors against live records or retained tombstones the caller is authorized to
-access. After purge, the anchor errors and the client restarts. An anchor the
-caller could not access while it existed gets the same error as not found.
+anchors against live records or permanent tombstones the caller is authorized to
+access, both before and after content erasure. An anchor the caller could not
+access while it existed gets the same error as not found.
 
 If an item's sort value changes, for example after a rename, use its current
 value. Paging may rarely repeat or skip an item as a result; document this
