@@ -66,13 +66,16 @@ All nine combinations are valid. In this table, A and B are anchor IDs and
 - If both ends name the same item, the range contains that item only when both
   ends are inclusive. Otherwise it is empty. Filters, deletion and limit still
   determine whether the item is returned.
-- Resolve every anchor against a live record or permanent tombstone the caller
-  is authorized to access, including in ID order. Unknown anchors are errors.
-- An inaccessible anchor gets the same error as a not-found anchor. Do not reveal
-  whether an item the caller cannot access exists. AAA applies.
+- Resolve every anchor against a live record or fully retained tombstone the
+  caller is authorized to access, including in ID order. Unknown anchors and
+  anchors past retention are errors.
+- Inaccessible anchors and anchors past retention get the same error as not-found
+  anchors. Do not reveal whether an item the caller cannot access exists. AAA
+  applies.
 
-The decisions do not select a specific status code for not-found or inaccessible
-anchors. An API must not infer different errors that reveal existence.
+The decisions do not select a specific status code for not-found, inaccessible
+or past-retention anchors. An API must not infer different errors that reveal
+existence.
 
 Use `optional int32 limit`:
 
@@ -182,15 +185,19 @@ order, so the server looks up the anchor's creation time.
 Every list API uses soft deletion with tombstones, including ID-ordered lists.
 Deletion hides the item from results and removes its live authority. Keep the
 full item content intact in the tombstone for the retention period, 30 days by
-default. After retention, erase content if needed, but keep the ID, owner
-(organization or user) and sort-key columns forever. IDs are never reused.
-Tombstones are never returned in results.
+default. After retention, erase everything except the bare ID for security:
+content, owner, sort-key columns and visibility data do not survive. Keep the ID
+forever and never reuse it. Tombstones are never returned in results.
 
 Keep tombstones even if the current order does not need retained sort values:
-future supported orders must work under the same deletion policy. Resolve
-anchors against live records or permanent tombstones the caller is authorized to
-access, both before and after content erasure. An anchor the caller could not
-access while it existed gets the same error as not found.
+future supported orders must work under the same deletion policy. Choose the
+retention period long enough to make pagination inconsistency unlikely.
+
+Resolve anchors against live records or fully retained tombstones the caller is
+authorized to access. Anchors past retention can no longer be positioned,
+including in ID order: return the same error as not found and the client
+restarts. An anchor the caller could not access while it existed gets the same
+error as not found.
 
 If an item's sort value changes, for example after a rename, use its current
 value. Paging may rarely repeat or skip an item as a result; document this
