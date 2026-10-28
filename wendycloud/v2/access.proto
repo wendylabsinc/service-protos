@@ -13,16 +13,22 @@ import "wendycloud/v2/signed_request.proto";
 //
 // Resolution: every allow binding whose scope covers the resource, minus every
 // deny binding that covers it. A principal holding several roles gets their
-// union. Roles only allow; deny exists only on bindings. Non-device
-// permissions count only from organization-scope bindings. The tenant ceiling
+// union. Roles only allow; deny exists only on bindings. The tenant ceiling
 // and the platform cap still apply: a binding never grants past them.
+//
+// Strict role split (RoleKind): an organization-kind role holds only
+// permissions that are not device-targeted; a device-kind role holds only
+// device-targeted ones. Device access therefore exists only through
+// device-role bindings. A new member gets two bindings, both at organization
+// scope: Member and a device role.
 //
 // Invariants, refused with INVALID_ARGUMENT unless stated otherwise:
 // 1. The role is built-in or a role of the same organization (else NOT_FOUND).
 // 2. An organization-kind role (RoleKind) binds only at ORGANIZATION scope.
-// 3. An Owner binding names a USER principal, with effect ALLOW, at
-//    ORGANIZATION scope. Owner is never denied. An organization may have
-//    several owners; only an Owner creates or deletes an Owner binding.
+// 3. An organization has exactly one Owner binding: a USER principal, effect
+//    ALLOW, ORGANIZATION scope. Owner is never denied. CreateBinding and
+//    DeleteBinding refuse the Owner role with FAILED_PRECONDITION; ownership
+//    moves only through OrganizationService.TransferOwnership.
 // 4. A DEVICE principal binds only device-kind roles.
 //
 // Each RPC comment names its gate (the catalog permission the caller must hold
@@ -51,16 +57,12 @@ service AccessService {
   // Escalation guard, for every caller: the role's permissions must be a
   // subset of the caller's own.
   //
-  // Owner: a binding of the Owner role needs a caller who holds Owner, and a
-  // USER principal at ORGANIZATION scope with effect ALLOW (invariant 3).
-  //
   // INVALID_ARGUMENT for an UNSPECIFIED type or effect, an id/ref that breaks
-  // the Binding rules, or a broken invariant (an Owner binding with a group or
-  // device principal, a non-organization scope, or DENY); NOT_FOUND if the
-  // principal, role or device/site scope is not in the organization;
-  // PERMISSION_DENIED under the escalation guard or the share rule, or for an
-  // Owner binding when the caller does not hold Owner; ALREADY_EXISTS for a
-  // binding with the same principal, role, scope and effect.
+  // the Binding rules, or a broken invariant; FAILED_PRECONDITION if the role
+  // is Owner (invariant 3); NOT_FOUND if the principal, role or device/site
+  // scope is not in the organization; PERMISSION_DENIED under the escalation
+  // guard or the share rule; ALREADY_EXISTS for a binding with the same
+  // principal, role, scope and effect.
   // Signed; payload_type "wendycloud.v2.CreateBindingRequest".
   rpc CreateBinding(SignedRequest) returns (Binding) {
     option (wendy.signed_request) = true;
@@ -70,12 +72,11 @@ service AccessService {
   // that the share rule could have made: DEVICE scope, a device-kind role,
   // effect ALLOW.
   //
-  // NOT_FOUND if the binding is not in the organization; PERMISSION_DENIED
-  // for a caller without `access:delete` outside that case, for an Owner
-  // binding when the caller does not hold Owner, and for a DENY binding whose
+  // NOT_FOUND if the binding is not in the organization; FAILED_PRECONDITION
+  // for the Owner binding (invariant 3); PERMISSION_DENIED for a caller
+  // without `access:delete` outside that case, and for a DENY binding whose
   // principal covers the caller (the caller, or a group they belong to)
-  // unless the caller holds Owner; FAILED_PRECONDITION if it is the
-  // organization's last Owner binding.
+  // unless the caller holds Owner.
   // Signed; payload_type "wendycloud.v2.DeleteBindingRequest".
   rpc DeleteBinding(SignedRequest) returns (DeleteBindingResponse) {
     option (wendy.signed_request) = true;
