@@ -36,8 +36,9 @@ service RoleService {
   rpc GetRole(GetRoleRequest) returns (Role);
   // Gate: `role:create`. PERMISSION_DENIED if any permission is outside the
   // ceiling or not held by the caller; INVALID_ARGUMENT for an unknown
-  // permission, or a device-kind role with a permission that is not
-  // device-targeted; ALREADY_EXISTS if the name is taken in the organization.
+  // permission, a device-kind role with a permission that is not
+  // device-targeted, or an organization-kind role with a device-targeted one;
+  // ALREADY_EXISTS if the name is taken in the organization.
   // Signed; payload_type "wendycloud.v2.CreateRoleRequest".
   rpc CreateRole(SignedRequest) returns (Role) {
     option (wendy.signed_request) = true;
@@ -99,12 +100,13 @@ message Role {
 // What a role may contain and where it binds (AccessService).
 enum RoleKind {
   ROLE_KIND_UNSPECIFIED = 0;
-  // Any permission; its device permissions apply to every device. Binds at
-  // organization scope only. Built-ins: Owner, Admin, Developer, Member,
-  // Viewer.
+  // Permissions that are not device-targeted only; it grants no device
+  // access. Binds at organization scope only. Built-ins: Owner, Admin,
+  // Developer, Member, Viewer.
   ROLE_KIND_ORGANIZATION = 1;
-  // Device-targeted permissions only. Binds at organization, site, tag or
-  // device scope. Built-ins: Device viewer, Device operator, Device manager.
+  // Device-targeted permissions only; the only way to device access. Binds at
+  // organization, site, tag or device scope. Built-ins: Device viewer, Device
+  // operator, Device manager.
   ROLE_KIND_DEVICE = 2;
 }
 
