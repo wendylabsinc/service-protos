@@ -189,8 +189,8 @@ enum ListOrganizationsV2Order {
 }
 
 // Range, limit, ordering, continuation, and tombstone lifecycle follow
-// API_GUIDELINES.md for every order. Authorized anchors survive content erasure;
-// retained deletion history grants no live access.
+// API_GUIDELINES.md for every order. Past-retention anchors cannot be positioned;
+// clients restart after the uniform anchor error. Retained IDs grant no access.
 message ListOrganizationsV2Request {
   wendy.IDRange range = 1;
   // Default: canonical organization UUID descending.
