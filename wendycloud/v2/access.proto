@@ -135,6 +135,10 @@ message BindingScope {
   BindingScopeType type = 1;
   // Meaning per BindingScopeType; empty exactly for ORGANIZATION.
   string ref = 2;
+  // Human name, filled by the server when read and ignored on input: the site
+  // or device name, the tag text, empty for ORGANIZATION. Empty if it cannot
+  // be resolved; show ref instead.
+  string display = 3;
 }
 
 message Binding {
