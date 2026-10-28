@@ -138,7 +138,7 @@ message BindingScope {
   // Human name, filled by the server when read and ignored on input: the site
   // or device name, the tag text, empty for ORGANIZATION. Empty if it cannot
   // be resolved; show ref instead.
-  string display = 3;
+  string display_name = 3;
 }
 
 message Binding {
