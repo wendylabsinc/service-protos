@@ -37,7 +37,9 @@ service AccessService {
   // are optional and combine with AND. Bindings whose scope or principal is a
   // device the caller cannot reach are absent, and nothing counts them.
   // Gate: `access:list`. Bearer.
-  // INVALID_ARGUMENT for a filter that breaks the Binding id/ref rules.
+  // INVALID_ARGUMENT for a filter that breaks the Binding id/ref rules. A
+  // DEVICE scope filter naming a device the caller cannot reach returns an
+  // empty page, not NOT_FOUND.
   rpc ListBindings(ListBindingsRequest) returns (ListBindingsResponse);
   // Gate: `access:create`, or the share rule.
   //
@@ -63,11 +65,17 @@ service AccessService {
   rpc CreateBinding(SignedRequest) returns (Binding) {
     option (wendy.signed_request) = true;
   }
-  // Gate: `access:delete`, or the caller created the binding (created_by).
-  // NOT_FOUND if the binding is not in the organization;
-  // PERMISSION_DENIED for a caller without `access:delete` who did not create
-  // it, or for an Owner binding when the caller does not hold Owner;
-  // FAILED_PRECONDITION if it is the organization's last Owner binding.
+  // The caller must be a member of the organization. Gate: `access:delete`;
+  // without it, the caller may delete only a binding they created (created_by)
+  // that the share rule could have made: DEVICE scope, a device-kind role,
+  // effect ALLOW.
+  //
+  // NOT_FOUND if the binding is not in the organization; PERMISSION_DENIED
+  // for a caller without `access:delete` outside that case, for an Owner
+  // binding when the caller does not hold Owner, and for a DENY binding whose
+  // principal covers the caller (the caller, or a group they belong to)
+  // unless the caller holds Owner; FAILED_PRECONDITION if it is the
+  // organization's last Owner binding.
   // Signed; payload_type "wendycloud.v2.DeleteBindingRequest".
   rpc DeleteBinding(SignedRequest) returns (DeleteBindingResponse) {
     option (wendy.signed_request) = true;
