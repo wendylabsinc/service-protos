@@ -36,35 +36,37 @@ service RoleService {
   rpc GetRole(GetRoleRequest) returns (Role);
   // Gate: `role:create`. PERMISSION_DENIED if any permission is outside the
   // ceiling or not held by the caller; INVALID_ARGUMENT for an unknown
-  // permission; ALREADY_EXISTS if the name is taken in the organization.
+  // permission, or a device-kind role with a permission that is not
+  // device-targeted; ALREADY_EXISTS if the name is taken in the organization.
   // Signed; payload_type "wendycloud.v2.CreateRoleRequest".
   rpc CreateRole(SignedRequest) returns (Role) {
     option (wendy.signed_request) = true;
   }
-  // Copies the source role's description and permissions into a new tenant
-  // role. The source may be built-in or tenant-owned. Gate: `role:create`.
+  // Copies the source role's description, permissions and kind into a new
+  // tenant role. The source may be built-in or tenant-owned. Gate: `role:create`.
   // Same errors as CreateRole; the whole clone is refused, never clipped.
   // Signed; payload_type "wendycloud.v2.CloneRoleRequest".
   rpc CloneRole(SignedRequest) returns (Role) {
     option (wendy.signed_request) = true;
   }
-  // Full replace of name, description and permissions; last write wins.
-  // Gate: `role:update`. PERMISSION_DENIED for a built-in role and under the
-  // CreateRole rules; ALREADY_EXISTS on a name clash.
+  // Full replace of name, description and permissions; last write wins. The
+  // kind never changes. Gate: `role:update`. PERMISSION_DENIED for a built-in
+  // role; otherwise the CreateRole errors apply. ALREADY_EXISTS on a name clash.
   // Signed; payload_type "wendycloud.v2.UpdateRoleRequest".
   rpc UpdateRole(SignedRequest) returns (Role) {
     option (wendy.signed_request) = true;
   }
   // Gate: `role:delete`. PERMISSION_DENIED for a built-in role.
-  // FAILED_PRECONDITION while any member or group mapping is assigned the
-  // role; the caller reassigns them first. There is no force flag.
+  // FAILED_PRECONDITION while any binding (AccessService) names the role;
+  // member roles and group mappings are bindings. The caller removes them
+  // first. There is no force flag.
   // Signed; payload_type "wendycloud.v2.DeleteRoleRequest".
   rpc DeleteRole(SignedRequest) returns (DeleteRoleResponse) {
     option (wendy.signed_request) = true;
   }
   // What one member effectively holds in the organization, after deny-wins and
   // the ceiling. Gate: `permission:read`, except a member may always read
-  // their own.
+  // their own. Replaced by AccessService.GetEffectivePermissions (WDY-4052).
   rpc ListEffectivePermissions(ListEffectivePermissionsRequest) returns (ListEffectivePermissionsResponse);
 }
 
@@ -89,6 +91,21 @@ message Role {
   repeated string permissions = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
+  // Chosen at creation, never changed (WDY-4052). Roles created before kinds
+  // existed are ORGANIZATION.
+  RoleKind kind = 8;
+}
+
+// What a role may contain and where it binds (AccessService).
+enum RoleKind {
+  ROLE_KIND_UNSPECIFIED = 0;
+  // Any permission; its device permissions apply to every device. Binds at
+  // organization scope only. Built-ins: Owner, Admin, Developer, Member,
+  // Viewer.
+  ROLE_KIND_ORGANIZATION = 1;
+  // Device-targeted permissions only. Binds at organization, site, tag or
+  // device scope. Built-ins: Device viewer, Device operator, Device manager.
+  ROLE_KIND_DEVICE = 2;
 }
 
 enum PermissionSource {
@@ -140,6 +157,8 @@ message CreateRoleRequest {
   string name = 2;
   optional string description = 3;
   repeated string permissions = 4;
+  // UNSPECIFIED = ORGANIZATION, so callers that predate kinds keep working.
+  RoleKind kind = 5;
 }
 
 message CloneRoleRequest {
