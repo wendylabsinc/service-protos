@@ -1,217 +1,233 @@
 # API guidelines
 
-These guidelines record the API decisions approved on 2026-10-22 and the
-deletion rule settled on 2026-10-28: gone is gone. They describe the target contract for
-new and changed APIs. The migration section distinguishes existing behavior from
-that target.
+These guidelines fix the shape and behavior of Wendy APIs. Everything here is a rule, except what is listed under "Recommended", which may be done differently for good reason.
 
-## List APIs and pagination
+## List APIs
 
-Every new or changed list API uses stable pagination. Do not add offset paging.
-A service picks one of two styles per RPC family and documents its choice:
+### What we design for
 
-- ID-anchored: one optional exclusive `after_id` with `has_more`, as described
-  below.
-- Page tokens: an opaque `page_token` with `page_size`, answered with
-  `next_page_token`. The merged `AccessService` (`ListBindings`,
-  `ListRoleHolders` in `wendycloud/v2/access.proto`) uses page tokens and is a
-  valid precedent.
+Picture the device list in an app, with a few thousand devices. The screen shows about 20 rows at a time.
 
-The rest of this section describes the ID-anchored style. An anchor is the ID
-of an item the client has seen, and its position is defined by the request's
-filter and ordering.
+- **Opening the screen** shows the first rows right away. The scroll bar already has its final size, because the app knows how many devices there are.
+- **Scrolling** is continuous. As the user scrolls, the app loads the next rows a little ahead of time, so they are there before they come into view. Scrolling up works the same way.
+- **Jumping**: dragging the scroll bar to the middle of the list shows placeholder rows for a moment, then the devices at that position.
+- **Staying current**: while the screen is open, the app refreshes the rows the user is looking at, every few seconds, when the app comes back to the foreground, and on pull to refresh. A renamed device shows its new name, a deleted one disappears, a new one appears in its place.
+- **Keeping the place**: rows above the user change without moving what the user is looking at.
+- **Refreshing is cheap**: when nothing has changed, the server says so and sends no items.
 
-### Linear pages
+The app does not need to hold the whole list. It only needs what is on screen plus a little around it, and asks the server for exactly that part. It may keep more, for example as a cache. Efficient support for caching is future work. List APIs are built around this: a request names **which list** (the query), **which part of it** (the range), how many extra items around that part (`preceding`, `following`) and how many items at most (`limit`). A response returns those items with their exact position in the list and the size of the whole list.
 
-Use an `optional string after_id` field directly on the request. Unset starts
-the first page. To continue, send the last returned item's ID as `after_id`:
-it is excluded, and the next batch starts strictly after it in the selected
-order. Keep the same filter and ordering on every call. `limit` counts forward
-from that position.
+This covers apps that are online. Catching up after being offline, with diffs and caching, comes on top later (see Future work).
 
-To iterate in the other direction, start a traversal with the opposite supported
-order. For example, request `ID_ASC` with `after: <anchor>` to get the nearest
-higher IDs, then reverse the page on the client for a descending display.
+### Naming and paging
 
-### Validation and limit
+- An RPC that returns part of a list is named `List…`.
+- An RPC that returns specific items by ID is named `Get…` and takes a list of IDs, so a client fetches many items in one call. Fetching one item is the same call with one ID.
+- A `Get…` response returns the items found, in the order of the requested IDs, plus the IDs that were not found. An item that does not exist and one the caller may not see are reported the same way.
+- List APIs page by anchors (positions in the list), never by offset. An offset shifts when items are added or deleted, an anchor does not.
 
-- A present `after_id` that is empty or malformed fails with `INVALID_ARGUMENT`.
-  An empty string is different from leaving `after_id` unset.
-- An anchor is a comparison value, never a lookup. A deleted, unknown or
-  inaccessible anchor positions normally and is never an error, so a response
-  reveals nothing about whether it exists. AAA applies to the returned items.
+Recommended:
 
-Use `optional int32 limit`:
+- One plural RPC per item type, for example `GetDevices(ids)`. Document the most IDs a request may carry.
 
-| Value | Behavior |
-| --- | --- |
-| Unset | Use the API's documented default |
-| `0` | Return zero items |
-| Negative | Fail with `INVALID_ARGUMENT` |
-| Above the API maximum | Clamp to that maximum |
+### Request
 
-Document the default and maximum for each API. Never lower the maximum within an
-API version. There is no global default or maximum specified here.
+- A request has these fields: `query`, `range`, `preceding`, `following`, `limit`, and optionally the `etag` of an earlier response (see Unchanged responses).
+- The query defines the list: filter, search and sort order. A client sends the same query on every request for the same list.
+- Every sort order is total. The item ID is the final tie-breaker, so no two items share a position.
+- An API supports only a fixed set of sort orders and documents them.
 
-### Response and continuation
+Recommended:
 
-Use a unary RPC: one page per call. Return `repeated` items in result order and
-`bool has_more`. The server reads up to the effective limit + 1 matching items
-after the anchor, returns at most the limit, and uses the extra item to determine
-`has_more`.
-
-An ID-anchored API returns no cursor. Continue with `after: <last returned ID>`,
-keeping the same filter and ordering. Do not add `total`; it is legacy-only. If a
-screen needs a count, use a separate Count RPC. Do not stream list pages.
-
-For example, this illustrative API puts the continuation anchor directly on the
-request. The orders and default below are examples; each API defines its own
-supported orders and default.
+- One sort order enum per API, listing only the supported orders, with the direction built into each value. The `…_UNSPECIFIED = 0` value is the documented default order.
+- Prefer sort orders whose values do not change (creation time). Items sorted by a value that changes (name) move when it changes.
 
 ```proto
-syntax = "proto3";
-
-package example.v1;
-
-service ItemService {
-  rpc ListItems(ListItemsRequest) returns (ListItemsResponse);
+message ListDevicesRequest {
+  DeviceQuery query = 1;
+  ListRange range = 2;
+  int32 preceding = 3;
+  int32 following = 4;
+  optional int32 limit = 5;
+  string etag = 6;           // optional: etag of the previous response to the same request
 }
 
-message ListItemsRequest {
-  // Last returned item's ID, excluded; unset starts the first page.
-  optional string after_id = 1;
-  // Result order; UNSPECIFIED uses ID_ASC in this example API.
-  ItemOrder order = 2;
-  // Unset uses this API's documented default; zero returns no items.
-  optional int32 limit = 3;
-  // Optional filter; keep the same value on every page.
-  optional string query = 4;
+message DeviceQuery {
+  string search = 1;
+  optional bool online = 2;
+  DeviceSortOrder sort_order = 3;
 }
+```
 
-message ListItemsResponse {
-  // Visible items in the selected result order.
-  repeated Item items = 1;
-  // More visible items remain after this page in the selected order.
-  bool has_more = 2;
+### Range
+
+- The range is a part of the list, given by a start and an end.
+- Start, one of:
+  - unset: the top of the list,
+  - `from`: an anchor, inclusive,
+  - `after`: an anchor, exclusive,
+  - `at`: a position in the list, for jumping to a part the client has not loaded. After a jump, clients continue by anchor.
+- End, one of:
+  - unset: the bottom of the list,
+  - `through`: an anchor, inclusive,
+  - `up_to`: an anchor, exclusive.
+- A start after the end gives an empty range. A range can also be empty on purpose, for example `from: A, up_to: A`, to fetch only overhang around A.
+
+Recommended:
+
+- One shared `ListRange` message for all APIs.
+
+```proto
+message ListRange {
+  oneof start {             // unset = the top
+    ListAnchor from = 1;    // inclusive
+    ListAnchor after = 2;   // exclusive
+    int32 at = 3;           // position, for jumps
+  }
+  oneof end {               // unset = the bottom
+    ListAnchor through = 4; // inclusive
+    ListAnchor up_to = 5;   // exclusive
+  }
 }
+```
 
-message Item {
-  // The item's UUIDv4.
+### Overhang and limit
+
+- `preceding` is the number of extra items before the range, counted backwards from its start bound. `following` is the number of extra items after the range, counted on from its end bound. Both are cut off at the edges of the list.
+- `limit` is the most items a response contains, overhang included. Unset means the API's default.
+- The range is filled first, from its start. An open range takes the whole limit, so it gets overhang only if it runs out first.
+- What is left goes to the overhang. If both sides fit, each gets what it asked for. Otherwise the rest is split in proportion to the two requests: `preceding` gets its share rounded up, `following` gets the remainder. Neither side ever gets more than it asked for, and a side that reaches an edge of the list leaves the rest to the other side.
+- A response is always one contiguous part of the list, without gaps.
+
+Example: a range of 70 items with `preceding: 10, following: 1`. With `limit: 100` the response has 10 + 70 + 1 items. With `limit: 75` it has 5 + 70 + 0. With `limit: 70` it has the range only.
+
+### Anchors
+
+- An anchor marks a position in the list. It is compared against the items, never used to fetch the item it came from. A bound whose item was deleted still positions correctly, between the items that were around it.
+- An API uses one of two anchor variants, depending on whether it keeps deleted items as tombstones. Everything else is the same in both.
+  - **With tombstones:** the anchor is the item ID. The server finds the position from the item or its tombstone.
+  - **Without tombstones:** the anchor is the item's sort values for the current sort order, plus its ID. It positions correctly no matter how many items around it were deleted.
+- The server returns one anchor per item. Clients use those anchors as bounds and treat them as opaque.
+- An anchor belongs to the query it was returned for. The server rejects an anchor it can tell came from a different query.
+
+Recommended:
+
+- One shared `ListAnchor` message for all APIs, with typed sort values. SDKs type anchors by item, so a device anchor cannot be passed to the apps API.
+- Without tombstones, include a short hash of the API and the normalized query, issued by the server. It is optional and a safeguard against bugs, not a security feature. Without a hash, check that the number and types of sort values match the sort order.
+- Keep sort values at full precision, for example timestamps in microseconds, so comparisons match the stored data.
+
+```proto
+// With tombstones
+message ListAnchor {
   string id = 1;
 }
 
-enum ItemOrder {
-  // Uses ITEM_ORDER_ID_ASC.
-  ITEM_ORDER_UNSPECIFIED = 0;
-  ITEM_ORDER_ID_ASC = 1;
-  ITEM_ORDER_ID_DESC = 2;
-  // Creation time descending, then ID descending for ties.
-  ITEM_ORDER_CREATED_AT_DESC = 3;
+// Without tombstones
+message ListAnchor {
+  optional bytes query_hash = 1;           // issued by the server
+  string id = 2;                           // final tie-breaker
+  repeated ListSortValue sort_values = 3;  // in the sort order's column order
+}
+
+message ListSortValue {
+  oneof value {                            // unset = null
+    string string = 1;
+    int64 integer = 2;
+    google.protobuf.Timestamp timestamp = 3;
+    bool boolean = 4;
+  }
 }
 ```
 
-Swift SDKs expose the exclusive continuation anchor as `after:`. For example,
-with the same filter and order configured on `items`:
+### Response
 
-```swift
-// First page, then continue after its last item.
-let firstPage = try await items.list(limit: 20)
-if firstPage.hasMore, let last = firstPage.items.last {
-    let nextPage = try await items.list(after: last.id, limit: 20)
+- The response has:
+  - the items in list order: preceding, then the range, then following,
+  - one anchor per item,
+  - `index`: the position of the range's first item in the whole list, exact,
+  - `count`: the number of items in the range, exact,
+  - `total`: the number of items in the whole list, may be estimated,
+  - `preceding` and `following`: how many overhang items were actually returned.
+- Items, positions and counts come from one consistent read.
+- Every list API returns `index`.
+- Edges of the list:
+  - The top is reached when `index - preceding == 0`.
+  - The bottom is reached when fewer than `limit` items came back and the part running toward the bottom came back short: `following` smaller than asked, or the range itself if its end is open.
+
+Recommended:
+
+- Return an exact `total` where counting is cheap. Estimate it only where an exact count is expensive.
+- Make the position counts cheap, for example with database indexes that match each sort order.
+
+```proto
+message ListDevicesResponse {
+  repeated Device devices = 1;
+  repeated ListAnchor anchors = 2;
+  int32 index = 3;
+  int32 count = 4;
+  int32 total = 5;
+  int32 preceding = 6;
+  int32 following = 7;
+  string etag = 8;           // same as the request's etag: unchanged, no items
 }
 ```
 
-These are SDK design examples, not claims about existing generated clients.
-The continuation ID is a string on the wire; SDKs can expose their typed item ID.
+### Unchanged responses
 
-### Ordering and IDs
+Clients refresh often, and usually nothing has changed. A refresh must not send everything again.
 
-Each API has one order enum listing only orders it supports. Put direction in
-each value, such as `ID_ASC` or `CREATED_AT_DESC`. The zero value ends in
-`_UNSPECIFIED` and means the API's documented default. Do not use a separate
-direction field or free-text `order_by` for new APIs.
+- Every response has an `etag` (entity tag, as in HTTP). It is opaque to clients.
+- A request may carry the `etag` of an earlier response to the same request. If nothing in that response would change, the server returns the same `etag` and no items and no anchors. The client sees its own `etag` come back and keeps what it has.
+- An `etag` is only meaningful for the identical request. Any change in query, range, `preceding`, `following` or `limit` gives a full response.
+- A server that does not check `etag`s simply always answers in full.
 
-ID is always the final tie-breaker. For a non-ID order, compare the pair
-`(sort value, ID)` both when ordering results and when applying the continuation
-anchor. "After" refers to a position in this order, including when it is
-descending.
-Send the same filter and ordering on every page.
+Recommended:
 
-IDs stay random UUIDv4. ID order is stable, but it is not chronological. "Newest
-first" means creation-time ordering with ID as the tie-breaker. This is a non-ID
-order, so the server looks up the anchor's creation time.
+- Answer unchanged requests without reading the list: keep a change counter per list (for example per organization and item type), raised in the same transaction as every write, and build the `etag` from that counter plus a hash of the request. An unchanged counter means an unchanged response.
+- Fields that change constantly, such as presence or last-seen times, raise the counter only when their meaning changes (online to offline), or are delivered another way.
+- Where no counter exists, hash the built response as the `etag`. That saves transfer and client work, not server work.
+- Keep an estimated `total` stable between refreshes, so small fluctuations do not cause full responses.
 
-### Deleted anchors and changed sort values
+### Validation
 
-Gone is gone. A deleted row is deleted: no soft deletion, no tombstones, no
-retention period. The audit log keeps the ID, and UIs render a dangling ID as
-"deleted <kind>", for example "deleted device". A device that re-enrols gets a
-new UUID: a new enrolment is a new record.
+- A malformed anchor or a negative `preceding`, `following`, `limit` or `at`: `INVALID_ARGUMENT`.
+- An anchor from a different query, where the server can tell: `FAILED_PRECONDITION`. The client starts over.
+- With tombstones, an anchor ID that is unknown or that the caller may not see: `NOT_FOUND`, the same error in both cases, so the API does not reveal whether an item exists.
+- `limit` above the API's maximum is lowered to the maximum. `limit: 0` returns no items.
+- `at` beyond the bottom gives an empty range at the bottom.
 
-An anchor is a comparison value, never a lookup. A deleted or unknown anchor
-positions normally: the range covers the IDs greater or less than it in result
-order. It is never an error. How a deleted anchor positions in a non-ID order,
-which needs the anchor's sort value, is not settled yet.
+Recommended:
 
-If an item's sort value changes, for example after a rename, use its current
-value. Paging may rarely repeat or skip an item as a result; document this
-behavior.
+- Document the default and maximum `limit` per API. Never lower the maximum within a version.
 
-### Migration of existing APIs
+### Deleted items and changed sort values
 
-For APIs adopting ID-anchored linear pages, add one optional exclusive `after_id`
-alongside legacy pagination fields, deprecate the old fields, and remove them in
-the next API version. Preserve the old fields in the current version. New
-ID-anchored APIs use `after_id` directly on the request. The decisions do not
-specify precedence or an error when a caller supplies both old and new pagination
-fields; that needs to be settled for each migration before implementation.
-Existing token-paged RPC families keep their `page_token`, `page_size` and
-`next_page_token` contracts.
+- A deleted bound still positions correctly (see Anchors).
+- An item whose sort value changes moves to its new position. A client that reloads both positions sees it once.
 
-| API or existing field | Migration |
-| --- | --- |
-| `ListNotificationsV2.before_notification_id` and `after_notification_id` | Add one exclusive `after_id` alongside them, deprecate both, remove in the next version. Translate by verified behavior below, not by the old names. |
-| Postbox `after_entry_id` | When migrated to the shared paging convention, add `after_id` alongside it, deprecate the old field, remove in the next version. |
-| PKI `before_id`, including `GetAuditLog` | For an ID-anchored migration, add `after_id` alongside the old anchor, deprecate the old field, remove in the next version. Existing token pagination is unchanged. |
-| Assets `order_by` | For ID-anchored pages, use `after_id` and a supported-order enum alongside legacy fields. Deprecate free-text `order_by` and remove it in the next version. |
-| `ListOrganizationsV2` in [service-protos #77 — feat(organizations): add stable v2 discovery contract](https://github.com/wendylabsinc/service-protos/pull/77) | Use flat request fields: optional string `after_id = 1`, `order = 2`, optional `limit = 3`, optional `query = 4`. |
-| Legacy streamed offset `ListOrganizations` | Deprecated in favour of `ListOrganizationsV2`; no continuation anchor is added to it. |
+Recommended:
 
-Postbox `after_entry_id` and audit `before_id` currently use integer IDs. Their
-mapping to a string continuation anchor is not specified by these decisions;
-this guide does not prescribe an ID conversion or renumbering. Adding an anchor
-alone does not migrate existing limit or response semantics to the target
-contract. Keep the side-by-side package and compatibility requirements in
-[`API_V2_MIGRATION.md`](API_V2_MIGRATION.md).
+- Clients drop duplicates by ID when two loaded parts overlap, keeping the copy from the newer response.
 
-#### Verified notification behavior
+### Examples
 
-Read-only verification on Cloud `main` at
-`5d1c3b59694fac4b551626a12dd9a7b0cbf87f45`:
-[`NotificationServiceHandler.swift`](https://github.com/wendylabsinc/cloud/blob/5d1c3b59694fac4b551626a12dd9a7b0cbf87f45/swift/Sources/GRPCServices/NotificationServiceHandler.swift#L266)
-and
-[`notifications.query.sql`](https://github.com/wendylabsinc/cloud/blob/5d1c3b59694fac4b551626a12dd9a7b0cbf87f45/swift/Sources/GRPCServices/notifications.query.sql#L136).
+The list is sorted, the screen shows about 20 rows, and `A`, `B` are anchors the server returned.
 
-- The response is newest first, by `(created_at, notification_id)` descending.
-- `before_notification_id` selects tuples **less than** the anchor: older items,
-  excluding the anchor. The query reads them descending. In that result order,
-  this is an exclusive `after_id` continuation.
-- `after_notification_id` selects tuples **greater than** the anchor: newer items,
-  excluding the anchor. The query reads ascending to select the nearest newer
-  items, then the handler reverses the selected page to newest first. A linear
-  replacement for this nearest-newer traversal uses the opposite supported
-  order with an exclusive `after_id`, then reverses the page for display.
-- The handler currently rejects both fields together with `INVALID_ARGUMENT` and
-  the message "before_notification_id and after_notification_id are mutually
-  exclusive". The linear replacement has only one `after_id` anchor.
-- The handler requires limit in `1...100`, looks up anchors within the caller's
-  organization and recipient inbox, reads limit + 1, and returns
-  `more_available`. Results exclude deleted recipient rows. Anchor lookup does
-  not filter on recipient deletion, severity or read status.
+| Situation | Request | Result |
+|---|---|---|
+| Open the screen | `limit: 50` | items 0–49 |
+| Scroll down | `range: {after: last loaded}, limit: 50` | the next 50 |
+| Scroll up | `range: {from: first loaded, up_to: first loaded}, preceding: 50` | the 50 before |
+| Refresh what is visible | `range: {from: A, through: B}, preceding: 20, following: 20` | A to B, plus up to 20 on each side |
+| Pull to refresh | `range: {through: B}` | from the top through B |
+| Jump with the scroll bar | `range: {at: 4980}, limit: 70` | items 4980–5049 |
 
-Do not silently reinterpret the legacy fields or assume their names match the
-new continuation field. The migration must preserve old behavior while
-introducing `after_id` and documenting the selected order's traversal rules.
+## Future work
+
+These list APIs are built for apps that are online: they reload what is on screen. Offline use and spotty connections need more, and will be added on top without changing the list APIs:
+
+- **Diffs:** what changed since the client's last sync, so it can catch up without reloading. A "changed since" RPC needs a record of deletions (tombstones or a deletion log). A stateless alternative compares per-section `etag`s sent by the client.
+- **Caching:** keeping loaded parts of a list on the device and updating them efficiently when the connection returns.
 
 ## Authorization
 
