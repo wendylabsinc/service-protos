@@ -16,3 +16,11 @@ Import these protobuf definitions into your projects to ensure consistent data s
 ## Structure
 
 The protobuf files are organized to support various service interactions and maintain backwards compatibility across different service versions.
+
+## Versioned contracts
+
+See the [compatibility policy](docs/compatibility.md),
+[frozen compatibility views and validation](contracts/README.md), and
+[release/protection procedure](docs/releases.md). The planned first catalogue
+tag is `v1.0.0`. It is not published by this change. Existing root import paths
+remain available. Consumers migrate separately after the tag is approved.
