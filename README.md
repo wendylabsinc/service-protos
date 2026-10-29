@@ -13,7 +13,7 @@ These protobuf files define the common interfaces and data structures used for c
 
 Import these protobuf definitions into your projects to ensure consistent data structures and API contracts across the Wendy ecosystem.
 
-See [API guidelines](API_GUIDELINES.md) for list pagination, errors and authorization.
+See [API guidelines](API_GUIDELINES.md) for list pagination and authorization.
 
 ## Structure
 

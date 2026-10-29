@@ -1,15 +1,24 @@
 # API guidelines
 
 These guidelines record the API decisions approved on 2026-10-22 and the
-tombstone lifecycle refined on 2026-10-28. They describe the target contract for
+deletion rule settled on 2026-10-28: gone is gone. They describe the target contract for
 new and changed APIs. The migration section distinguishes existing behavior from
 that target.
 
 ## List APIs and pagination
 
-Every new or changed list API uses stable pagination anchored by item IDs. Do not
-add offset paging. An anchor is the ID of an item the client has seen, and its
-position is defined by the request's filter and ordering.
+Every new or changed list API uses stable pagination. Do not add offset paging.
+A service picks one of two styles per RPC family and documents its choice:
+
+- ID-anchored: `wendy.IDRange` with `has_more`, as described below.
+- Page tokens: an opaque `page_token` with `page_size`, answered with
+  `next_page_token`. The merged `AccessService` (`ListBindings`,
+  `ListRoleHolders` in `wendycloud/v2/access.proto`) uses page tokens and is a
+  valid precedent.
+
+The rest of this section describes the ID-anchored style. An anchor is the ID
+of an item the client has seen, and its position is defined by the request's
+filter and ordering.
 
 ### One shared range
 
@@ -66,16 +75,9 @@ All nine combinations are valid. In this table, A and B are anchor IDs and
 - If both ends name the same item, the range contains that item only when both
   ends are inclusive. Otherwise it is empty. Filters, deletion and limit still
   determine whether the item is returned.
-- Resolve every anchor against a live record or fully retained tombstone the
-  caller is authorized to access, including in ID order. Unknown anchors and
-  anchors past retention are errors.
-- Inaccessible anchors and anchors past retention get the same error as not-found
-  anchors. Do not reveal whether an item the caller cannot access exists. AAA
-  applies.
-
-The decisions do not select a specific status code for not-found, inaccessible
-or past-retention anchors. An API must not infer different errors that reveal
-existence.
+- An anchor is a comparison value, never a lookup. A deleted, unknown or
+  inaccessible anchor positions normally and is never an error, so a response
+  reveals nothing about whether it exists. AAA applies to the returned items.
 
 Use `optional int32 limit`:
 
@@ -94,10 +96,10 @@ API version. There is no global default or maximum specified here.
 Use a unary RPC: one page per call. Return `repeated` items in result order and
 `bool has_more`. The server reads up to the effective limit + 1 matching items
 within the range, returns at most the limit, and uses the extra item to determine
-`has_more`. Tombstones are not result items.
+`has_more`.
 
-Do not return a cursor. Continue with `after: <last returned ID>`, keeping the
-same end bound, filter and ordering. Do not add `total`; it is legacy-only. If a
+An ID-anchored API returns no cursor. Continue with `after: <last returned ID>`,
+keeping the same end bound, filter and ordering. Do not add `total`; it is legacy-only. If a
 screen needs a count, use a separate Count RPC. Do not stream list pages.
 
 For example, this illustrative API imports the shared range. The orders and
@@ -182,27 +184,19 @@ order, so the server looks up the anchor's creation time.
 
 ### Deleted anchors and changed sort values
 
-Every list API uses soft deletion with tombstones, including ID-ordered lists.
-Deletion hides the item from results and removes its live authority. Keep the
-full item content intact in the tombstone for the retention period, 30 days by
-default. After retention, erase everything except the bare ID for security:
-content, owner, sort-key columns and visibility data do not survive. Keep the ID
-forever and never reuse it. Tombstones are never returned in results.
+Gone is gone. A deleted row is deleted: no soft deletion, no tombstones, no
+retention period. The audit log keeps the ID, and UIs render a dangling ID as
+"deleted <kind>", for example "deleted device". A device that re-enrols gets a
+new UUID: a new enrolment is a new record.
 
-Keep tombstones even if the current order does not need retained sort values:
-future supported orders must work under the same deletion policy. Choose the
-retention period long enough to make pagination inconsistency unlikely.
-
-Resolve anchors against live records or fully retained tombstones the caller is
-authorized to access. Anchors past retention can no longer be positioned,
-including in ID order: return the same error as not found and the client
-restarts. An anchor the caller could not access while it existed gets the same
-error as not found.
+An anchor is a comparison value, never a lookup. A deleted or unknown anchor
+positions normally: the range covers the IDs greater or less than it in result
+order. It is never an error. How a deleted anchor positions in a non-ID order,
+which needs the anchor's sort value, is not settled yet.
 
 If an item's sort value changes, for example after a rename, use its current
 value. Paging may rarely repeat or skip an item as a result; document this
-behavior. Cloud deletion changes are subject to AAA. The guide and shared proto
-do not implement that storage behavior.
+behavior.
 
 ### Migration of existing APIs
 
@@ -219,7 +213,7 @@ to be settled for each migration before implementation.
 | PKI `before_id` and `page_token`, including `GetAuditLog` | Add `IDRange` alongside them, deprecate the old fields, remove in the next version. New list APIs use a unary page response. |
 | Assets `order_by` | Add `IDRange` and a supported-order enum alongside the legacy fields. Deprecate free-text `order_by` and remove it in the next version. |
 | `ListOrganizationsV2` in [service-protos #77 — feat(organizations): add stable v2 discovery contract](https://github.com/wendylabsinc/service-protos/pull/77) | Adopt `IDRange` directly. |
-| Legacy offset `ListOrganizations` | Leave it as it is. |
+| Legacy streamed offset `ListOrganizations` | Deprecated in favour of `ListOrganizationsV2`; no `IDRange` is added to it. |
 
 Postbox `after_entry_id` and audit `before_id` currently use integer IDs. Their
 mapping to the shared string anchor fields is not specified by these decisions;
@@ -256,12 +250,6 @@ and
 Do not silently reinterpret the legacy fields or assume their names match the
 new range terms. The migration must preserve old behavior while introducing the
 new range and documenting the changed traversal rules.
-
-## Errors
-
-Use gRPC status codes for the error category. Include a ready-to-show English
-sentence in `google.rpc.LocalizedMessage`, with `locale = "en-US"`. This guide
-does not define a complete per-RPC error-code mapping.
 
 ## Authorization
 
