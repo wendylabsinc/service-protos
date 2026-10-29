@@ -1,0 +1,217 @@
+syntax = "proto3";
+
+package wendy.agent.services.v1;
+
+import "wendy/agent/services/v1/shared.proto";
+
+service WendyContainerService {
+    rpc ListLayers(ListLayersRequest) returns (stream LayerHeader);
+    rpc WriteLayer(stream WriteLayerRequest) returns (stream WriteLayerResponse);
+    rpc CreateContainer(CreateContainerRequest) returns (CreateContainerResponse);
+    rpc CreateContainerWithProgress(CreateContainerRequest) returns (stream CreateContainerProgressResponse);
+    rpc RunContainer(RunContainerLayersRequest) returns (stream RunContainerLayersResponse);
+    rpc StartContainer(StartContainerRequest) returns (stream RunContainerLayersResponse);
+    rpc AttachContainer(stream AttachContainerRequest) returns (stream RunContainerLayersResponse);
+    rpc StopContainer(StopContainerRequest) returns (StopContainerResponse);
+    rpc DeleteContainer(DeleteContainerRequest) returns (DeleteContainerResponse);
+    rpc ListContainers(ListContainersRequest) returns (stream ListContainersResponse);
+    rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
+    rpc RemoveVolume(RemoveVolumeRequest) returns (RemoveVolumeResponse);
+    rpc ListContainerStats(ListContainerStatsRequest) returns (ListContainerStatsResponse);
+    rpc StreamMCP(stream MCPChunk) returns (stream MCPChunk);
+}
+
+message ListContainersRequest {}
+
+message ListContainersResponse {
+    AppContainer container = 1;
+}
+
+message ListLayersRequest {}
+
+message WriteLayerRequest {
+    string digest = 1;
+
+    bytes data = 2;
+}
+
+message WriteLayerResponse {}
+
+message LayerHeader {
+    // The hash identity of the layer.
+    string digest = 1;
+
+    int64 size = 2;
+}
+
+message RunContainerLayersRequest {
+    // Unique name for the container image
+    string image_name = 1;
+
+    string app_name = 2;
+
+    // The command to run when the container starts.
+    string cmd = 3;
+
+    // The layers that will be uploaded to the agent.
+    repeated RunContainerLayerHeader layers = 4;
+
+    /// The `wendy.json` file as found in the project
+    bytes app_config = 5;
+
+    // Optional restart policy override for Docker runtime.
+    optional RestartPolicy restart_policy = 6;
+
+    string working_dir = 7;
+
+    // User-provided runtime arguments to append to the container entrypoint.
+    repeated string user_args = 8;
+}
+
+message CreateContainerRequest {
+    string image_name = 1;
+    string app_name = 2;
+    string cmd = 3;
+    bytes app_config = 4;
+    string working_dir = 5;
+    optional RestartPolicy restart_policy = 6;
+    repeated string user_args = 7;
+}
+
+message CreateContainerResponse {}
+
+message CreateContainerProgress {
+    enum Phase {
+        PHASE_UNSPECIFIED = 0;
+        UNPACKING = 1;
+        APPLYING_LAYER = 2;
+        CREATING_CONTAINER = 3;
+        COMPLETE = 4;
+    }
+
+    Phase phase = 1;
+    int32 layer_index = 2;
+    int32 total_layers = 3;
+    int64 layer_size = 4;
+    bool reused_snapshot = 5;
+}
+
+message CreateContainerProgressResponse {
+    oneof response_type {
+        CreateContainerProgress progress = 1;
+        CreateContainerResponse completed = 2;
+    }
+}
+
+message StartContainerRequest {
+    string app_name = 1;
+
+    // Optional restart policy override. When unset the agent uses its default.
+    optional RestartPolicy restart_policy = 2;
+}
+
+// AttachContainerRequest is the client-to-server message for AttachContainer.
+// The first message must set app_name; subsequent messages carry stdin data.
+message AttachContainerRequest {
+    oneof request_type {
+        string app_name = 1;
+        bytes stdin_data = 2;
+    }
+}
+
+message RunContainerLayerHeader {
+    // The hash identity of the layer.
+    string digest = 1;
+
+    int64 size = 2;
+
+    string diff_id = 3;
+
+    // Whether the layer is compressed with gzip.
+    // Deprecated: use compression instead. Kept for backward compatibility with
+    // older CLIs that do not send the compression field.
+    bool gzip = 4;
+
+    // Compression format of the layer blob. When set to a non-zero value,
+    // takes precedence over the gzip field.
+    CompressionType compression = 5;
+
+    enum CompressionType {
+        COMPRESSION_GZIP = 0;  // default; treated as gzip when gzip=true, uncompressed when gzip=false
+        COMPRESSION_ZSTD = 1;
+        COMPRESSION_NONE = 2;
+    }
+}
+
+message RunContainerLayersResponse {
+    oneof response_type {
+        Started started = 1;
+        ConsoleOutput stdout_output = 2;
+        ConsoleOutput stderr_output = 3;
+    }
+
+    message Started {}
+
+    message ConsoleOutput {
+        bytes data = 1;
+    }
+}
+
+message StopContainerRequest {
+    string app_name = 1;
+}
+
+message StopContainerResponse {}
+
+message DeleteContainerRequest {
+    string app_name = 1;
+
+    // Optionally delete the container image as well (useful for freeing space)
+    bool delete_image = 2;
+
+    // Optionally delete persistent volumes at /var/lib/wendy/volumes/
+    bool delete_volumes = 3;
+}
+
+message DeleteContainerResponse {}
+
+// --- Volume management ---
+
+message ListVolumesRequest {}
+
+message VolumeInfo {
+    string name = 1;
+    string path = 2;
+    int64 size_bytes = 3;
+    // RFC 3339 UTC (directory mtime — may update when files are added/removed)
+    string created_at = 4;
+    repeated string used_by = 5;
+}
+
+message ListVolumesResponse {
+    repeated VolumeInfo volumes = 1;
+}
+
+message RemoveVolumeRequest {
+    string name = 1;
+}
+
+message RemoveVolumeResponse {}
+
+// --- Container stats ---
+
+message ContainerStats {
+    string app_name = 1;
+    int64 memory_bytes = 2;   // current cgroup memory usage
+    int64 storage_bytes = 3;  // container image content size only (excludes writable layer/snapshot usage)
+}
+
+message ListContainerStatsRequest {}
+
+message ListContainerStatsResponse {
+    repeated ContainerStats stats = 1;
+}
+
+message MCPChunk {
+    bytes data = 1;
+}

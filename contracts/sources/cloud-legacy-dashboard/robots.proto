@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/empty.proto";
+
+service RobotService {
+  rpc CreateRobot(CreateRobotRequest) returns (Robot);
+  rpc ListRobots(ListRobotsRequest) returns (stream ListRobotsResponse);
+  rpc DeleteRobot(DeleteRobotRequest) returns (google.protobuf.Empty);
+}
+
+message Robot {
+  int64 id = 1;
+  int64 organization_id = 2;
+  string name = 3;
+}
+
+message CreateRobotRequest {
+  int64 organization_id = 1;
+  string name = 2;
+}
+
+message ListRobotsRequest {
+  int64 organization_id = 1;
+}
+
+message ListRobotsResponse {
+  Robot robot = 1;
+}
+
+message DeleteRobotRequest {
+  int64 id = 1;
+  int64 organization_id = 2;
+}

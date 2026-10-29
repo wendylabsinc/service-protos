@@ -1,0 +1,104 @@
+[
+  {
+    "repository": "cloud",
+    "commit": "6803e3a8e02c00551b9d205b0fcbdcb614fece91",
+    "views": [
+      "cloud-main-shared",
+      "cloud-main-local"
+    ],
+    "generation": [
+      {
+        "path": "swift/scripts/generate-proto.sh",
+        "url": "https://github.com/wendylabsinc/cloud/blob/6803e3a8e02c00551b9d205b0fcbdcb614fece91/swift/scripts/generate-proto.sh"
+      },
+      {
+        "path": "console/buf.gen.yaml",
+        "url": "https://github.com/wendylabsinc/cloud/blob/6803e3a8e02c00551b9d205b0fcbdcb614fece91/console/buf.gen.yaml"
+      }
+    ],
+    "missing_required_source": {
+      "path": "image_assignment.proto",
+      "submodule_commit": "00abc671dd027853d95cd79ceb92ee661b9231d2",
+      "effect": "Existing Swift generator fails its presence check. Resolve before consumer migration."
+    }
+  },
+  {
+    "repository": "cloud",
+    "commit": "6b0128da9f25b0a78692635ed8b1210d5f33beee",
+    "views": [
+      "cloud-legacy-shared",
+      "cloud-legacy-dashboard"
+    ],
+    "generation": [
+      {
+        "path": "dashboard/scripts/generate-protos.sh",
+        "url": "https://github.com/wendylabsinc/cloud/blob/6b0128da9f25b0a78692635ed8b1210d5f33beee/dashboard/scripts/generate-protos.sh"
+      }
+    ]
+  },
+  {
+    "repository": "WendyOS",
+    "commit": "ff6098ee34985749f4d9caf0459b3832549c4a6a",
+    "views": [
+      "wendyos"
+    ],
+    "generation": [
+      {
+        "path": "go/scripts/generate-proto.sh",
+        "url": "https://github.com/wendylabsinc/WendyOS/blob/ff6098ee34985749f4d9caf0459b3832549c4a6a/go/scripts/generate-proto.sh"
+      },
+      {
+        "path": "swift/Scripts/GenerateProto.sh",
+        "url": "https://github.com/wendylabsinc/WendyOS/blob/ff6098ee34985749f4d9caf0459b3832549c4a6a/swift/Scripts/GenerateProto.sh"
+      }
+    ]
+  },
+  {
+    "repository": "wendy-companion-ios",
+    "commit": "d4354168efe630448f66d5e87dd3ddec569ed020",
+    "views": [
+      "companion"
+    ],
+    "generation": [
+      {
+        "path": "WendyCompanionSDK/Package.swift",
+        "url": "https://github.com/wendylabsinc/wendy-companion-ios/blob/d4354168efe630448f66d5e87dd3ddec569ed020/WendyCompanionSDK/Package.swift"
+      },
+      {
+        "path": "WendyCompanionSDK/Sources/WendyProtos/grpc-swift-proto-generator-config.json",
+        "url": "https://github.com/wendylabsinc/wendy-companion-ios/blob/d4354168efe630448f66d5e87dd3ddec569ed020/WendyCompanionSDK/Sources/WendyProtos/grpc-swift-proto-generator-config.json"
+      }
+    ]
+  },
+  {
+    "repository": "wendy-auth",
+    "commit": "4adf8054e213504f35b6db601d1bcc30ec040fbb",
+    "views": [
+      "auth"
+    ],
+    "generation": [
+      {
+        "path": "Package.swift",
+        "url": "https://github.com/wendylabsinc/wendy-auth/blob/4adf8054e213504f35b6db601d1bcc30ec040fbb/Package.swift"
+      },
+      {
+        "path": "Sources/FabricProto/grpc-swift-proto-generator-config.json",
+        "url": "https://github.com/wendylabsinc/wendy-auth/blob/4adf8054e213504f35b6db601d1bcc30ec040fbb/Sources/FabricProto/grpc-swift-proto-generator-config.json"
+      }
+    ]
+  },
+  {
+    "repository": "pki-core",
+    "commit": "91627406f07c44c82b76e1faa6f8b3bedec83f34",
+    "views": [
+      "pki",
+      "pki-dev-shim"
+    ],
+    "generation": [
+      {
+        "path": "Makefile",
+        "url": "https://github.com/wendylabsinc/pki-core/blob/91627406f07c44c82b76e1faa6f8b3bedec83f34/Makefile"
+      }
+    ]
+  }
+]

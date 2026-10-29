@@ -1,0 +1,158 @@
+"""Adversarial tests use real Buf and independently built before/after graphs."""
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import tempfile
+import unittest
+
+spec = importlib.util.spec_from_file_location('contracts', Path(__file__).with_name('contracts.py'))
+contracts = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(contracts)
+ROOT = contracts.ROOT
+
+
+class CompatibilityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.views = contracts.manifest(ROOT)
+        cls.provenance = contracts.read_json(ROOT / 'contracts/baselines/provenance.json')
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(dir=ROOT / '.contract-work')
+        self.addCleanup(self.temp.cleanup)
+        self.work = Path(self.temp.name)
+
+    def image(self, name, schema):
+        directory = self.work / name
+        directory.mkdir()
+        (directory / 'test.proto').write_text(schema)
+        (directory / 'buf.yaml').write_text(json.dumps(contracts.STRICT))
+        image = self.work / (name + '.binpb')
+        contracts.buf('build', directory, '-o', image)
+        return image
+
+    def assert_breaks(self, before, after, rule):
+        old = self.image('old', before)
+        new = self.image('new', after)
+        with self.assertRaisesRegex(ValueError, rule):
+            contracts.compare(new, old)
+
+    def test_changed_request_type_fails(self):
+        schema = '''syntax = "proto3"; package test.v1;
+message Request {} message Replacement {} message Response {}
+service ExampleService { rpc Call(Request) returns (Response); }
+'''
+        self.assert_breaks(schema, schema.replace('Call(Request)', 'Call(Replacement)'), 'request type')
+
+    def test_removed_enum_value_fails(self):
+        schema = '''syntax = "proto3"; package test.v1;
+enum State { STATE_UNSPECIFIED = 0; STATE_READY = 1; }
+'''
+        self.assert_breaks(schema, schema.replace('STATE_READY = 1;', ''), 'enum value')
+
+    def copy_catalogue(self):
+        dest = self.work / 'repo'
+        shutil.copytree(ROOT, dest, ignore=shutil.ignore_patterns('.git', '.contract-work', '__pycache__'))
+        return dest
+
+    def test_candidate_cannot_be_its_own_baseline(self):
+        with self.assertRaisesRegex(ValueError, 'candidate itself'):
+            contracts.check('HEAD')
+
+    def test_generation_selection_cannot_hide_a_file(self):
+        changed = copy.deepcopy(self.views)
+        changed['cloud-main-local']['roots'].remove('org_invites.proto')
+        with self.assertRaisesRegex(ValueError, 'generation roots'):
+            contracts.verify_sources(ROOT, changed, self.provenance)
+
+    def test_catalogue_cannot_remap_deleted_root(self):
+        changed = copy.deepcopy(self.views)
+        changed['catalogue']['files']['org_invites.proto'] = changed['cloud-main-local']['files']['org_invites.proto']
+        with self.assertRaisesRegex(ValueError, 'repository root'):
+            contracts.verify_sources(ROOT, changed, self.provenance)
+
+    def test_deleted_view_cannot_hide(self):
+        changed = copy.deepcopy(self.views)
+        del changed['cloud-main-local']
+        with self.assertRaisesRegex(ValueError, 'view selection'):
+            contracts.verify_sources(ROOT, changed, self.provenance)
+
+    def test_deleted_graph_file_cannot_hide(self):
+        changed = copy.deepcopy(self.views)
+        del changed['cloud-main-local']['files']['org_invites.proto']
+        with self.assertRaisesRegex(ValueError, 'removed import path|generation roots'):
+            contracts.verify_sources(ROOT, changed, self.provenance)
+
+    def test_source_drift_fails(self):
+        dest = self.copy_catalogue()
+        source = dest / self.views['cloud-main-local']['files']['org_invites.proto']
+        source.write_bytes(source.read_bytes() + b'\n// accidental drift\n')
+        with self.assertRaisesRegex(ValueError, 'source drift'):
+            contracts.verify_sources(dest, self.views, self.provenance)
+
+    def test_config_exemption_fails(self):
+        dest = self.copy_catalogue()
+        config = contracts.read_json(dest / 'buf.yaml')
+        config['breaking']['except'] = ['RPC_SAME_REQUEST_TYPE']
+        (dest / 'buf.yaml').write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, 'configuration differs'):
+            contracts.verify_sources(dest, self.views, self.provenance)
+
+    def test_config_module_exclusion_fails(self):
+        dest = self.copy_catalogue()
+        config = contracts.read_json(dest / 'buf.yaml')
+        config['modules'][0]['excludes'].append('wendycloud')
+        (dest / 'buf.yaml').write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, 'configuration differs'):
+            contracts.verify_sources(dest, self.views, self.provenance)
+
+    def test_unlisted_source_fails(self):
+        dest = self.copy_catalogue()
+        (dest / 'untracked.proto').write_text('syntax = "proto3";')
+        with self.assertRaisesRegex(ValueError, 'unmanifested'):
+            contracts.verify_sources(dest, self.views, self.provenance)
+
+    def test_conformance_fixture_drift_fails(self):
+        dest = self.copy_catalogue()
+        source = dest / 'conformance/reqsig/signed-request-vectors-v1.json'
+        source.write_bytes(source.read_bytes() + b'\n')
+        with self.assertRaisesRegex(ValueError, 'fixture drift'):
+            contracts.verify_sources(dest, self.views, self.provenance)
+
+    def test_baseline_descriptor_drift_fails(self):
+        dest = self.copy_catalogue()
+        (dest / 'contracts/baselines/cloud-main-local.binpb').write_bytes(b'')
+        with self.assertRaisesRegex(ValueError, 'descriptor drift'):
+            contracts.verify_sources(dest, self.views, self.provenance)
+
+    def test_signed_method_option_change_fails(self):
+        before = contracts.build(ROOT, 'before', self.views['catalogue'], self.work)
+        module = self.work / 'before'
+        proto = module / 'wendycloud/v2/apps.proto'
+        proto.write_text(proto.read_text().replace('option (wendy.signed_request) = true;', '', 1))
+        after = self.work / 'after.binpb'
+        contracts.buf('build', module, '-o', after)
+        with self.assertRaisesRegex(ValueError, 'signed-request contract'):
+            contracts.compare(after, before)
+
+    def test_additive_field_passes(self):
+        schema = 'syntax = "proto3"; package test.v1; message Request { string id = 1; }'
+        before = self.image('old', schema)
+        after = self.image('new', schema.replace('string id = 1;', 'string id = 1; optional string name = 2;'))
+        contracts.compare(after, before)
+
+    def test_materialized_graph_matches_capture_exactly(self):
+        for name, view in self.views.items():
+            with self.subTest(view=name):
+                image = contracts.build(ROOT, name, view, self.work)
+                if name == 'catalogue':
+                    contracts.compare(image, ROOT / 'contracts/baselines/catalogue.binpb')
+                else:
+                    self.assertEqual(contracts.digest(image), self.provenance['views'][name]['descriptor_sha256'])
+
+
+if __name__ == '__main__':
+    unittest.main()
