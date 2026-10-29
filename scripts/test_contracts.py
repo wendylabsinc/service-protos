@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('contracts', Path(__file__).with_name('contracts.py'))
 contracts = importlib.util.module_from_spec(spec)
@@ -57,6 +58,21 @@ enum State { STATE_UNSPECIFIED = 0; STATE_READY = 1; }
         dest = self.work / 'repo'
         shutil.copytree(ROOT, dest, ignore=shutil.ignore_patterns('.git', '.contract-work', '__pycache__'))
         return dest
+
+    def test_stable_tag_selection_uses_numeric_versions(self):
+        with patch.object(contracts, 'run', return_value='v1.9.0\nv1.10.0\nv2.0.0-rc.1\nother\nv1.0.0\n'):
+            self.assertEqual(contracts.stable_tags(), ['v1.0.0', 'v1.9.0', 'v1.10.0'])
+
+    def test_independent_previous_graph_catches_later_deletion(self):
+        # The initial migration image cannot know a field added in a later release.
+        initial = 'syntax = "proto3"; package test.v1; message Request { string id = 1; }'
+        released = initial.replace('string id = 1;', 'string id = 1; string later = 2;')
+        old = self.image('migration', initial)
+        stable = self.image('stable', released)
+        candidate = self.image('candidate', initial)
+        contracts.compare(candidate, old)
+        with self.assertRaisesRegex(ValueError, 'field'):
+            contracts.compare(candidate, stable)
 
     def test_candidate_cannot_be_its_own_baseline(self):
         with self.assertRaisesRegex(ValueError, 'candidate itself'):

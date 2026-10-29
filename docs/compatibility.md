@@ -52,8 +52,7 @@ consumer/API views need explicit owner-reviewed graph and baseline additions.
 
 Every PR runs the `contracts` check, with no path-filter escape. Every view must
 build and lint on Linux and Windows. Strict Buf `FILE` comparison uses both the
-PR base's independently assembled graphs and the latest stable catalogue tag
-reachable from that base. First-release comparisons use captured pre-migration
+PR base's independently assembled graphs and the latest fetched stable catalogue tag. First-release comparisons use captured pre-migration
 descriptors, even when no tag exists. The initial graphs stay checked forever
 unless a separately reviewed policy change explicitly retires a baseline.
 

@@ -149,8 +149,8 @@ def compare(candidate, previous):
             raise ValueError(f'signed-request contract changed: {method}')
 
 
-def stable_tags(base):
-    tags = run('git', 'tag', '--merged', base, cwd=ROOT).splitlines()
+def stable_tags():
+    tags = run('git', 'tag', '--list', cwd=ROOT).splitlines()
     versions = [(tuple(map(int, t[1:].split('.'))), t) for t in tags
                 if re.fullmatch(r'v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', t)]
     return [t for _, t in sorted(versions)]
@@ -187,18 +187,18 @@ def check(base):
         for name, image in images.items():
             compare(image, ROOT / f'contracts/baselines/{name}.binpb')
         references = [('PR base', base_root)]
-        tags = stable_tags(base)
+        tags = stable_tags()
         if tags:
             references.append((tags[-1], snapshot(tags[-1], work / 'stable')))
         else:
             print('Stable baseline: captured pre-migration descriptors (no stable tag yet)')
-        for label, previous_root in references:
+        for index, (label, previous_root) in enumerate(references):
             old_manifest = previous_root / 'contracts/views.json'
             if old_manifest.exists():
                 previous = manifest(previous_root)
                 if not set(previous) <= set(views):
                     raise ValueError(f'{label}: candidate deleted a compatibility view')
-                outputs = work / ('previous-' + str(len(list(work.iterdir()))))
+                outputs = work / f'previous-{index}'
                 outputs.mkdir()
                 for name, view in previous.items():
                     compare(images[name], build(previous_root, name, view, outputs))
