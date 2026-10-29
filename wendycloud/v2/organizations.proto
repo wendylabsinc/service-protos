@@ -19,9 +19,8 @@ service OrganizationService {
   rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse) {
     option deprecated = true;
   }
-  // Stable discovery following API_GUIDELINES.md.
-  // Lists only direct memberships; access derived solely from realm groups is
-  // excluded.
+  // Stable discovery following API_GUIDELINES.md: the organizations the caller
+  // is a member of.
   rpc ListOrganizationsV2(ListOrganizationsV2Request) returns (ListOrganizationsV2Response);
 
   // Signed; payload_type "wendycloud.v2.AddMemberRequest".
@@ -62,6 +61,12 @@ service OrganizationService {
   // role, an invite created without one) and whether a group mapping replaces it (WDY-3877).
   // Gate: `member:set-role`. The default never applies to the adopting owner or to service
   // accounts. Read back through GetOrganization.
+  //
+  // The default is a pair (WDY-4052): an organization role (default_role_id) and a device role
+  // (default_device_role_id), both bound at organization scope. Every new member receives the
+  // device role, whatever organization role they join with, unless a group mapping replaced the
+  // default at join (skip_default_when_group_mapped); the adopting owner holds Device manager
+  // through ownership instead. Changing either half does not affect current members.
   // Signed; payload_type "wendycloud.v2.SetMemberDefaultsRequest".
   rpc SetMemberDefaults(SignedRequest) returns (Organization) {
     option (wendy.signed_request) = true;
@@ -97,6 +102,10 @@ message Organization {
   // gets no role of their own (role_source "none"); the mapping decides. Filled by
   // GetOrganization.
   bool skip_default_when_group_mapped = 10;
+  // The device role every new member receives at organization scope next to default_role_id
+  // (WDY-4052). Empty means none: the member reaches no device until someone binds a device
+  // role. New organizations start at Device manager. Filled by GetOrganization.
+  string default_device_role_id = 11;
 }
 
 message OrganizationMember {
@@ -125,11 +134,15 @@ message OrganizationMember {
   optional int32 device_access_count = 10;
 }
 
-// An organization together with the authenticated caller's direct membership.
-// Member is always present, including when the member has no personal role.
+// An organization together with the authenticated caller's membership identity.
+// Roles and reach come from AccessService (GetEffectivePermissions, ListBindings),
+// not from this message.
 message OrganizationAccess {
   Organization organization = 1;
-  OrganizationMember member = 2;
+  // The caller's OrganizationMember.id in this organization.
+  string member_id = 2;
+  // When the caller joined: OrganizationMember.created_at.
+  google.protobuf.Timestamp joined_at = 3;
 }
 
 message CreateOrganizationRequest {
@@ -188,9 +201,9 @@ enum ListOrganizationsV2Order {
   LIST_ORGANIZATIONS_V2_ORDER_ID_ASC = 2;
 }
 
-// Range, limit, ordering, continuation, and tombstone lifecycle follow
-// API_GUIDELINES.md for every order. Past-retention anchors cannot be positioned;
-// clients restart after the uniform anchor error. Retained IDs grant no access.
+// Range, limit, ordering and continuation follow API_GUIDELINES.md. An anchor is a
+// comparison value, never a lookup: a deleted or unknown anchor positions normally
+// (IDs greater or less than it in result order) and is never an error.
 message ListOrganizationsV2Request {
   wendy.IDRange range = 1;
   // Default: canonical organization UUID descending.
@@ -283,6 +296,12 @@ message SetMemberDefaultsRequest {
   // Sets the default to "No role".
   bool clear_default = 3;
   bool skip_default_when_group_mapped = 4;
+  // The new default device role: a device-kind role, built-in or one of this organization's own,
+  // held in full by the caller. Absent with clear_device_default false leaves the device default
+  // unchanged (older consoles send neither). Ignored when clear_device_default is true.
+  optional string default_device_role_id = 5;
+  // Sets the default device role to none.
+  bool clear_device_default = 6;
 }
 
 message TransferOwnershipRequest {
