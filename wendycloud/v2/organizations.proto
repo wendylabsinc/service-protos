@@ -3,7 +3,7 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
-import "wendy/id_range.proto";
+import "wendy/list_range.proto";
 import "wendy/options.proto";
 import "wendycloud/v2/signed_request.proto";
 
@@ -201,25 +201,55 @@ enum ListOrganizationsV2Order {
   LIST_ORGANIZATIONS_V2_ORDER_ID_ASC = 2;
 }
 
-// Range, limit, ordering and continuation follow API_GUIDELINES.md. An anchor is a
-// comparison value, never a lookup: a deleted or unknown anchor positions normally
-// (IDs greater or less than it in result order) and is never an error.
-message ListOrganizationsV2Request {
-  wendy.IDRange range = 1;
-  // Default: canonical organization UUID descending.
-  ListOrganizationsV2Order order = 2;
-  // Default when unset: 100. Maximum: 200.
-  // Other limit semantics follow API_GUIDELINES.md.
-  optional int32 limit = 3;
-  // Case-insensitive substring match over organization name and domain.
-  optional string query = 4;
+// The organization list: the existing name/domain search and supported ID orders.
+// Send the same query on every request for the same list.
+message OrganizationQuery {
+  // Literal case-insensitive substring match over organization name and domain.
+  // Empty returns the unfiltered list.
+  string search = 1;
+  // Default: canonical organization UUID descending. Only ID_DESC and ID_ASC
+  // are supported; UUID order is not chronological.
+  ListOrganizationsV2Order sort_order = 2;
 }
 
+// Range, overhang, validation and unchanged responses follow API_GUIDELINES.md.
+// Uses the anchor variant without tombstones: id is the canonical organization
+// UUID and sort_values is empty, since the ID is the complete sort key in both
+// supported orders. An optional query_hash covers this API, normalized search
+// and effective sort order. Deleted or unknown anchors are comparison values,
+// never lookups, and position normally.
+message ListOrganizationsV2Request {
+  OrganizationQuery query = 1;
+  wendy.ListRange range = 2;
+  int32 preceding = 3;
+  int32 following = 4;
+  // Default when unset: 100. Maximum: 200, including overhang.
+  // Other limit semantics follow API_GUIDELINES.md.
+  optional int32 limit = 5;
+  // Etag of an earlier response to the identical request; see API_GUIDELINES.md.
+  string etag = 6;
+}
+
+// Items, positions and counts come from one consistent read. Response and etag
+// semantics follow API_GUIDELINES.md.
 message ListOrganizationsV2Response {
-  // Items in result order, following API_GUIDELINES.md.
+  // Items in list order: preceding, then the range, then following.
   repeated OrganizationAccess organization_accesses = 1;
-  // See API_GUIDELINES.md for has_more semantics.
-  bool has_more = 2;
+  // One anchor per returned item, in matching order.
+  repeated wendy.ListAnchor anchors = 2;
+  // Exact position of the range's first item in the whole list.
+  int32 index = 3;
+  // Exact number of returned items in the range, excluding overhang.
+  int32 count = 4;
+  // Number of items in the whole query; may be estimated.
+  int32 total = 5;
+  // Number of overhang items actually returned before the range.
+  int32 preceding = 6;
+  // Number of overhang items actually returned after the range.
+  int32 following = 7;
+  // Opaque response etag. An unchanged response echoes the request's etag
+  // without items or anchors, as described in API_GUIDELINES.md.
+  string etag = 8;
 }
 
 message AddMemberRequest {
