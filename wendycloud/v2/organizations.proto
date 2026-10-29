@@ -19,9 +19,8 @@ service OrganizationService {
   rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse) {
     option deprecated = true;
   }
-  // Stable discovery following API_GUIDELINES.md.
-  // Lists only direct memberships; access derived solely from realm groups is
-  // excluded.
+  // Stable discovery following API_GUIDELINES.md: the organizations the caller
+  // is a member of.
   rpc ListOrganizationsV2(ListOrganizationsV2Request) returns (ListOrganizationsV2Response);
 
   // Signed; payload_type "wendycloud.v2.AddMemberRequest".
@@ -135,11 +134,15 @@ message OrganizationMember {
   optional int32 device_access_count = 10;
 }
 
-// An organization together with the authenticated caller's direct membership.
-// Member is always present, including when the member has no personal role.
+// An organization together with the authenticated caller's membership identity.
+// Roles and reach come from AccessService (GetEffectivePermissions, ListBindings),
+// not from this message.
 message OrganizationAccess {
   Organization organization = 1;
-  OrganizationMember member = 2;
+  // The caller's OrganizationMember.id in this organization.
+  string member_id = 2;
+  // When the caller joined: OrganizationMember.created_at.
+  google.protobuf.Timestamp joined_at = 3;
 }
 
 message CreateOrganizationRequest {
@@ -198,9 +201,9 @@ enum ListOrganizationsV2Order {
   LIST_ORGANIZATIONS_V2_ORDER_ID_ASC = 2;
 }
 
-// Range, limit, ordering, continuation, and tombstone lifecycle follow
-// API_GUIDELINES.md for every order. Past-retention anchors cannot be positioned;
-// clients restart after the uniform anchor error. Retained IDs grant no access.
+// Range, limit, ordering and continuation follow API_GUIDELINES.md. An anchor is a
+// comparison value, never a lookup: a deleted or unknown anchor positions normally
+// (IDs greater or less than it in result order) and is never an error.
 message ListOrganizationsV2Request {
   wendy.IDRange range = 1;
   // Default: canonical organization UUID descending.
