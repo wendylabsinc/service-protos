@@ -28,7 +28,7 @@ single module: its intentional name conflicts represent different deployed APIs.
 
 ## Build and generate
 
-Use Python 3.13.7 and Buf 1.75.0 (CI pins both). From a clean checkout:
+Use Python 3.15.2 and Buf 1.75.0 (CI pins both). From a clean checkout:
 
 ```sh
 python scripts/contracts.py check --base <PR-base-commit>
