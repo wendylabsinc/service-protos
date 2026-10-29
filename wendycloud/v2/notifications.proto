@@ -76,7 +76,9 @@ message NotificationAudience {
   // These never match tenant-defined roles by name (e.g. a custom "admin").
   // Keep this field and its enum values for old notification clients even if
   // member role fields retire. Developer and custom roles use role_ids.
-  repeated OrganizationRole roles = 3;
+  // Deprecated: use role_ids. Supported until retirement under the stability rule.
+  // If roles and role_ids are both set, recipients are their deduplicated union.
+  repeated OrganizationRole roles = 3 [deprecated = true];
   // UUIDs of organization-kind roles available in the target organization:
   // built-in roles (including Developer) or this tenant's custom roles.
   // Reject malformed UUIDs, device-kind roles, foreign-tenant roles, and absent
