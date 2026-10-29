@@ -33,8 +33,6 @@ lint:
       # Custom-option package: the option name `(wendy.signed_request)` is what
       # every annotated RPC spells, so it stays unversioned (like google.api).
       - wendy/options.proto
-      # Shared ID range: APIs import the same unversioned wendy.IDRange.
-      - wendy/id_range.proto
 breaking:
   use:
     - FILE
