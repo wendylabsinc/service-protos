@@ -63,10 +63,28 @@ enum NotificationSeverity {
 message NotificationAudience {
   // At least one selector is required and must resolve to at least one recipient.
   // Cloud resolves the selectors as a deduplicated union, with at most 100 raw
-  // selectors across all three lists and at most 10,000 resolved users.
+  // selectors across user_ids, team_ids, roles, and role_ids (duplicates count)
+  // and at most 10,000 resolved users. Existing source-specific limits still apply.
+  // Role selectors select users assigned organization-role allow bindings,
+  // directly or through Cloud or identity-provider groups in this organization.
+  // They select recipients only; they do not grant recipients any permission.
   repeated string user_ids = 1;
   repeated string team_ids = 2;
+  // Legacy built-in organization-role identities: OWNER -> owner (the single
+  // current Owner), ADMIN -> admin, BILLING_MANAGER -> billing, MEMBER -> member,
+  // VIEWER -> viewer, including the organization halves retained by IAM backfill.
+  // These never match tenant-defined roles by name (e.g. a custom "admin").
+  // Keep this field and its enum values for old notification clients even if
+  // member role fields retire. Developer and custom roles use role_ids.
   repeated OrganizationRole roles = 3;
+  // UUIDs of organization-kind roles available in the target organization:
+  // built-in roles (including Developer) or this tenant's custom roles.
+  // Reject malformed UUIDs, device-kind roles, foreign-tenant roles, and absent
+  // roles; failures must not disclose whether a role exists in another tenant.
+  // Requires a server that supports role_ids. Older protobuf servers ignore this
+  // field, so even mixed old/new selectors can silently omit intended recipients.
+  // Deploy supporting Cloud behavior before clients send role_ids.
+  repeated string role_ids = 4;
 }
 
 message NotificationSection {
