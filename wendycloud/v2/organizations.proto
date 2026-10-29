@@ -62,6 +62,12 @@ service OrganizationService {
   // role, an invite created without one) and whether a group mapping replaces it (WDY-3877).
   // Gate: `member:set-role`. The default never applies to the adopting owner or to service
   // accounts. Read back through GetOrganization.
+  //
+  // The default is a pair (WDY-4052): an organization role (default_role_id) and a device role
+  // (default_device_role_id), both bound at organization scope. Every new member receives the
+  // device role, whatever organization role they join with, unless a group mapping replaced the
+  // default at join (skip_default_when_group_mapped); the adopting owner holds Device manager
+  // through ownership instead. Changing either half does not affect current members.
   // Signed; payload_type "wendycloud.v2.SetMemberDefaultsRequest".
   rpc SetMemberDefaults(SignedRequest) returns (Organization) {
     option (wendy.signed_request) = true;
@@ -97,6 +103,10 @@ message Organization {
   // gets no role of their own (role_source "none"); the mapping decides. Filled by
   // GetOrganization.
   bool skip_default_when_group_mapped = 10;
+  // The device role every new member receives at organization scope next to default_role_id
+  // (WDY-4052). Empty means none: the member reaches no device until someone binds a device
+  // role. New organizations start at Device manager. Filled by GetOrganization.
+  string default_device_role_id = 11;
 }
 
 message OrganizationMember {
@@ -283,6 +293,12 @@ message SetMemberDefaultsRequest {
   // Sets the default to "No role".
   bool clear_default = 3;
   bool skip_default_when_group_mapped = 4;
+  // The new default device role: a device-kind role, built-in or one of this organization's own,
+  // held in full by the caller. Absent with clear_device_default false leaves the device default
+  // unchanged (older consoles send neither). Ignored when clear_device_default is true.
+  optional string default_device_role_id = 5;
+  // Sets the default device role to none.
+  bool clear_device_default = 6;
 }
 
 message TransferOwnershipRequest {
