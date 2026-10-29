@@ -13,6 +13,8 @@ These protobuf files define the common interfaces and data structures used for c
 
 Import these protobuf definitions into your projects to ensure consistent data structures and API contracts across the Wendy ecosystem.
 
+See [API guidelines](API_GUIDELINES.md) for list pagination and authorization.
+
 ## Structure
 
 The protobuf files are organized to support various service interactions and maintain backwards compatibility across different service versions.

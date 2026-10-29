@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package wendy;
+
+import "google/protobuf/timestamp.proto";
+
+// A section of a list in the request query's total sort order.
+// See API_GUIDELINES.md for overhang, response limits, and validation.
+message ListRange {
+  // Where the section starts; unset means the top of the list.
+  oneof start {
+    // Include this anchor's position.
+    ListAnchor from = 1;
+    // Start strictly after this anchor's position.
+    ListAnchor after = 2;
+    // Position for a jump into an unloaded part; continue by anchor afterwards.
+    int32 at = 3;
+  }
+  // Where the section ends; unset means the bottom of the list.
+  oneof end {
+    // Include this anchor's position.
+    ListAnchor through = 4;
+    // Stop strictly before this anchor's position.
+    ListAnchor up_to = 5;
+  }
+}
+
+// A comparison position for an API that does not keep tombstones.
+// Compare the complete sort values and final ID, without fetching the item.
+message ListAnchor {
+  // Optional server-issued hash of the API and normalized query; a bug safeguard,
+  // not a security feature. Without it, check sort-value count and types.
+  optional bytes query_hash = 1;
+  // The item ID, used as the final tie-breaker.
+  string id = 2;
+  // Sort values in the query's sort-column order, before the final ID.
+  repeated ListSortValue sort_values = 3;
+}
+
+// One typed sort value, kept at full precision for comparison.
+message ListSortValue {
+  // Unset represents null.
+  oneof value {
+    // A string sort value.
+    string string = 1;
+    // A signed integer sort value.
+    int64 integer = 2;
+    // A timestamp sort value at its stored precision.
+    google.protobuf.Timestamp timestamp = 3;
+    // A boolean sort value.
+    bool boolean = 4;
+  }
+}

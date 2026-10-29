@@ -3,6 +3,7 @@ syntax = "proto3";
 package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
+import "wendy/list_range.proto";
 import "wendy/options.proto";
 import "wendycloud/v2/signed_request.proto";
 
@@ -14,7 +15,13 @@ service OrganizationService {
     option (wendy.signed_request) = true;
   }
   rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
-  rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse);
+  // Legacy server-streamed offset pagination. New clients use ListOrganizationsV2.
+  rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse) {
+    option deprecated = true;
+  }
+  // Stable discovery following API_GUIDELINES.md: the organizations the caller
+  // is a member of.
+  rpc ListOrganizationsV2(ListOrganizationsV2Request) returns (ListOrganizationsV2Response);
 
   // Signed; payload_type "wendycloud.v2.AddMemberRequest".
   rpc AddMember(SignedRequest) returns (OrganizationMember) {
@@ -127,6 +134,17 @@ message OrganizationMember {
   optional int32 device_access_count = 10;
 }
 
+// An organization together with the authenticated caller's membership identity.
+// Roles and reach come from AccessService (GetEffectivePermissions, ListBindings),
+// not from this message.
+message OrganizationAccess {
+  Organization organization = 1;
+  // The caller's OrganizationMember.id in this organization.
+  string member_id = 2;
+  // When the caller joined: OrganizationMember.created_at.
+  google.protobuf.Timestamp joined_at = 3;
+}
+
 message CreateOrganizationRequest {
   string name = 1;
   string details = 2;
@@ -154,6 +172,8 @@ message DeleteOrganizationResponse {
 }
 
 message ListOrganizationsRequest {
+  option deprecated = true;
+
   optional int32 offset = 1;
   optional int32 limit = 2;
   // Free-text search over organization name and domain, case-insensitive
@@ -164,8 +184,72 @@ message ListOrganizationsRequest {
 }
 
 message ListOrganizationsResponse {
+  option deprecated = true;
+
   Organization organization = 1;
   int32 total = 2;
+}
+
+// Canonical organization UUID ordering in either direction.
+// Ordering and ID tie-breaking follow API_GUIDELINES.md.
+enum ListOrganizationsV2Order {
+  // Default: canonical organization UUID descending.
+  LIST_ORGANIZATIONS_V2_ORDER_UNSPECIFIED = 0;
+  // Canonical organization UUID descending.
+  LIST_ORGANIZATIONS_V2_ORDER_ID_DESC = 1;
+  // Canonical organization UUID ascending.
+  LIST_ORGANIZATIONS_V2_ORDER_ID_ASC = 2;
+}
+
+// The organization list: the existing name/domain search and supported ID orders.
+// Send the same query on every request for the same list.
+message OrganizationQuery {
+  // Literal case-insensitive substring match over organization name and domain.
+  // Empty returns the unfiltered list.
+  string search = 1;
+  // Default: canonical organization UUID descending. Only ID_DESC and ID_ASC
+  // are supported; UUID order is not chronological.
+  ListOrganizationsV2Order sort_order = 2;
+}
+
+// Range, overhang, validation and unchanged responses follow API_GUIDELINES.md.
+// Uses the anchor variant without tombstones: id is the canonical organization
+// UUID and sort_values is empty, since the ID is the complete sort key in both
+// supported orders. An optional query_hash covers this API, normalized search
+// and effective sort order. Deleted or unknown anchors are comparison values,
+// never lookups, and position normally.
+message ListOrganizationsV2Request {
+  OrganizationQuery query = 1;
+  wendy.ListRange range = 2;
+  int32 preceding = 3;
+  int32 following = 4;
+  // Default when unset: 100. Maximum: 200, including overhang.
+  // Other limit semantics follow API_GUIDELINES.md.
+  optional int32 limit = 5;
+  // Etag of an earlier response to the identical request; see API_GUIDELINES.md.
+  string etag = 6;
+}
+
+// Items, positions and counts come from one consistent read. Response and etag
+// semantics follow API_GUIDELINES.md.
+message ListOrganizationsV2Response {
+  // Items in list order: preceding, then the range, then following.
+  repeated OrganizationAccess organization_accesses = 1;
+  // One anchor per returned item, in matching order.
+  repeated wendy.ListAnchor anchors = 2;
+  // Exact position of the range's first item in the whole list.
+  int32 index = 3;
+  // Exact number of returned items in the range, excluding overhang.
+  int32 count = 4;
+  // Number of items in the whole query; may be estimated.
+  int32 total = 5;
+  // Number of overhang items actually returned before the range.
+  int32 preceding = 6;
+  // Number of overhang items actually returned after the range.
+  int32 following = 7;
+  // Opaque response etag. An unchanged response echoes the request's etag
+  // without items or anchors, as described in API_GUIDELINES.md.
+  string etag = 8;
 }
 
 message AddMemberRequest {
