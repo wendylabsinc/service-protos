@@ -6,6 +6,7 @@ import: 194 distinct files, 332 upstream records and 411 graph/import entries.
 generation roots and file-specific naming lint allowances. Intentional name
 conflicts remain isolated, including Cloud invite and Agent video variants.
 No schema content, consumer input or runtime behavior changes here.
+The source audit requires full immutable upstream commit hashes.
 
 | View | Existing input graph | Files |
 | --- | --- | ---: |
