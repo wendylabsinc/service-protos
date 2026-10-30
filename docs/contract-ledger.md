@@ -6,7 +6,9 @@ after at least 90 days AND two stable releases of every affected client. Count
 each client's window from the later of replacement server API availability and
 that product's first migrated stable client. Historical rows below record earlier
 decisions, not standing exceptions to the current policy. Preserve old schema
-identities and reservations after serving ends. One row per phase that lands here.
+identities and reservations after serving ends. Approved hard cutoffs require
+migration evidence covering older deployed Agents, not just current sources.
+One row per phase that lands here.
 
 | Date | Ticket | Contract | Phase | Change | Next phase when |
 |------|--------|----------|-------|--------|-----------------|

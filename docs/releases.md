@@ -6,9 +6,14 @@ Initial planned tag: `v1.0.0`. No tag or package is published by this PR or CI.
   packages. Catalogue versions and API package versions are independent.
 - Patch releases change documentation or generation metadata without changing
   contracts. A meaning/validation/auth change is not a patch.
-- A catalogue major bump never licenses breaking a supported API package.
-- Tags are immutable and forward-only. Rollback means a new forward release,
-  never moving/deleting a tag. Keep old views available for pinned consumers.
+- A catalogue major bump never licenses breaking a supported API package and is
+  not an automatic runtime incompatibility signal. Compatibility depends on API
+  versions/features, not catalogue-major equality.
+- Tags are immutable and forward-only. Correct a published catalogue with a new
+  forward release, never by moving/deleting a tag. A consumer may revert to a
+  previously validated tag while its APIs remain supported. Retired content may
+  leave future catalogues only through [approved retirement](compatibility.md#add-within-a-version),
+  including the support window, deployed-client evidence and separate review.
 
 The accountable release owner is Konstantin. Ready, merge, tag publication,
 packages and deployments remain separate decisions. No release workflow runs

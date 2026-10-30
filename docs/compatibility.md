@@ -4,8 +4,10 @@ Konstantin (`@konstantinbe`) is the interim accountable contract and release
 owner. Service domain owners still review semantics at their boundaries.
 
 A service-protos tag versions the entire catalogue, independently of protobuf
-package names. Each migrated consumer has exactly one `contracts.version`
-containing one immutable stable tag such as `v1.0.0`. All generators, checks
+package names. A catalogue SemVer major is not an automatic runtime
+incompatibility signal. Runtime compatibility depends on the API versions and
+features that the peers support, including newer CLIs talking to older Agents.
+Each migrated consumer has exactly one `contracts.version` containing one immutable stable tag such as `v1.0.0`. All generators, checks
 and derived version metadata use that pin. Consumers upgrade independently.
 Branch pins, per-file revisions, source-copy fallbacks and shared-contract
 submodules are removed in later consumer PRs, after equivalence is proved.
@@ -30,9 +32,13 @@ Contract tags, nightlies and prereleases do not count as stable client releases.
 Retirement needs both thresholds, migration evidence and contract-owner approval.
 Record retirement evidence in [the contract ledger](contract-ledger.md):
 replacement API availability, each affected product's migrated stable releases
-and dates, migration/rollout evidence and remaining known legacy callers.
-Eligibility triggers an explicit owner review, not automatic removal.
-Keep old schema identities and reservations after serving ends.
+and dates, migration/rollout evidence covering older deployed Agents as well as
+current sources, and remaining known legacy callers. Passing CI or migrating the
+latest sources alone does not establish that deployed clients have migrated.
+After both thresholds, the owner may explicitly approve a deliberate hard cutoff
+to remove obsolete APIs. Eligibility alone does not authorize that cutoff.
+Preserve retired identities and field/enum reservations. Never reuse them or
+break a still-supported API version in place.
 
 This window is tunable policy, not a runtime gate. It authorizes no weaker auth
 fallback. Cloud/Auth/PKI work remains subject to the authoritative
@@ -47,7 +53,9 @@ separate. Their behavior is not normalized. Exact-byte shared sources have one
 internal copy, with explicit view/import mappings. New divergent behavior must
 use a new API package, not another interpretation of an old identity.
 
-The root catalogue may grow additively. Frozen migration views remain unchanged.
+The root catalogue may grow additively. Supported frozen migration views remain
+unchanged. This preserves deployed differences during support, not an indefinite
+promise to retain every view or source byte in future catalogue versions.
 If an additive root edit affects a source shared by a frozen view, retain that
 view's old bytes under `contracts/sources/` and point its existing import path
 there using [the documented preservation path](../contracts/README.md#preserve-provenance-while-maintaining-canonical-apis).
@@ -60,10 +68,16 @@ consumer/API views need explicit owner-reviewed graph and baseline additions.
 Every PR runs the `contracts` check, with no path-filter escape. Every view
 must build and lint on Linux and Windows. Strict Buf `FILE` comparison uses
 both the PR base's independently assembled graphs and the latest fetched
-numeric stable catalogue tag. First-release comparisons use captured pre-
-migration descriptors, even when no tag exists. The initial graphs stay checked
-forever unless a separately reviewed policy change explicitly retires a
-baseline.
+numeric stable catalogue tag. First-release comparisons use captured
+pre-migration descriptors, even when no tag exists. Initial graphs remain checked
+while supported.
+
+The current checker rejects view removal and changes to capture evidence. An
+approved retirement therefore also needs a separately reviewed change that
+removes only retired content/baselines from future catalogues and comparisons,
+while preserving strict checks for every supported API. Immutable released tags
+retain the historical evidence. This migration implements no runtime cutoff or
+retirement mechanism and authorizes no retirement.
 
 Naming lint allowances are file-specific evidence of already-published names.
 There are no breaking-rule exceptions. The check rejects omitted views/files,

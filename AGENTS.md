@@ -8,16 +8,21 @@ Consumers use their single `contracts.version` tag for every shared contract
 view. Only add within an existing API version. Never renumber, reuse or
 reinterpret fields, enum values, methods, validation, errors or auth behavior.
 Breaking changes get a new API version served beside the old version.
+Catalogue SemVer majors are not runtime compatibility gates. Check supported API
+versions and features, including newer CLI to older Agent compatibility.
 
 Keep the old API for at least 90 days AND two stable releases of every affected
 client product. Count each client's window from the later of replacement server
 API availability and that product's first migrated stable client. Retirement
-also needs owner approval and migration evidence. Preserve schema identities
-and reservations after serving ends.
+also needs owner approval and migration evidence covering older deployed Agents.
+An approved hard cutoff can end support. Preserve retired identities and
+reservations, and never break a still-supported API in place.
 
-Do not weaken compatibility checks, alter the source inventory or migration
-baselines, hide files or views, or add breaking-rule exemptions. Existing file-
-specific naming lint allowances preserve published names. Run the all-view
+Do not weaken compatibility checks, hide supported files/views, alter capture
+evidence during normal evolution, or add breaking-rule exemptions. Retiring
+obsolete content or baselines requires a separate approved change under the
+canonical policy. This migration authorizes no retirement. Existing
+file-specific naming lint allowances preserve published names. Run the all-view
 check and its negative tests for every change, including configuration and
 documentation changes.
 
