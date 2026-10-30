@@ -5,20 +5,21 @@ owner. Service domain owners still review semantics at their boundaries.
 
 A service-protos tag versions the entire catalogue, independently of protobuf
 package names. Each migrated consumer has exactly one `contracts.version`
-containing one immutable stable tag such as `v1.0.0`. All generators, checks and
-derived version metadata use that pin. Consumers upgrade independently. Branch pins, per-file
-revisions, source-copy fallbacks and shared-contract submodules are removed in
-later consumer PRs, after equivalence is proved. Tagged inputs are the current
-migration target. Versioned generated Go and Swift packages follow later, with the SDK work.
+containing one immutable stable tag such as `v1.0.0`. All generators, checks
+and derived version metadata use that pin. Consumers upgrade independently.
+Branch pins, per-file revisions, source-copy fallbacks and shared-contract
+submodules are removed in later consumer PRs, after equivalence is proved.
+Tagged inputs are the current migration target. Versioned generated Go and
+Swift packages follow later, with the SDK work.
 
 ## Add within a version
 
-Preserve every deployed RPC/type identity, field number/type/JSON name, presence,
-enum value and meaning. Never renumber, reuse or reinterpret fields, enum
-values, methods, errors, validation or authentication/authorization behavior.
-Do not make an optional input required in a handler or change a response's
-meaning merely because Buf permits it. Existing signed-request options and
-signed artifact bytes are contracts too.
+Preserve every deployed RPC/type identity, field number/type/JSON name,
+presence, enum value and meaning. Never renumber, reuse or reinterpret fields,
+enum values, methods, errors, validation or authentication/authorization
+behavior. Do not make an optional input required in a handler or change a
+response's meaning merely because Buf permits it. Existing signed-request
+options and signed artifact bytes are contracts too.
 
 Breaking changes get a new API version alongside the old one. Deploy the
 replacement server API first, migrate clients, then consider retirement.
@@ -56,12 +57,13 @@ consumer/API views need explicit owner-reviewed graph and baseline additions.
 
 ## Review and enforcement
 
-Every PR runs the `contracts` check, with no path-filter escape. Every view must
-build and lint on Linux and Windows. Strict Buf `FILE` comparison uses both the
-PR base's independently assembled graphs and the latest fetched numeric stable
-catalogue tag. First-release comparisons use captured pre-migration descriptors,
-even when no tag exists. The initial graphs stay checked forever
-unless a separately reviewed policy change explicitly retires a baseline.
+Every PR runs the `contracts` check, with no path-filter escape. Every view
+must build and lint on Linux and Windows. Strict Buf `FILE` comparison uses
+both the PR base's independently assembled graphs and the latest fetched
+numeric stable catalogue tag. First-release comparisons use captured pre-
+migration descriptors, even when no tag exists. The initial graphs stay checked
+forever unless a separately reviewed policy change explicitly retires a
+baseline.
 
 Naming lint allowances are file-specific evidence of already-published names.
 There are no breaking-rule exceptions. The check rejects omitted views/files,
@@ -69,7 +71,8 @@ unlisted sources, source drift, altered fixtures, changed signed-method options
 and configuration bypasses. CODEOWNERS covers schemas, policy, baselines,
 generators and check configuration. Repository protections must require owner
 review and the `contracts` status before this becomes an enforced merge gate.
-The prepared settings do not claim those external protections are already active.
+The prepared settings do not claim those external protections are already
+active.
 
 Buf does not prove behavior compatibility. Reviews must check errors, validation,
 IDs, pagination, signing and auth semantics, backed by the existing conformance
