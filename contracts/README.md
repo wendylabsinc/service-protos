@@ -46,8 +46,9 @@ python3 -m unittest discover -s scripts -p 'test_provenance.py' -v
 ```
 
 The local check verifies source bytes against the recorded SHA-256 and Git blob
-IDs, graph references, and completeness of the imported file inventory. It does
-not perform API compatibility checks or certify a consumer build.
+IDs, full upstream commit hashes, graph references, and completeness of the
+imported file inventory. It does not perform API compatibility checks or certify
+a consumer build.
 
 To independently confirm the recorded upstream commits and paths, authenticate
 `gh` with read access to the source repositories and run:

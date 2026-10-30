@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path, PurePosixPath
 import subprocess
 
@@ -48,6 +49,8 @@ def verify(root, inventory, upstream=False):
         if not record['origins']:
             raise ValueError(f'no provenance: {name}')
         for origin in record['origins']:
+            if not re.fullmatch(r'[0-9a-f]{40}', origin['commit']):
+                raise ValueError(f'provenance requires a full immutable commit: {name}')
             if blob != origin['blob']:
                 raise ValueError(f'Git blob mismatch: {name}')
             if upstream:
