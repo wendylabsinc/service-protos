@@ -17,9 +17,9 @@ The same support, additive-compatibility and retirement guarantees apply during
   leave future catalogues only through [approved retirement](compatibility.md#add-within-a-version),
   including the support window, deployed-client evidence and separate review.
 
-The accountable release owner is Konstantin. Ready, merge, tag publication,
-packages and deployments remain separate decisions. No release workflow runs
-here, and this PR supplies no runtime version header or cutoff gate.
+The accountable contract and release owner role is unassigned. Ready, merge,
+tag publication, packages and deployments remain separate decisions. No release
+workflow runs here, and this PR supplies no runtime version header or cutoff gate.
 
 ## Prepared protection changes
 
@@ -32,9 +32,9 @@ any existing requirements.
 
 The proposed master rule requires `contracts` from GitHub Actions, current-base
 checks, owner review, fresh approval and resolved review threads. The PR author
-cannot approve their own PR. Konstantin is currently the sole CODEOWNER, so
-before activating code-owner protection, establish an eligible additional
-CODEOWNER with repository write access who can approve his PRs. An ordinary
+cannot approve their own PR. Before activating code-owner protection, assign an
+eligible owner with repository write access and establish CODEOWNERS coverage.
+Each PR needs an eligible CODEOWNER other than its author. An ordinary
 review by someone who is not a CODEOWNER cannot satisfy that gate. The latest
 push also needs approval from someone other than its pusher. Preserve
 established domain-owner coverage when adding owners. Do not add bypasses or
@@ -59,7 +59,7 @@ define the exact update/deletion and review semantics.
 
 ## Initial v0.1.0 bootstrap
 
-The owner explicitly approved publishing the initial `v0.1.0` after all three
+Konstantin explicitly approved publishing the initial `v0.1.0` after all three
 catalogue pieces merge and pass validation under the current repository
 settings. This approval does not include activating the proposed protections.
 Until separately approved and applied, tag immutability is policy, not a

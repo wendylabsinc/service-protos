@@ -1,7 +1,7 @@
 # Contract compatibility policy
 
-Konstantin (`@konstantinbe`) is the interim accountable contract and release
-owner. Service domain owners still review semantics at their boundaries.
+The accountable contract and release owner role is unassigned.
+Service domain owners still review semantics at their boundaries.
 
 A service-protos tag versions the entire catalogue, independently of protobuf
 package names. A catalogue SemVer major is not an automatic runtime
@@ -87,11 +87,11 @@ retirement mechanism and authorizes no retirement.
 Naming lint allowances are file-specific evidence of already-published names.
 There are no breaking-rule exceptions. The check rejects omitted views/files,
 unlisted sources, source drift, altered fixtures, changed signed-method options
-and configuration bypasses. CODEOWNERS covers schemas, policy, baselines,
-generators and check configuration. Repository protections must require owner
-review and the `contracts` status before this becomes an enforced merge gate.
-The prepared settings do not claim those external protections are already
-active.
+and configuration bypasses. Before activating repository protections, assign an
+eligible owner and establish CODEOWNERS coverage for schemas, policy, baselines,
+generators and check configuration. Protections must require owner review and
+the `contracts` status before this becomes an enforced merge gate. The prepared
+settings do not claim those external protections are already active.
 
 Buf does not prove behavior compatibility. Reviews must check errors, validation,
 IDs, pagination, signing and auth semantics, backed by the existing conformance
