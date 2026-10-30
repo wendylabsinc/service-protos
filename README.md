@@ -27,3 +27,10 @@ additive canonical edits. Use Python 3.15.2 and Buf 1.75.0:
 python3 scripts/contracts.py check --base <PR-base-commit>
 python3 -m unittest discover -s scripts -p 'test_*.py' -v
 ```
+
+## Contract policy
+
+See the [compatibility and retirement policy](docs/compatibility.md) and
+[release/protection procedure](docs/releases.md).
+The planned first catalogue tag is `v0.1.0`. Consumers migrate separately
+after publication is approved. Existing root import paths remain available.
