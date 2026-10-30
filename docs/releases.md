@@ -62,13 +62,15 @@ define the exact update/deletion and review semantics.
    merge approval. Fetch full history and tags, inspect the approved release
    commit and confirm it is on `origin/master` and includes all three pieces.
    Confirm the protection rules above are active and `v1.0.0` does not exist.
-2. Run the following with `APPROVED_MERGE_SHA` and `PR_BASE_SHA` set to the
-   actual reviewed commits. Stop on any failure or existing tag. The second SHA
+2. From a clean worktree, run the following with `APPROVED_MERGE_SHA` and
+   `PR_BASE_SHA` set to the actual reviewed commits. Stop on any failure or existing tag. The second SHA
    is the PR base, never the candidate itself.
 
 ```sh
 (
   set -eu
+  release_worktree_status="$(git status --porcelain)"
+  test -z "$release_worktree_status"
   git fetch origin master --tags
   git merge-base --is-ancestor "$APPROVED_MERGE_SHA" origin/master
   published_contract_tag="$(git ls-remote --tags origin refs/tags/v1.0.0)"
@@ -76,6 +78,8 @@ define the exact update/deletion and review semantics.
   git checkout --detach "$APPROVED_MERGE_SHA"
   python3 scripts/contracts.py check --base "$PR_BASE_SHA"
   python3 -m unittest discover -s scripts -p 'test_*.py' -v
+  release_worktree_status="$(git status --porcelain)"
+  test -z "$release_worktree_status"
   git tag -a v1.0.0 "$APPROVED_MERGE_SHA" -m 'Initial immutable contract catalogue'
   git push origin refs/tags/v1.0.0
 )
