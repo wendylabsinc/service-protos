@@ -91,6 +91,8 @@ def verify_sources(root, views, provenance, first_migration=False):
             raise ValueError(f'{name}: naming lint allowances changed')
         if name == 'catalogue' and any(p != source for p, source in view['files'].items()):
             raise ValueError('catalogue import paths must remain at the repository root')
+        if name == 'catalogue' and set(view['roots']) != set(view['files']):
+            raise ValueError('catalogue generation roots must cover every catalogue file')
         if not set(original) <= set(view['files']):
             raise ValueError(f'{name}: removed import path from migration graph')
         # Published compatibility views are frozen. The root catalogue is additive.
@@ -171,7 +173,7 @@ def compare(candidate, previous):
 def stable_tags():
     tags = run('git', 'tag', '--list', cwd=ROOT).splitlines()
     versions = [(tuple(map(int, t[1:].split('.'))), t) for t in tags
-                if re.fullmatch(r'v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', t)]
+                if re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', t)]
     return [t for _, t in sorted(versions)]
 
 

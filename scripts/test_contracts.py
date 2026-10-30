@@ -61,7 +61,7 @@ enum State { STATE_UNSPECIFIED = 0; STATE_READY = 1; }
         return dest
 
     def test_stable_tag_selection_uses_numeric_versions(self):
-        with patch.object(contracts, 'run', return_value='v1.9.0\nv1.10.0\nv2.0.0-rc.1\nother\nv1.0.0\n'):
+        with patch.object(contracts, 'run', return_value='v1.9.0\nv1.10.0\nv2.0.0-rc.1\nv1.10٢.0\nv01.0.0\nother\nv1.0.0\n'):
             self.assertEqual(contracts.stable_tags(), ['v1.0.0', 'v1.9.0', 'v1.10.0'])
 
     def test_independent_previous_graph_catches_later_deletion(self):
@@ -149,6 +149,27 @@ enum State { STATE_UNSPECIFIED = 0; STATE_READY = 1; }
         with patch.object(contracts, 'ROOT', dest), patch.object(contracts, 'stable_tags', return_value=[]):
             contracts.check(base)
 
+    def test_omitted_catalogue_root_cannot_hide_later_field_deletion(self):
+        dest, _ = self.fixture_repository()
+        views = copy.deepcopy(self.views)
+        path = 'review/v1/example.proto'
+        source = dest / path
+        source.parent.mkdir(parents=True)
+        source.write_text('syntax = "proto3"; package review.v1; message Request { string id = 1; }')
+        views['catalogue']['files'][path] = path
+        with self.assertRaisesRegex(ValueError, 'roots must cover every catalogue file'):
+            contracts.verify_sources(dest, views, self.provenance)
+        # Once the file is properly included, its new fields must be protected
+        # by the independent PR-base graph even though the capture predates it.
+        views['catalogue']['roots'].append(path)
+        (dest / 'contracts/views.json').write_text(json.dumps({'version': 1, 'views': views}))
+        previous = self.commit_fixture(dest)
+        source.write_text(source.read_text().replace('string id = 1;', ''))
+        self.commit_fixture(dest)
+        with patch.object(contracts, 'ROOT', dest), patch.object(contracts, 'stable_tags', return_value=[]):
+            with self.assertRaisesRegex(ValueError, 'field'):
+                contracts.check(previous)
+
     def test_snapshot_preserves_object_bytes_with_crlf_setting(self):
         dest, base = self.fixture_repository()
         contracts.run('git', 'config', 'core.autocrlf', 'true', cwd=dest)
@@ -156,6 +177,18 @@ enum State { STATE_UNSPECIFIED = 0; STATE_READY = 1; }
             captured = contracts.snapshot(base, self.work / 'snapshot')
         self.assertEqual((captured / 'contracts/views.json').read_bytes(),
                          subprocess.check_output(['git', 'show', base + ':contracts/views.json'], cwd=dest))
+
+    def test_rewritten_capture_and_hash_cannot_replace_baseline(self):
+        dest, base = self.fixture_repository()
+        provenance = copy.deepcopy(self.provenance)
+        image = dest / 'contracts/baselines/cloud-main-local.binpb'
+        image.write_bytes(b'')
+        provenance['views']['cloud-main-local']['descriptor_sha256'] = contracts.digest(image)
+        (dest / 'contracts/baselines/provenance.json').write_text(json.dumps(provenance))
+        self.commit_fixture(dest)
+        with patch.object(contracts, 'ROOT', dest):
+            with self.assertRaisesRegex(ValueError, 'migration provenance is immutable'):
+                contracts.check(base)
 
     def test_full_check_rejects_deletion_from_later_stable_graph(self):
         dest, base = self.fixture_repository()
