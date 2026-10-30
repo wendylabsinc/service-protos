@@ -119,7 +119,6 @@ invents that contract nor claims full Cloud Swift regeneration passes.
 Containerd inputs and standalone Wendy Lite application protocols are outside
 this shared graph. SensorLink is included because Agent v2 imports it.
 
-Follow the [canonical compatibility and retirement policy](../docs/compatibility.md)
-and [release/access procedure](../docs/releases.md).
-The views and checks work independently of release publication. Consumers migrate
-separately after an approved tag is published.
+Ownership, compatibility policy and release/tag procedures follow separately.
+These views and checks work with the import predecessor alone, without that
+later policy work. No tag or consumer migration is published by this change.
