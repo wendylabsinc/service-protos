@@ -1,0 +1,2 @@
+# Preserve source bytes for provenance checks, including shared root inputs.
+*.proto -text

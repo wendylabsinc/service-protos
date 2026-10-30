@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+// Decoupled hackathon org service. Uses a dedicated package so its messages
+// (Organization, CreateOrganizationRequest, etc.) do not collide with the
+// Cloud organizations.proto, which still defines wendycloud.v1.Organization
+// and is generated into the same Swift Proto target.
+package hackathon.v1;
+
+import "google/protobuf/empty.proto";
+
+service OrgService {
+  // Admin only (enforced in handler).
+  rpc CreateOrganization(CreateOrganizationRequest) returns (Organization);
+  // Admin only (enforced in handler).
+  rpc ListOrganizations(ListOrganizationsRequest) returns (stream ListOrganizationsResponse);
+  rpc GetMyOrganization(GetMyOrganizationRequest) returns (Organization);
+  rpc ListMembers(ListMembersRequest) returns (stream ListMembersResponse);
+  rpc SetMemberRole(SetMemberRoleRequest) returns (OrgMember);
+  // Organiser only. Removes a member from the organisation and any team they belong to.
+  rpc RemoveMember(RemoveMemberRequest) returns (google.protobuf.Empty);
+  // Admin only. Lists all platform admins.
+  rpc ListAdmins(google.protobuf.Empty) returns (stream ListAdminsResponse);
+  // Admin only. Grants or revokes platform admin access.
+  // Set email + is_admin=true to grant by email lookup.
+  // Set user_id + is_admin=false to revoke by user ID.
+  rpc SetAdminStatus(SetAdminStatusRequest) returns (google.protobuf.Empty);
+}
+
+message Organization {
+  int64 id = 1;
+  string name = 2;
+}
+
+message OrgMember {
+  string user_id = 1;
+  string email = 2;
+  string name = 3;
+  string role = 4;
+}
+
+message CreateOrganizationRequest {
+  string name = 1;
+}
+
+message ListOrganizationsRequest {}
+
+message ListOrganizationsResponse {
+  Organization organization = 1;
+}
+
+message GetMyOrganizationRequest {}
+
+message ListMembersRequest {
+  int64 organization_id = 1;
+}
+
+message ListMembersResponse {
+  OrgMember member = 1;
+}
+
+message SetMemberRoleRequest {
+  int64 organization_id = 1;
+  string user_id = 2;
+  string role = 3;
+}
+
+message RemoveMemberRequest {
+  int64 organization_id = 1;
+  string user_id = 2;
+}
+
+message AdminUser {
+  string user_id = 1;
+  string email = 2;
+  string name = 3;
+}
+
+message ListAdminsResponse {
+  AdminUser admin = 1;
+}
+
+message SetAdminStatusRequest {
+  // Used when granting admin: looks up user by email.
+  string email = 1;
+  // Used when revoking admin: identifies user by ID.
+  string user_id = 2;
+  bool is_admin = 3;
+}

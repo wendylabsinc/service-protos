@@ -1,6 +1,10 @@
 version: v2
 modules:
   - path: .
+    # Imported snapshots are inventory, not part of existing generation.
+    excludes:
+      - contracts
+      - .contract-work
 lint:
   use:
     - STANDARD

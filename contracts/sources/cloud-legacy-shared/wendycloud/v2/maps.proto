@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package wendycloud.v2;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+service MapService {
+  // Map CRUD
+  rpc CreateMap(CreateMapRequest) returns (Map);
+  rpc GetMap(GetMapRequest) returns (Map);
+  rpc UpdateMap(UpdateMapRequest) returns (Map);
+  rpc DeleteMap(DeleteMapRequest) returns (DeleteMapResponse);
+  rpc ListMaps(ListMapsRequest) returns (stream ListMapsResponse);
+
+  // Real-time subscriptions
+  rpc SubscribeToMapEvents(SubscribeToMapEventsRequest) returns (stream MapEvent);
+}
+
+// Map message
+message Map {
+  string id = 1;
+  string organization_id = 2;
+  string name = 3;
+  string description = 4;
+  double default_latitude = 5;
+  double default_longitude = 6;
+  double default_altitude = 7;
+  double default_zoom = 8;
+  google.protobuf.Struct config = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  optional string map_style = 12;
+}
+
+// Map CRUD requests/responses
+message CreateMapRequest {
+  string organization_id = 1;
+  string name = 2;
+  optional string description = 3;
+  optional double default_latitude = 4;
+  optional double default_longitude = 5;
+  optional double default_altitude = 6;
+  optional double default_zoom = 7;
+  optional google.protobuf.Struct config = 8;
+  optional string map_style = 9;
+}
+
+message GetMapRequest {
+  string id = 1;
+}
+
+message UpdateMapRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional double default_latitude = 4;
+  optional double default_longitude = 5;
+  optional double default_altitude = 6;
+  optional double default_zoom = 7;
+  optional google.protobuf.Struct config = 8;
+  optional string map_style = 9;
+}
+
+message DeleteMapRequest {
+  string id = 1;
+}
+
+message DeleteMapResponse {
+  bool success = 1;
+}
+
+message ListMapsRequest {
+  string organization_id = 1;
+  optional int32 offset = 2;
+  optional int32 limit = 3;
+  optional string filter = 4;
+}
+
+message ListMapsResponse {
+  Map map = 1;
+  int32 total = 2;
+}
+
+// Real-time event subscription
+enum MapEventType {
+  MAP_EVENT_TYPE_UNSPECIFIED = 0;
+  MAP_EVENT_TYPE_MAP_UPDATED = 1;
+  MAP_EVENT_TYPE_MAP_DELETED = 2;
+}
+
+message SubscribeToMapEventsRequest {
+  string map_id = 1;
+}
+
+message MapEvent {
+  MapEventType event_type = 1;
+  string map_id = 2;
+  // For map update events
+  optional Map map = 3;
+  // ID of deleted entity
+  optional string deleted_id = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
