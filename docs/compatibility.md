@@ -7,12 +7,15 @@ A service-protos tag versions the entire catalogue, independently of protobuf
 package names. A catalogue SemVer major is not an automatic runtime
 incompatibility signal. Runtime compatibility depends on the API versions and
 features that the peers support, including newer CLIs talking to older Agents.
-Each migrated consumer has exactly one `contracts.version` containing one immutable stable tag such as `v1.0.0`. All generators, checks
+Each migrated consumer has exactly one `contracts.version` containing one immutable stable tag such as `v0.1.0`. All generators, checks
 and derived version metadata use that pin. Consumers upgrade independently.
 Branch pins, per-file revisions, source-copy fallbacks and shared-contract
 submodules are removed in later consumer PRs, after equivalence is proved.
 Tagged inputs are the current migration target. Versioned generated Go and
 Swift packages follow later, with the SDK work.
+
+These support and retirement guarantees also apply throughout catalogue `0.x`.
+A pre-1.0 catalogue version permits no break to a still-supported API version.
 
 ## Add within a version
 

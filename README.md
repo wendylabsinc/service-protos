@@ -32,5 +32,5 @@ python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
 See the [compatibility and retirement policy](docs/compatibility.md) and
 [release/protection procedure](docs/releases.md).
-The planned first catalogue tag is `v1.0.0`. Consumers migrate separately
+The planned first catalogue tag is `v0.1.0`. Consumers migrate separately
 after publication is approved. Existing root import paths remain available.

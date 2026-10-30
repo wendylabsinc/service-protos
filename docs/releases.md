@@ -1,6 +1,8 @@
 # Catalogue releases
 
-Initial planned tag: `v1.0.0`. No tag or package is published by this PR or CI.
+Initial planned tag: `v0.1.0`. No tag or package is published by this PR or CI.
+The same support, additive-compatibility and retirement guarantees apply during
+`0.x`. Pre-1.0 versioning does not permit breaking supported APIs.
 
 - Minor releases add compatible fields/methods or a new API package beside old
   packages. Catalogue versions and API package versions are independent.
@@ -61,7 +63,7 @@ define the exact update/deletion and review semantics.
    policy in their declared dependency order, with green checks and explicit
    merge approval. Fetch full history and tags, inspect the approved release
    commit and confirm it is on `origin/master` and includes all three pieces.
-   Confirm the protection rules above are active and `v1.0.0` does not exist.
+   Confirm the protection rules above are active and `v0.1.0` does not exist.
 2. From a clean worktree, run the following with `APPROVED_MERGE_SHA` and
    `PR_BASE_SHA` set to the actual reviewed commits. Stop on any failure or existing tag. The second SHA
    is the PR base, never the candidate itself.
@@ -73,15 +75,15 @@ define the exact update/deletion and review semantics.
   test -z "$release_worktree_status"
   git fetch origin master --tags
   git merge-base --is-ancestor "$APPROVED_MERGE_SHA" origin/master
-  published_contract_tag="$(git ls-remote --tags origin refs/tags/v1.0.0)"
+  published_contract_tag="$(git ls-remote --tags origin refs/tags/v0.1.0)"
   test -z "$published_contract_tag"
   git checkout --detach "$APPROVED_MERGE_SHA"
   python3 scripts/contracts.py check --base "$PR_BASE_SHA"
   python3 -m unittest discover -s scripts -p 'test_*.py' -v
   release_worktree_status="$(git status --porcelain)"
   test -z "$release_worktree_status"
-  git tag -a v1.0.0 "$APPROVED_MERGE_SHA" -m 'Initial immutable contract catalogue'
-  git push origin refs/tags/v1.0.0
+  git tag -a v0.1.0 "$APPROVED_MERGE_SHA" -m 'Initial immutable contract catalogue'
+  git push origin refs/tags/v0.1.0
 )
 ```
 
