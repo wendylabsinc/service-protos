@@ -67,7 +67,7 @@ service OrganizationService {
 }
 
 // Deprecated: use role_ids for notification audiences and role_id for assignments.
-// This enum remains only as the wire type of NotificationAudience.roles.
+// Retained as the wire-compatible type of NotificationAudience.roles.
 // Kept for wire compatibility; never remove or renumber its values.
 enum OrganizationRole {
   option deprecated = true;
