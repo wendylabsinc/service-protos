@@ -8,14 +8,6 @@ from pathlib import Path, PurePosixPath
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPTURED = 'contracts/sources/captured/'
-
-
-def preserved_source(name):
-    """One deterministic location for historical bytes of an evolving root file."""
-    if name.startswith('contracts/'):
-        raise ValueError(f'imported snapshots cannot be remapped: {name}')
-    return CAPTURED + name
 
 
 def source_path(root, name):
@@ -45,25 +37,14 @@ def verify(root, inventory, upstream=False):
         raise ValueError('graph inventory has missing or unreferenced sources')
     imported = {p.relative_to(root).as_posix() for p in (root / 'contracts/sources').rglob('*.proto')}
     recorded = {path for path in sources if path.startswith('contracts/sources/')}
-    preserved = {preserved_source(name): record for name, record in sources.items()
-                 if not name.startswith('contracts/') and preserved_source(name) in imported}
-    if imported != recorded | set(preserved):
-        raise ValueError(f'imported file inventory differs: {sorted(imported ^ (recorded | set(preserved)))}')
-    # A later canonical edit may preserve its captured bytes here. The inventory
-    # stays immutable, and every preserved copy must still match that inventory.
-    for name, record in preserved.items():
-        if hashlib.sha256(source_path(root, name).read_bytes()).hexdigest() != record['sha256']:
-            raise ValueError(f'preserved source drift: {name}')
+    if imported != recorded:
+        raise ValueError(f'imported file inventory differs: {sorted(imported ^ recorded)}')
     trees = {}
     origin_count = 0
     for name, record in sources.items():
-        source = source_path(root, name)
-        data = source.read_bytes() if source.exists() else b''
+        data = source_path(root, name).read_bytes()
         if hashlib.sha256(data).hexdigest() != record['sha256']:
-            captured = preserved_source(name) if not name.startswith('contracts/') else None
-            if captured not in preserved:
-                raise ValueError(f'source drift: {name}; preserve historical root bytes before editing')
-            data = source_path(root, captured).read_bytes()
+            raise ValueError(f'source drift: {name}')
         blob = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
         if not record['origins']:
             raise ValueError(f'no provenance: {name}')

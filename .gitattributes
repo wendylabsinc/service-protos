@@ -1,7 +1,2 @@
 # Preserve source bytes for provenance checks, including shared root inputs.
 *.proto -text
-# Descriptor images are byte-for-byte capture evidence on every platform.
-*.binpb binary
-# These files are hashed as capture evidence; checkout must preserve their bytes.
-contracts/inventory.json -text
-conformance/** -text
