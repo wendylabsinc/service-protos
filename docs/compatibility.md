@@ -60,8 +60,10 @@ If an additive root edit affects a source shared by a frozen view, retain that
 view's old bytes under `contracts/sources/` and point its existing import path
 there using [the documented preservation path](../contracts/README.md#preserve-provenance-while-maintaining-canonical-apis).
 Do not update the immutable source inventory, captured descriptors or provenance.
-Add the new root path to the catalogue manifest when introducing a new root file. New
-consumer/API views need explicit owner-reviewed graph and baseline additions.
+Add each new root file to both the catalogue's files and generation roots.
+New frozen consumer/API views require an owner-reviewed checker/policy extension
+with graph and independent baseline additions. JSON edits alone cannot extend
+the current exact view-set and provenance checks.
 
 ## Review and enforcement
 
