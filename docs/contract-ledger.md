@@ -1,11 +1,9 @@
 # Contract ledger
 
-New contract changes follow [the canonical compatibility policy](compatibility.md):
-expand, migrate, then retire only with owner approval and migration evidence
-after at least 90 days AND two stable releases of every affected client. Count
-from availability of both the replacement server API and a migrated stable client.
-Historical rows below record earlier decisions, not standing exceptions to the
-current policy. Preserve old schema identities after serving ends.
+Cross-service contract changes ship expand → migrate → contract (sem ruling
+2026-10-06 14:45): receivers accept old and new first and are live on prod;
+then senders switch; the old path is removed one release later at the
+earliest. One row per phase that lands here.
 
 | Date | Ticket | Contract | Phase | Change | Next phase when |
 |------|--------|----------|-------|--------|-----------------|

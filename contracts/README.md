@@ -1,120 +1,82 @@
-# Frozen compatibility views
+# Deployed source inventory
 
-`views.json` fixes each view's source-to-import-path map, generation roots and
-file-specific naming lint allowances. `baselines/provenance.json` records the
-original repository, full commit, original path, Git blob ID and SHA-256 for
-every file, plus the descriptor/fixture hashes. Well-known Google types come
-from pinned Buf 1.75.0. All other imports are in the recorded graph.
+This directory collects deployed protobuf source bytes for the shared-contract
+migration. It does not change a consumer, select an API variant for generation,
+or publish a catalogue release. The existing root sources remain unchanged.
 
-| View | Existing input graph | Files |
-| --- | --- | ---: |
-| `catalogue` | service-protos master, unchanged root import paths | 80 |
-| `cloud-main-shared` | Cloud console shared input, its three exclusions preserved | 77 |
-| `cloud-main-local` | Cloud's five local contracts plus two shared imports | 7 |
-| `cloud-legacy-shared` | Cloud legacy's pinned shared submodule | 70 |
-| `cloud-legacy-dashboard` | Legacy dashboard mirror (preferred over fallback) | 33 |
-| `wendyos` | Go/Swift Agent, Cloud and system generation graph, including recording and SensorLink | 79 |
-| `companion` | WendyProtos build-plugin graph | 49 |
-| `auth` | FabricProto links resolved through Auth's current submodule pin | 7 |
-| `pki` | PKI Makefile's selected shared graph | 8 |
-| `pki-dev-shim` | PKI's separate existing dev/test certificate shim | 1 |
+`inventory.json` records 194 distinct local source files: 114 imported snapshots
+under `sources/` and 80 identical files already available at the repository root.
+Every source has its SHA-256 and original Git blob IDs, repository names, full
+commits and paths. The ten named graphs map the 411 inspected import paths to
+those shared source files. These graph names are inventory labels, not build
+profiles or a supported generation interface.
 
-These 411 entries share identical source bytes internally. Distinct definitions
-remain separate, including old Cloud invite and Agent video variants. The root
-catalogue's existing source files and all `conformance/` files are unchanged.
-Imported variants live under `sources/`, excluded from the root Buf module.
-No symlinks or platform-dependent links are used. Do not build `sources/` as a
-single module: its intentional name conflicts represent different deployed APIs.
+| Inspected graph | Source/import paths |
+| --- | ---: |
+| service-protos root catalogue | 80 |
+| Cloud main shared input | 77 |
+| Cloud main local contracts and two shared imports | 7 |
+| Cloud legacy shared input | 70 |
+| Cloud legacy dashboard mirror | 33 |
+| WendyOS Agent/Cloud/system graph, including recording and SensorLink | 79 |
+| Companion WendyProtos | 49 |
+| Auth FabricProto | 7 |
+| PKI shared graph | 8 |
+| PKI's existing separate dev/test certificate shim | 1 |
 
-## Build and generate
+Identical bytes share a local source file. Existing incompatible definitions
+remain separate, including Cloud's local UUID invite contract versus the root
+numeric invite contract, and the Agent video variants. No fields, import paths,
+JSON names, presence, signed-method options or documented behavior are normalized.
 
-Use Python 3.15.2 and Buf 1.75.0 (CI pins both). From a clean checkout:
+`consumers.json` records the inspected consumer commits, generator paths/hashes
+and input selections. Cloud's two local symlinks and Auth's FabricProto symlinks
+were resolved through their pinned service-protos commits. The imported snapshots
+here are ordinary files. Containerd inputs and standalone Wendy Lite application
+protocols are outside this shared graph. SensorLink is included because Agent v2
+imports it.
 
-```sh
-python scripts/contracts.py check --base <PR-base-commit>
-python -m unittest discover -s scripts -p 'test_*.py' -v
-python scripts/contracts.py image cloud-main-local /tmp/cloud-main-local.binpb
-buf generate /tmp/cloud-main-local.binpb --template /path/to/consumer/buf.gen.yaml
-```
+## Verify the import
 
-`image` builds a Buf image with original import paths and explicit generation
-roots. Cloud-local's two shared imports are dependencies, not extra generation
-targets. Other views describe the union consumed by a product's generation
-passes. Keep each consumer's existing per-pass paths, language package mappings
-and pinned plugins when migrating it. Do not generate every language from every
-view or combine views that declare different meanings for the same name.
-
-`export <view> <new-directory>` materializes ordinary source files for inspection.
-`image` is preferable for generation because it preserves the root/import split.
-Temporary materialization is a build product, never an authoritative source copy.
-
-After publication, a consumer checks out exactly its one `contracts.version`
-tag in a temporary/cache directory, without submodules, then invokes `image`
-from that checkout and generates from the result. The root catalogue also
-supports a direct [Buf Git input](https://buf.build/docs/reference/inputs/):
+From this repository, with Python 3.10 or newer:
 
 ```sh
-# Illustrative, only after the approved tag is published:
-contract_tag="$(cat contracts.version)"
-git clone --depth 1 --branch "$contract_tag" \
-  https://github.com/wendylabsinc/service-protos.git /tmp/contracts-source
-python /tmp/contracts-source/scripts/contracts.py image companion /tmp/companion.binpb
-buf generate /tmp/companion.binpb --template buf.gen.yaml
-# Existing root-only consumers can instead use:
-buf build "https://github.com/wendylabsinc/service-protos.git#tag=$contract_tag"
+python3 scripts/verify-provenance.py
+python3 -m unittest discover -s scripts -p 'test_provenance.py' -v
 ```
 
-The consumer migration must validate the pin as one stable SemVer tag and
-verify the fetched tag before use. No branch fallback is allowed. Git credentials
-must work in a clean process. See [release/access prerequisites](../docs/releases.md).
-CI in this repository needs only its checkout token. Source re-audits below need
-read access to all recorded private repositories.
+The local check verifies source bytes against the recorded SHA-256 and Git blob
+IDs, graph references, and completeness of the imported file inventory. It does
+not perform API compatibility checks or certify a consumer build.
 
-## Baseline provenance
-
-Initial capture reads immutable upstream Git objects, writes the original paths
-into isolated modules, and builds each original graph with:
+To independently confirm the recorded upstream commits and paths, authenticate
+`gh` with read access to the source repositories and run:
 
 ```sh
-buf build ORIGINAL_GRAPH --exclude-source-info --output BASELINE.binpb
-# cloud-main-local additionally selects only the five top-level local roots.
+python3 scripts/verify-provenance.py --upstream
 ```
 
-The catalogue checker independently materializes the candidate from its source
-map and compares it to those images. Tests require byte-identical descriptor
-images for every frozen view. Source/import names, options, JSON names, tags,
-types and presence are preserved. Signed-method changes get an additional
-explicit check because generic schema compatibility is insufficient.
+This read-only audit compares the local Git blob hashes with nine immutable
+GitHub commit trees. It covers 332 distinct upstream file records. It needs no
+local checkout of any consumer repository. CI uses the offline check so it
+requires no additional cross-repository credentials.
 
-Re-audit provenance against GitHub without touching any source checkout:
+The root Buf module excludes `contracts/` so imported definitions do not enter
+existing generation. Existing changed-file lint skips only `contracts/sources/`
+and verifies those files with the provenance check instead. The existing root
+breaking-check configuration remains as on master. Building the root produces
+the same descriptor image as before this import. Do not compile all of `sources/`
+together: its duplicate identities intentionally preserve divergent deployed APIs.
 
-```sh
-python scripts/verify-provenance.py
-```
+## Known source gap and landing order
 
-That command fetches each immutable upstream tree and matches the Git blob hash
-of every mapped source byte-for-byte. No developer checkout is used. The initial
-audit matched 411 entries across nine upstream commit trees. The first capture
-has no stable tag. Its baseline is these descriptors, never the candidate itself.
-Future runs derive the stable tag from full Git history and always retain the
-initial comparisons. Baseline files are immutable once on the PR base.
+Cloud main's Swift generator requires `image_assignment.proto`, absent from its
+pinned service-protos commit. Its existing presence check stops regeneration.
+The inventory records that gap, without inventing the contract, dropping it from
+Cloud's generator, or claiming full Swift regeneration works. Resolve it before
+the later Cloud consumer migration.
 
-## Generation evidence and known source gap
-
-See `consumers.json` for the exact inspected consumer revisions, generation paths
-and input roots. Cloud's two local symlinks resolve to `wendy/options.proto` and
-`wendycloud/v2/signed_request.proto` in its pinned submodule. Auth's current seven
-FabricProto links resolve to its recorded service-protos pin. These links are
-resolved to ordinary files here, with shared authoritative bytes deduplicated.
-
-Cloud main's Swift generator also explicitly requires `image_assignment.proto`,
-but that file is absent from its pinned service-protos commit. Its presence check
-currently stops regeneration before deleting generated files. This catalogue
-captures all present shared/local graphs and does **not** invent that missing
-contract, drop it from Cloud's generator or claim that full Swift regeneration
-passes. Resolving that existing source gap is a prerequisite for the later Cloud
-consumer migration. The current Cloud generated sources remain untouched.
-
-Containerd sources and standalone Wendy Lite application protocols are outside
-the shared Agent/Cloud graph. SensorLink is included because Agent v2 imports it.
-Standalone frozen Core, Go and Swift wrapper repositories were not modified.
+This is the mechanical import piece. The next independently reviewed piece
+assembles compatibility views and adds strict checks/baselines. Ownership,
+compatibility policy and release/tag rules follow separately. Nothing here
+requires either later piece to build or land.

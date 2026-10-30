@@ -2,10 +2,6 @@
   {
     "repository": "cloud",
     "commit": "6803e3a8e02c00551b9d205b0fcbdcb614fece91",
-    "views": [
-      "cloud-main-shared",
-      "cloud-main-local"
-    ],
     "generation": [
       {
         "path": "swift/scripts/generate-proto.sh",
@@ -13,7 +9,6 @@
         "sha256": "d87c0365043d4e478a02d7089eb1c3b428f819ee9b00c0f85d3b578fd51b1cd3",
         "passes": [
           {
-            "view": "cloud-main-shared",
             "roots": [
               "agent_video_service.proto",
               "assets.proto",
@@ -42,10 +37,10 @@
               "wendy/agent/services/v1/wendy_agent_v1_service.proto",
               "wendy/agent/services/v1/wendy_agent_v1_telemetry_service.proto"
             ],
-            "file_naming": "default"
+            "file_naming": "default",
+            "graph": "cloud-main-shared"
           },
           {
-            "view": "cloud-main-shared",
             "roots": [
               "wendycloud/tunnel/v1/tunnel.proto",
               "wendycloud/tunnel/v2/tunnel.proto",
@@ -78,10 +73,10 @@
               "wendycloud/v2/tunnel.proto",
               "wendycloud/v2/users.proto"
             ],
-            "file_naming": "PathToUnderscores"
+            "file_naming": "PathToUnderscores",
+            "graph": "cloud-main-shared"
           },
           {
-            "view": "cloud-main-local",
             "roots": [
               "billing.proto",
               "device_enrollment.proto",
@@ -89,7 +84,8 @@
               "org_realm_group_roles.proto",
               "provisioning.proto"
             ],
-            "file_naming": "default"
+            "file_naming": "default",
+            "graph": "cloud-main-local"
           }
         ]
       },
@@ -99,7 +95,6 @@
         "sha256": "dfa98c0e7d8e4bfbc6ac6958517d883b11f7f52a4d42062665c59b0ac915858c",
         "passes": [
           {
-            "view": "cloud-main-shared",
             "roots": [
               "agent_video_service.proto",
               "apns.proto",
@@ -178,17 +173,18 @@
               "wendycloud/v2/telemetry_query.proto",
               "wendycloud/v2/tunnel.proto",
               "wendycloud/v2/users.proto"
-            ]
+            ],
+            "graph": "cloud-main-shared"
           },
           {
-            "view": "cloud-main-local",
             "roots": [
               "billing.proto",
               "device_enrollment.proto",
               "org_invites.proto",
               "org_realm_group_roles.proto",
               "provisioning.proto"
-            ]
+            ],
+            "graph": "cloud-main-local"
           }
         ]
       }
@@ -197,32 +193,33 @@
       "path": "image_assignment.proto",
       "submodule_commit": "00abc671dd027853d95cd79ceb92ee661b9231d2",
       "effect": "Existing Swift generator fails its presence check. Resolve before consumer migration."
-    }
+    },
+    "graphs": [
+      "cloud-main-shared",
+      "cloud-main-local"
+    ]
   },
   {
     "repository": "cloud",
     "commit": "6b0128da9f25b0a78692635ed8b1210d5f33beee",
-    "views": [
-      "cloud-legacy-shared",
-      "cloud-legacy-dashboard"
-    ],
     "generation": [
       {
         "path": "dashboard/scripts/generate-protos.sh",
         "url": "https://github.com/wendylabsinc/cloud/blob/6b0128da9f25b0a78692635ed8b1210d5f33beee/dashboard/scripts/generate-protos.sh",
         "sha256": "c65fe4ca7f2cd6508b3e808c5fd0c7f34e23e036baf4622b3d8607bb91e065f4",
-        "preferred_view": "cloud-legacy-dashboard",
-        "fallback_view": "cloud-legacy-shared",
-        "roots": "all .proto files in selected view"
+        "roots": "all .proto files in selected view",
+        "preferred_graph": "cloud-legacy-dashboard",
+        "fallback_graph": "cloud-legacy-shared"
       }
+    ],
+    "graphs": [
+      "cloud-legacy-shared",
+      "cloud-legacy-dashboard"
     ]
   },
   {
     "repository": "WendyOS",
     "commit": "ff6098ee34985749f4d9caf0459b3832549c4a6a",
-    "views": [
-      "wendyos"
-    ],
     "generation": [
       {
         "path": "go/scripts/generate-proto.sh",
@@ -360,14 +357,14 @@
           "cloud/users.proto"
         ]
       }
+    ],
+    "graphs": [
+      "wendyos"
     ]
   },
   {
     "repository": "wendy-companion-ios",
     "commit": "d4354168efe630448f66d5e87dd3ddec569ed020",
-    "views": [
-      "companion"
-    ],
     "generation": [
       {
         "path": "WendyCompanionSDK/Package.swift",
@@ -430,14 +427,14 @@
         "url": "https://github.com/wendylabsinc/wendy-companion-ios/blob/d4354168efe630448f66d5e87dd3ddec569ed020/WendyCompanionSDK/Sources/WendyProtos/grpc-swift-proto-generator-config.json",
         "sha256": "fd1763cebb23b901044c1b6618f0ef9823e5c2d29738983b3080c70aea209a70"
       }
+    ],
+    "graphs": [
+      "companion"
     ]
   },
   {
     "repository": "wendy-auth",
     "commit": "4adf8054e213504f35b6db601d1bcc30ec040fbb",
-    "views": [
-      "auth"
-    ],
     "generation": [
       {
         "path": "Package.swift",
@@ -458,15 +455,14 @@
         "url": "https://github.com/wendylabsinc/wendy-auth/blob/4adf8054e213504f35b6db601d1bcc30ec040fbb/Sources/FabricProto/grpc-swift-proto-generator-config.json",
         "sha256": "9f71f11042cffc9e95ed38db6ab8c810abb48ba8afe16f1294ab5fc882832559"
       }
+    ],
+    "graphs": [
+      "auth"
     ]
   },
   {
     "repository": "pki-core",
     "commit": "91627406f07c44c82b76e1faa6f8b3bedec83f34",
-    "views": [
-      "pki",
-      "pki-dev-shim"
-    ],
     "generation": [
       {
         "path": "Makefile",
@@ -474,7 +470,6 @@
         "sha256": "97c44199b31c7063530c6f2d61a022728aa72c3ff27a6cb883655b9b6eb4bf63",
         "passes": [
           {
-            "view": "pki",
             "roots": [
               "authorization.proto",
               "pkicore/v1/engine.proto",
@@ -484,16 +479,21 @@
               "wendyauth/v1/envelope.proto",
               "wendyauth/v1/security_events.proto",
               "wendycloud/tunnel/v2/tunnel.proto"
-            ]
+            ],
+            "graph": "pki"
           },
           {
-            "view": "pki-dev-shim",
             "roots": [
               "proto/wendycloud/v1/certificates.proto"
-            ]
+            ],
+            "graph": "pki-dev-shim"
           }
         ]
       }
+    ],
+    "graphs": [
+      "pki",
+      "pki-dev-shim"
     ]
   }
 ]
