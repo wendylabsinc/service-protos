@@ -57,13 +57,25 @@ owner-authorized action, not delegated to CI. GitHub's
 [ruleset rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
 define the exact update/deletion and review semantics.
 
+## Initial v0.1.0 bootstrap
+
+The owner explicitly approved publishing the initial `v0.1.0` after all three
+catalogue pieces merge and pass validation under the current repository
+settings. This approval does not include activating the proposed protections.
+Until separately approved and applied, tag immutability is policy, not a
+GitHub-enforced guarantee. Record the actual protection state with this release.
+For future catalogue releases, the normal protection prerequisite remains:
+activate and verify the proposed protections only after separate settings
+approval and the eligible-CODEOWNER requirement above are satisfied.
+
 ## Exact next tag steps (only after explicit publication approval)
 
 1. Merge the deployed-source import, frozen views/checks and ownership/release
    policy in their declared dependency order, with green checks and explicit
    merge approval. Fetch full history and tags, inspect the approved release
    commit and confirm it is on `origin/master` and includes all three pieces.
-   Confirm the protection rules above are active and `v0.1.0` does not exist.
+   Record the current protection state honestly and confirm `v0.1.0` does not
+   exist. The initial bootstrap approval above applies to this release only.
 2. From a clean worktree, run the following with `APPROVED_MERGE_SHA` and
    `PR_BASE_SHA` set to the actual reviewed commits. Stop on any failure or existing tag. The second SHA
    is the PR base, never the candidate itself.
@@ -87,9 +99,10 @@ define the exact update/deletion and review semantics.
 )
 ```
 
-3. Verify the remote tag peels to the approved merge commit, both rulesets are
-   active, and a clean authenticated Git checkout can export every view. Record
-   that commit in release notes. Creating a GitHub Release or packages is not
+3. Verify the remote tag peels to the approved merge commit and a clean
+   authenticated Git checkout can export every view. Record the commit and
+   observed protection state in release notes. Do not report proposed rulesets
+   as active. Creating a GitHub Release or packages is not
    implicit in the commands above.
 4. Only then migrate Cloud main/legacy, WendyOS, Companion, pki-core and Auth in
    their separate PRs. Embedded Core is conditional on its existing WendyOS
