@@ -132,7 +132,10 @@ def verify_sources(root, views, provenance, first_migration=False):
 def snapshot(ref, output):
     # Only object IDs or refs resolved by Git reach archive. Never execute baseline code.
     oid = run('git', 'rev-parse', '--verify', ref + '^{commit}', cwd=ROOT).strip()
-    data = subprocess.check_output(['git', 'archive', oid], cwd=ROOT)
+    # Git archive applies checkout line-ending settings too. Historical hashes
+    # refer to committed bytes, independent of the runner's core.autocrlf.
+    data = subprocess.check_output([
+        'git', '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', 'archive', oid], cwd=ROOT)
     output.mkdir()
     with tarfile.open(fileobj=io.BytesIO(data)) as archive:
         archive.extractall(output, filter='data')

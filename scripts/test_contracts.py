@@ -2,9 +2,9 @@
 import copy
 import importlib.util
 import json
-import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -110,23 +110,65 @@ enum State { STATE_UNSPECIFIED = 0; STATE_READY = 1; }
         with self.assertRaisesRegex(ValueError, 'source drift'):
             contracts.verify_sources(dest, self.views, self.provenance)
 
-    def evolve_canonical(self, remap=True):
-        dest = self.copy_catalogue()
+    def evolve_canonical(self, remap=True, dest=None):
+        dest = dest or self.copy_catalogue()
         views = copy.deepcopy(self.views)
         source = dest / 'users.proto'
         preserved = contracts.source_audit.preserved_source('users.proto')
         captured = dest / preserved
-        captured.parent.mkdir(parents=True)
-        captured.write_bytes(source.read_bytes())
+        captured.parent.mkdir(parents=True, exist_ok=True)
+        if not captured.exists():
+            captured.write_bytes(source.read_bytes())
         source.write_text(source.read_text().replace(
-            'message GetUserRequest {', 'message GetUserRequest {\n  optional string etag = 2;'))
-        if remap:
-            for name, view in views.items():
-                if name != 'catalogue':
-                    for path, selected in view['files'].items():
-                        if selected == 'users.proto':
-                            view['files'][path] = preserved
+            'message GetUserRequest {',
+            'message GetUserRequest {\n  optional string contract_test_marker = 490001;'))
+        inventory = contracts.read_json(dest / 'contracts/inventory.json')
+        for name, view in views.items():
+            if name != 'catalogue':
+                for path in view['files']:
+                    if inventory['graphs'][name][path] == 'users.proto':
+                        view['files'][path] = preserved if remap else 'users.proto'
+        (dest / 'contracts/views.json').write_text(json.dumps({'version': 1, 'views': views}))
         return dest, views
+
+    def commit_fixture(self, dest):
+        contracts.run('git', 'add', '.', cwd=dest)
+        contracts.run('git', '-c', 'user.name=Contract test', '-c', 'user.email=test@example.invalid',
+                      'commit', '-m', 'test: capture compatibility fixture', cwd=dest)
+        return contracts.run('git', 'rev-parse', 'HEAD', cwd=dest).strip()
+
+    def fixture_repository(self):
+        dest = self.copy_catalogue()
+        contracts.run('git', 'init', cwd=dest)
+        return dest, self.commit_fixture(dest)
+
+    def test_full_check_allows_additive_canonical_edit(self):
+        dest, base = self.fixture_repository()
+        self.evolve_canonical(dest=dest)
+        self.commit_fixture(dest)
+        with patch.object(contracts, 'ROOT', dest), patch.object(contracts, 'stable_tags', return_value=[]):
+            contracts.check(base)
+
+    def test_snapshot_preserves_object_bytes_with_crlf_setting(self):
+        dest, base = self.fixture_repository()
+        contracts.run('git', 'config', 'core.autocrlf', 'true', cwd=dest)
+        with patch.object(contracts, 'ROOT', dest):
+            captured = contracts.snapshot(base, self.work / 'snapshot')
+        self.assertEqual((captured / 'contracts/views.json').read_bytes(),
+                         subprocess.check_output(['git', 'show', base + ':contracts/views.json'], cwd=dest))
+
+    def test_full_check_rejects_deletion_from_later_stable_graph(self):
+        dest, base = self.fixture_repository()
+        original = (dest / 'users.proto').read_bytes()
+        self.evolve_canonical(dest=dest)
+        released = self.commit_fixture(dest)
+        (dest / 'users.proto').write_bytes(original)
+        self.commit_fixture(dest)
+        # Resolve a real independent release commit without creating a tag in
+        # this repository. Numeric tag discovery is exercised separately.
+        with patch.object(contracts, 'ROOT', dest), patch.object(contracts, 'stable_tags', return_value=[released]):
+            with self.assertRaisesRegex(ValueError, 'field'):
+                contracts.check(base)
 
     def test_additive_canonical_edit_preserves_frozen_views(self):
         dest, views = self.evolve_canonical()
