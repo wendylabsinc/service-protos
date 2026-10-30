@@ -1,8 +1,8 @@
 # Shared API contracts
 
 Follow [the canonical compatibility policy](docs/compatibility.md) and the
-[release procedure](docs/releases.md). Konstantin is the interim accountable
-contract and release owner.
+[release procedure](docs/releases.md). The accountable contract and release
+owner role is unassigned.
 
 Consumers use their single `contracts.version` tag for every shared contract
 view. Only add within an existing API version. Never renumber, reuse or

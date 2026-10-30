@@ -1,27 +1,33 @@
 # Service Protos
 
-This repository contains Protocol Buffer definitions shared between `wendylabsinc/wendy-agent` and cloud services.
+The shared protobuf/gRPC API catalogue for the Wendy ecosystem covers:
 
-## Purpose
+- Cloud main and legacy services
+- WendyOS CLI and Agents (Go and Mac)
+- Companion SDK / WendyProtos
+- Auth and PKI
 
-These protobuf files define the common interfaces and data structures used for communication between:
-- Wendy Agent components
-- Cloud service implementations
-- Inter-service communication protocols
+Embedded Core joins as its migration into WendyOS permits. Deployed contract
+variants remain separate compatibility views, preserving their existing import
+paths and behavior without normalization.
 
-## Usage
+## Tagged inputs
 
-Import these protobuf definitions into your projects to ensure consistent data structures and API contracts across the Wendy ecosystem.
+The initial catalogue tag, [v0.1.0](https://github.com/wendylabsinc/service-protos/tree/v0.1.0),
+is published. Catalogue coverage does not mean consumer adoption: consumer
+migrations are still pending, and each repository upgrades independently.
 
-## Structure
-
-The protobuf files are organized to support various service interactions and maintain backwards compatibility across different service versions.
+Each migrated repository uses one `contracts.version` tag pin for all shared
+contract views, generating with Buf from that tagged Git input. Migration
+removes shared-contract submodules and source copies after equivalence is proved.
+Versioned generated Go and Swift packages are separate, later SDK work.
 
 ## Compatibility views and checks
 
 See [frozen compatibility views](contracts/README.md) for build/generation
-commands, independent compatibility baselines and the maintenance path for
-additive canonical edits. Use Python 3.15.2 and Buf 1.75.0:
+commands and independent compatibility baselines. Before editing root contracts,
+follow the [historical-byte preservation procedure](contracts/README.md#preserve-provenance-while-maintaining-canonical-apis).
+Existing root import paths remain available. Use Python 3.15.2 and Buf 1.75.0:
 
 ```sh
 python3 scripts/contracts.py check --base <PR-base-commit>
@@ -32,5 +38,6 @@ python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
 See the [compatibility and retirement policy](docs/compatibility.md) and
 [release/protection procedure](docs/releases.md).
-The planned first catalogue tag is `v0.1.0`. Consumers migrate separately
-after publication is approved. Existing root import paths remain available.
+Changes within an API version are additive. Breaking changes need a new API
+version alongside the old one. Retirement requires the policy's support window,
+migration evidence and owner approval.
