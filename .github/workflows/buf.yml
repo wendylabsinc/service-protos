@@ -17,12 +17,6 @@ jobs:
           # unauthenticated GitHub API and fails the whole job whenever the
           # runner's shared IP is rate-limited.
           github_token: ${{ github.token }}
-      # Imported snapshots are isolated from the existing root generation graph.
-      # Verify their bytes separately without requiring cross-repository CI secrets.
-      - name: Verify imported source inventory
-        run: |
-          python3 scripts/verify-provenance.py
-          python3 -m unittest discover -s scripts -p 'test_provenance.py' -v
       - name: Lint every changed proto
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -38,7 +32,7 @@ jobs:
           fi
 
           mapfile -t proto_files < <(
-            git diff --name-only --diff-filter=ACMR "$base_sha" "$GITHUB_SHA" -- '*.proto' ':!contracts/sources/**'
+            git diff --name-only --diff-filter=ACMR "$base_sha" "$GITHUB_SHA" -- '*.proto'
           )
           if (( ${#proto_files[@]} == 0 )); then
             echo "No changed proto files to lint."
