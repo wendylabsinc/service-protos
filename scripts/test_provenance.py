@@ -66,6 +66,13 @@ class ProvenanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'upstream source mismatch'):
                 provenance.verify(self.root, self.inventory, upstream=True)
 
+    def test_mutable_or_abbreviated_upstream_revision_fails(self):
+        for revision in ('master', 'v1.0.0', 'a' * 7, 'g' * 40):
+            with self.subTest(revision=revision):
+                self.inventory['sources'][self.name]['origins'][0]['commit'] = revision
+                with self.assertRaisesRegex(ValueError, 'full immutable commit'):
+                    provenance.verify(self.root, self.inventory)
+
     def test_outside_source_refused(self):
         with self.assertRaisesRegex(ValueError, 'invalid source path'):
             provenance.source_path(self.root, '../outside.proto')

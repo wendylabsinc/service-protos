@@ -6,6 +6,7 @@ import: 194 distinct files, 332 upstream records and 411 graph/import entries.
 generation roots and file-specific naming lint allowances. Intentional name
 conflicts remain isolated, including Cloud invite and Agent video variants.
 No schema content, consumer input or runtime behavior changes here.
+The source audit requires full immutable upstream commit hashes.
 
 | View | Existing input graph | Files |
 | --- | --- | ---: |
@@ -60,9 +61,10 @@ checks do not prove runtime behavior compatibility or a complete consumer build.
 
 The `catalogue` view can evolve compatibly. Its existing files stay at their
 root import paths. Add new root files to its `files` and `roots` selections and
-keep the original selections. Frozen views retain their original bytes and
-generation roots. An additive edit to a file shared with a frozen view follows
-this normal maintenance path:
+keep the original selections. Every catalogue file must be a generation root
+so compatibility checks cannot omit a newly added API. Frozen views retain
+their original bytes and generation roots. An additive edit to a file shared
+with a frozen view follows this normal maintenance path:
 
 1. Before editing a captured root file such as `users.proto`, copy its original
    bytes to `contracts/sources/captured/users.proto`. Use the original captured
