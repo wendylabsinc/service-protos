@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package wendycloud.v2;
+
+import "google/protobuf/timestamp.proto";
+import "wendy/options.proto";
+import "wendycloud/v2/signed_request.proto";
+
+// OrganizationRealmGroupRoleService is Cloud-owned, defined in this repo (cloud-proto/, not the
+// shared service-protos submodule) for the same reason OrganizationInviteService is: it is
+// cloud's own per-organization admin surface, with no reason to be a cross-repo contract.
+//
+// Maps a wendy-auth realm group onto an organization role, PER ORGANIZATION and editable by that
+// organization's own owner/admin (WDY-3270) -- the per-org counterpart to the deployment-wide
+// WENDY_AUTHZ_GROUP_ROLES mapping (AuthorizationPolicy.swift), which an operator edits once in
+// environment config and which applies tenant-wide. An explicit organization_members row always
+// wins over a group-derived role, from either mapping (ACL.swift effectiveOrganizationRole).
+service OrganizationRealmGroupRoleService {
+  // Maps, or remaps, a realm group to a role in one organization. Owner/admin only. Upserts on
+  // (organization_id, group_name). role_id accepts built-in or organization-owned custom roles;
+  // the owner role is always rejected. The caller must hold every assigned permission.
+  // Signed; payload_type "wendycloud.v2.SetOrganizationRealmGroupRoleRequest".
+  rpc SetOrganizationRealmGroupRole(SignedRequest) returns (OrganizationRealmGroupRole) {
+    option (wendy.signed_request) = true;
+  }
+  // Removes a mapping. Owner/admin only. Not an error when the group has no mapping.
+  // Signed; payload_type "wendycloud.v2.RemoveOrganizationRealmGroupRoleRequest".
+  rpc RemoveOrganizationRealmGroupRole(SignedRequest)
+      returns (RemoveOrganizationRealmGroupRoleResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Lists every group -> role mapping for one organization. Owner/admin only.
+  rpc ListOrganizationRealmGroupRoles(ListOrganizationRealmGroupRolesRequest)
+      returns (ListOrganizationRealmGroupRolesResponse);
+  // Lists the organization's complete wendy-auth group catalog for choosing a mapping.
+  // Requires the same permission as listing mappings. The broker derives the realm from
+  // the organization's immutable tenant UUID, never from a caller-supplied URL.
+  rpc ListOrganizationRealmGroups(ListOrganizationRealmGroupsRequest)
+      returns (ListOrganizationRealmGroupsResponse);
+}
+
+message OrganizationRealmGroupRole {
+  string id = 1;
+  string organization_id = 2;
+  // Realm-qualified exactly as the wendy-auth `groups` claim and WENDY_AUTHZ_GROUP_ROLES both
+  // spell it: "<realm-issuer>#<group>", e.g. "https://auth.dev.wendy.sh/realms/acme#support".
+  string group_name = 3;
+  // Built-in wire value, or the current custom role name. Never "owner".
+  string role = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  string role_id = 7;
+}
+
+message SetOrganizationRealmGroupRoleRequest {
+  string organization_id = 1;
+  string group_name = 2;
+  string role = 3;
+  // When present, takes precedence over the legacy built-in role string.
+  optional string role_id = 4;
+}
+
+message RemoveOrganizationRealmGroupRoleRequest {
+  string organization_id = 1;
+  string group_name = 2;
+}
+
+message RemoveOrganizationRealmGroupRoleResponse {
+  bool success = 1;
+}
+
+message ListOrganizationRealmGroupRolesRequest {
+  string organization_id = 1;
+}
+
+message ListOrganizationRealmGroupRolesResponse {
+  repeated OrganizationRealmGroupRole roles = 1;
+}
+
+message OrganizationRealmGroup {
+  // Qualified mapping key: "<realm-issuer>#<group>".
+  string group_name = 1;
+  string name = 2;
+  string description = 3;
+  // "local" or "federated".
+  string source = 4;
+  string connection_name = 5;
+}
+
+message ListOrganizationRealmGroupsRequest {
+  string organization_id = 1;
+}
+
+message ListOrganizationRealmGroupsResponse {
+  repeated OrganizationRealmGroup groups = 1;
+}

@@ -1,60 +1,260 @@
-version: v2
-modules:
-  - path: .
-lint:
-  use:
-    - STANDARD
-  except:
-    - SERVICE_SUFFIX             # service pkicore.v1.CAEngine (RPC path, cannot rename)
-    - RPC_RESPONSE_STANDARD_NAME # streaming AuditLogEntry response
-    - ENUM_VALUE_PREFIX          # KeyAlgorithm/AuthMode values = generated Go consts
-    - ENUM_ZERO_VALUE_SUFFIX
-    # pkicore.v1.FabricRelayService deliberately takes the SHARED
-    # wendyauth.v1.Envelope as the request type for every relay RPC (§11.2: one
-    # typed envelope carrying {tenant, correlation_id, workload_identity,
-    # payload, signed_artifact} across all fabric methods, cross-checked against
-    # the transport-authenticated peer). Per-RPC request messages would defeat
-    # the point of a shared envelope, so these two rules cannot be satisfied
-    # without abandoning the design.
-    - RPC_REQUEST_STANDARD_NAME
-    - RPC_REQUEST_RESPONSE_UNIQUE
-  ignore_only:
-    PACKAGE_DIRECTORY_MATCH:
-      - notifications.proto # Legacy import path used by existing clients.
-      - organizations.proto # Legacy import path used by existing clients.
-      # Cloud's codegen passes bare basenames, and its already-generated modules
-      # record `// Source: <basename>`. Moving these under wendycloud/v1/ would
-      # change that generated output, so the root path is load-bearing.
-      - org_invites.proto
-      - telemetry_query.proto
-      # Deprecated (WDY-2948); deleted outright by WDY-3423, never moved.
-      - personal_access_tokens.proto
-    PACKAGE_VERSION_SUFFIX:
-      # Custom-option package: the option name `(wendy.signed_request)` is what
-      # every annotated RPC spells, so it stays unversioned (like google.api).
-      - wendy/options.proto
-breaking:
-  use:
-    - FILE
-  ignore_only:
-    # WDY-3458: operator-signed RPCs now take wendycloud.v2.SignedRequest (the
-    # signature moved from headers into the body). One intentional break,
-    # shipped in a coordinated merge round. Drop this entry in a follow-up PR
-    # once this lands on master.
-    RPC_SAME_REQUEST_TYPE:
-      - wendycloud/v2/apps.proto
-      - wendycloud/v2/assets.proto
-      - wendycloud/v2/certificates.proto
-      - wendycloud/v2/deployments.proto
-      - wendycloud/v2/maps.proto
-      - wendycloud/v2/notifications.proto
-      - wendycloud/v2/org_teams.proto
-      - wendycloud/v2/organizations.proto
-      - wendycloud/v2/pki_admin.proto
-      - wendycloud/v2/roles.proto
-    FILE_NO_DELETE:
-      # wendycloud/v2/oauth.proto: OAuthService generated client secrets it never
-      # stored or verified; no caller (WDY-3365). Machine credentials are
-      # wendy-auth service accounts. v1 oauth.proto stays (legacy prod contract).
-      # Drop this entry once master no longer has the file.
-      - wendycloud/v2/oauth.proto
+{
+  "version": "v2",
+  "breaking": {
+    "use": [
+      "FILE"
+    ]
+  },
+  "modules": [
+    {
+      "path": ".",
+      "excludes": [
+        "contracts",
+        ".contract-work"
+      ]
+    }
+  ],
+  "lint": {
+    "use": [
+      "STANDARD"
+    ],
+    "ignore_only": {
+      "DIRECTORY_SAME_PACKAGE": [
+        "agent_video_service.proto",
+        "apns.proto",
+        "apps.proto",
+        "assets.proto",
+        "authorization.proto",
+        "certificates.proto",
+        "deployments.proto",
+        "diagnostics.proto",
+        "hackathon_auth.proto",
+        "hackathon_cert.proto",
+        "ingest.proto",
+        "invite_links.proto",
+        "leaderboard.proto",
+        "logtailing.proto",
+        "maps.proto",
+        "notifications.proto",
+        "oauth.proto",
+        "org_invites.proto",
+        "org_teams.proto",
+        "organizations.proto",
+        "personal_access_tokens.proto",
+        "public_routing.proto",
+        "schedule.proto",
+        "teams.proto",
+        "telemetry.proto",
+        "telemetry_query.proto",
+        "tunnel.proto",
+        "users.proto"
+      ],
+      "ENUM_VALUE_PREFIX": [
+        "certificates.proto",
+        "deployments.proto",
+        "oauth.proto",
+        "pkicore/v1/engine.proto",
+        "pkicore/v1/types.proto",
+        "wendy/agent/services/v1/shared.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_container_service.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_service.proto",
+        "wendycloud/v2/certificates.proto",
+        "wendycloud/v2/deployments.proto"
+      ],
+      "ENUM_ZERO_VALUE_SUFFIX": [
+        "deployments.proto",
+        "opentelemetry/proto/logs/v1/logs.proto",
+        "opentelemetry/proto/metrics/v1/metrics.proto",
+        "opentelemetry/proto/trace/v1/trace.proto",
+        "tunnel.proto",
+        "wendy/agent/services/v1/shared.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_container_service.proto",
+        "wendycloud/v2/deployments.proto",
+        "wendycloud/v2/tunnel.proto"
+      ],
+      "FIELD_LOWER_SNAKE_CASE": [
+        "wendy/agent/services/v1/wendy_agent_v1_service.proto"
+      ],
+      "PACKAGE_DIRECTORY_MATCH": [
+        "agent_video_service.proto",
+        "apns.proto",
+        "apps.proto",
+        "assets.proto",
+        "authorization.proto",
+        "certificates.proto",
+        "deployments.proto",
+        "diagnostics.proto",
+        "hackathon_auth.proto",
+        "hackathon_cert.proto",
+        "ingest.proto",
+        "invite_links.proto",
+        "leaderboard.proto",
+        "logtailing.proto",
+        "maps.proto",
+        "notifications.proto",
+        "oauth.proto",
+        "org_invites.proto",
+        "org_teams.proto",
+        "organizations.proto",
+        "personal_access_tokens.proto",
+        "public_routing.proto",
+        "schedule.proto",
+        "teams.proto",
+        "telemetry.proto",
+        "telemetry_query.proto",
+        "tunnel.proto",
+        "users.proto"
+      ],
+      "PACKAGE_SAME_DIRECTORY": [
+        "agent_video_service.proto",
+        "wendy/agent/services/v1/shared.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_container_service.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_service.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_telemetry_service.proto"
+      ],
+      "PACKAGE_VERSION_SUFFIX": [
+        "wendy/options.proto"
+      ],
+      "RPC_REQUEST_RESPONSE_UNIQUE": [
+        "apps.proto",
+        "assets.proto",
+        "deployments.proto",
+        "invite_links.proto",
+        "maps.proto",
+        "notifications.proto",
+        "oauth.proto",
+        "org_invites.proto",
+        "org_teams.proto",
+        "organizations.proto",
+        "pkicore/v1/engine.proto",
+        "pkicore/v1/fabric_management.proto",
+        "pkicore/v1/fabric_relay.proto",
+        "public_routing.proto",
+        "schedule.proto",
+        "teams.proto",
+        "tunnel.proto",
+        "users.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_container_service.proto",
+        "wendyauth/v1/security_events.proto",
+        "wendycloud/tunnel/lite/v1/relay.proto",
+        "wendycloud/tunnel/v1/tunnel.proto",
+        "wendycloud/tunnel/v2/tunnel.proto",
+        "wendycloud/v2/access.proto",
+        "wendycloud/v2/apps.proto",
+        "wendycloud/v2/assets.proto",
+        "wendycloud/v2/certificates.proto",
+        "wendycloud/v2/deployments.proto",
+        "wendycloud/v2/device_access.proto",
+        "wendycloud/v2/maps.proto",
+        "wendycloud/v2/notifications.proto",
+        "wendycloud/v2/operator_certificate.proto",
+        "wendycloud/v2/org_teams.proto",
+        "wendycloud/v2/organizations.proto",
+        "wendycloud/v2/pki_admin.proto",
+        "wendycloud/v2/postbox.proto",
+        "wendycloud/v2/public_routing.proto",
+        "wendycloud/v2/registry.proto",
+        "wendycloud/v2/relay_mcp.proto",
+        "wendycloud/v2/roles.proto",
+        "wendycloud/v2/signed_request.proto",
+        "wendycloud/v2/sites.proto",
+        "wendycloud/v2/tunnel.proto",
+        "wendycloud/v2/users.proto"
+      ],
+      "RPC_REQUEST_STANDARD_NAME": [
+        "apns.proto",
+        "authorization.proto",
+        "deployments.proto",
+        "opentelemetry/proto/collector/logs/v1/logs_service.proto",
+        "opentelemetry/proto/collector/metrics/v1/metrics_service.proto",
+        "opentelemetry/proto/collector/trace/v1/trace_service.proto",
+        "org_teams.proto",
+        "personal_access_tokens.proto",
+        "pkicore/v1/fabric_management.proto",
+        "pkicore/v1/fabric_relay.proto",
+        "tunnel.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_container_service.proto",
+        "wendyauth/v1/security_events.proto",
+        "wendycloud/tunnel/lite/v1/relay.proto",
+        "wendycloud/tunnel/v1/tunnel.proto",
+        "wendycloud/tunnel/v2/tunnel.proto",
+        "wendycloud/v2/access.proto",
+        "wendycloud/v2/apns.proto",
+        "wendycloud/v2/apps.proto",
+        "wendycloud/v2/assets.proto",
+        "wendycloud/v2/certificates.proto",
+        "wendycloud/v2/deployments.proto",
+        "wendycloud/v2/device_access.proto",
+        "wendycloud/v2/maps.proto",
+        "wendycloud/v2/notifications.proto",
+        "wendycloud/v2/operator_certificate.proto",
+        "wendycloud/v2/org_teams.proto",
+        "wendycloud/v2/organizations.proto",
+        "wendycloud/v2/personal_access_tokens.proto",
+        "wendycloud/v2/pki_admin.proto",
+        "wendycloud/v2/postbox.proto",
+        "wendycloud/v2/registry.proto",
+        "wendycloud/v2/relay_mcp.proto",
+        "wendycloud/v2/roles.proto",
+        "wendycloud/v2/signed_request.proto",
+        "wendycloud/v2/sites.proto",
+        "wendycloud/v2/tunnel.proto"
+      ],
+      "RPC_RESPONSE_STANDARD_NAME": [
+        "agent_video_service.proto",
+        "apns.proto",
+        "apps.proto",
+        "assets.proto",
+        "authorization.proto",
+        "certificates.proto",
+        "deployments.proto",
+        "invite_links.proto",
+        "leaderboard.proto",
+        "maps.proto",
+        "notifications.proto",
+        "oauth.proto",
+        "opentelemetry/proto/collector/logs/v1/logs_service.proto",
+        "opentelemetry/proto/collector/metrics/v1/metrics_service.proto",
+        "opentelemetry/proto/collector/trace/v1/trace_service.proto",
+        "org_invites.proto",
+        "org_teams.proto",
+        "organizations.proto",
+        "personal_access_tokens.proto",
+        "pkicore/v1/engine.proto",
+        "pkicore/v1/fabric_management.proto",
+        "pkicore/v1/fabric_relay.proto",
+        "public_routing.proto",
+        "schedule.proto",
+        "teams.proto",
+        "tunnel.proto",
+        "users.proto",
+        "wendy/agent/services/v1/wendy_agent_v1_container_service.proto",
+        "wendyauth/v1/security_events.proto",
+        "wendycloud/tunnel/lite/v1/relay.proto",
+        "wendycloud/v2/access.proto",
+        "wendycloud/v2/apns.proto",
+        "wendycloud/v2/apps.proto",
+        "wendycloud/v2/assets.proto",
+        "wendycloud/v2/certificates.proto",
+        "wendycloud/v2/deployments.proto",
+        "wendycloud/v2/device_access.proto",
+        "wendycloud/v2/maps.proto",
+        "wendycloud/v2/notifications.proto",
+        "wendycloud/v2/org_teams.proto",
+        "wendycloud/v2/organizations.proto",
+        "wendycloud/v2/personal_access_tokens.proto",
+        "wendycloud/v2/pki_admin.proto",
+        "wendycloud/v2/public_routing.proto",
+        "wendycloud/v2/registry.proto",
+        "wendycloud/v2/roles.proto",
+        "wendycloud/v2/sites.proto",
+        "wendycloud/v2/tunnel.proto",
+        "wendycloud/v2/users.proto"
+      ],
+      "SERVICE_SUFFIX": [
+        "pkicore/v1/engine.proto",
+        "wendyauth/v1/auth_service.proto"
+      ]
+    }
+  }
+}

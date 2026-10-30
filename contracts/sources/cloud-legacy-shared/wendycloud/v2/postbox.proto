@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package wendycloud.v2;
+
+// DevicePostboxService is the device-facing half of the §5.3 postbox: a device
+// polls its own hash-chained entry log and the notarized checkpoint that binds
+// its head. Cloud is a queue here — it must not re-encode or canonicalize the
+// JWS or the checkpoint (both bind exact bytes), interpret or filter entries,
+// or synthesize a checkpoint. Authorization happened at accept.
+//
+// Devices pull; cloud never dials. There is no device acknowledgement RPC and
+// no cloud-side high-water mark: the device holds the mark and rejects anything
+// below it (WDY-2919, spec on WDY-2489).
+service DevicePostboxService {
+  rpc PullChanges(PullChangesRequest) returns (PullChangesResponse);
+}
+
+// Neither the tenant nor the target is on the wire: both are derived from the
+// mTLS-proven identity — tenant from the leaf, target from the canonical
+// spiffe://wendy.sh/tenant/<tenant>/device/<name> built from the asset's
+// pki_device_name. A caller-supplied target would let one device read another
+// device's chain, which no server-side check makes safer than the identity the
+// certificate already proves.
+message PullChangesRequest {
+  // Exclusive lower bound: the device's own high-water mark. 0 pulls from the
+  // start of the chain.
+  int64 after_entry_id = 1;
+  // Page size. The server caps it; a full page means MORE ENTRIES REMAIN, so
+  // page on has_more rather than treating one page as "all changes".
+  uint32 limit = 2;
+}
+
+message PullChangesResponse {
+  repeated PostboxEntry entries = 1;
+  // pki-core's notarized checkpoint for this chain, byte-for-byte as pki-core
+  // signed it. Empty when the chain has not been notarized yet (notarization is
+  // asynchronous, and a self-hosted cloud may have no notarizer at all); the
+  // device decides how to treat that rather than the poll being refused.
+  bytes checkpoint = 2;
+  // True when more entries exist above the last one returned.
+  bool has_more = 3;
+}
+
+message PostboxEntry {
+  int64 entry_id = 1;
+  bytes request_jws = 2;   // the operator's signed request, verbatim
+  bytes tsr_response = 3;  // RFC 3161 timestamp token taken at accept
+  bytes prev_hash = 4;
+  bytes entry_hash = 5;
+}
