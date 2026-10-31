@@ -1,5 +1,9 @@
 # Contract compatibility policy
 
+> **Historical / superseded draft.** The foundation was rolled back and
+> `v0.1.0` was deleted on 2026-10-31. This retained proposal is not current
+> policy. See the [current source-only approach](../README.md#current-source-only-approach).
+
 The accountable contract and release owner role is unassigned.
 Service domain owners still review semantics at their boundaries.
 
@@ -7,11 +11,12 @@ A service-protos tag versions the entire catalogue, independently of protobuf
 package names. A catalogue SemVer major is not an automatic runtime
 incompatibility signal. Runtime compatibility depends on the API versions and
 features that the peers support, including newer CLIs talking to older Agents.
-Each migrated consumer has exactly one `contracts.version` containing one immutable stable tag such as `v0.1.0`. All generators, checks
+The superseded proposal gave each migrated consumer one `contracts.version`
+containing one immutable stable tag. All generators, checks
 and derived version metadata use that pin. Consumers upgrade independently.
 Branch pins, per-file revisions, source-copy fallbacks and shared-contract
 submodules are removed in later consumer PRs, after equivalence is proved.
-Tagged inputs are the current migration target. Versioned generated Go and
+Tagged inputs were the superseded migration target. Versioned generated Go and
 Swift packages follow later, with the SDK work.
 
 These support and retirement guarantees also apply throughout catalogue `0.x`.

@@ -1,6 +1,12 @@
 # Service Protos
 
-The shared protobuf/gRPC API catalogue for the Wendy ecosystem covers:
+> **Held / superseded draft.** The foundation was rolled back by
+> [service-protos #161 — revert: roll back prematurely merged contract foundation](https://github.com/wendylabsinc/service-protos/pull/161).
+> The `v0.1.0` tag was deleted on 2026-10-31 and is no longer usable.
+> The catalogue views, checks and policy below are historical draft content,
+> not the current source-only approach.
+
+This superseded draft described a shared protobuf/gRPC API catalogue covering:
 
 - Cloud main and legacy services
 - WendyOS CLI and Agents (Go and Mac)
@@ -11,16 +17,18 @@ Embedded Core joins as its migration into WendyOS permits. Deployed contract
 variants remain separate compatibility views, preserving their existing import
 paths and behavior without normalization.
 
-## Tagged inputs
+## Current source-only approach
 
-The initial catalogue tag, [v0.1.0](https://github.com/wendylabsinc/service-protos/tree/v0.1.0),
-is published. Catalogue coverage does not mean consumer adoption: consumer
-migrations are still pending, and each repository upgrades independently.
+The incremental route uses commit-pinned generation from service-protos,
+starting with [WendyOS #2623 — build: use Shared gRPC API contracts for Cloud v2 mesh, users and tunnel](https://github.com/wendylabsinc/WendyOS/pull/2623).
+That change pins `3f29f59fc72f692a52b91a03a14d465d5e8dbfc7` for Cloud v2
+Mesh, Users and Tunnel. It replaces selected local sources while keeping
+existing generated code unchanged. No catalogue release is part of this route.
 
-Each migrated repository uses one `contracts.version` tag pin for all shared
-contract views, generating with Buf from that tagged Git input. Migration
-removes shared-contract submodules and source copies after equivalence is proved.
-Versioned generated Go and Swift packages are separate, later SDK work.
+## Historical draft framework
+
+The remaining sections describe the superseded foundation, not current setup
+or migration instructions.
 
 ## Compatibility views and checks
 

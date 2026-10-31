@@ -1,6 +1,12 @@
 # Catalogue releases
 
-Initial planned tag: `v0.1.0`. No tag or package is published by this PR or CI.
+> **Historical / superseded draft.** The foundation was rolled back by
+> [service-protos #161 — revert: roll back prematurely merged contract foundation](https://github.com/wendylabsinc/service-protos/pull/161).
+> The `v0.1.0` tag was deleted on 2026-10-31. It is not a usable input or
+> a publication target. The retained release/protection proposal below is
+> historical, not an instruction to activate it. See the
+> [current source-only approach](../README.md#current-source-only-approach).
+
 The same support, additive-compatibility and retirement guarantees apply during
 `0.x`. Pre-1.0 versioning does not permit breaking supported APIs.
 
@@ -57,56 +63,12 @@ owner-authorized action, not delegated to CI. GitHub's
 [ruleset rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
 define the exact update/deletion and review semantics.
 
-## Initial v0.1.0 bootstrap
+## Historical initial publication
 
-Konstantin explicitly approved publishing the initial `v0.1.0` after all three
-catalogue pieces merge and pass validation under the current repository
-settings. This approval does not include activating the proposed protections.
-Until separately approved and applied, tag immutability is policy, not a
-GitHub-enforced guarantee. Record the actual protection state with this release.
-For future catalogue releases, the normal protection prerequisite remains:
-activate and verify the proposed protections only after separate settings
-approval and the eligible-CODEOWNER requirement above are satisfied.
-
-## Exact next tag steps (only after explicit publication approval)
-
-1. Merge the deployed-source import, frozen views/checks and ownership/release
-   policy in their declared dependency order, with green checks and explicit
-   merge approval. Fetch full history and tags, inspect the approved release
-   commit and confirm it is on `origin/master` and includes all three pieces.
-   Record the current protection state honestly and confirm `v0.1.0` does not
-   exist. The initial bootstrap approval above applies to this release only.
-2. From a clean worktree, run the following with `APPROVED_MERGE_SHA` and
-   `PR_BASE_SHA` set to the actual reviewed commits. Stop on any failure or existing tag. The second SHA
-   is the PR base, never the candidate itself.
-
-```sh
-(
-  set -eu
-  release_worktree_status="$(git status --porcelain)"
-  test -z "$release_worktree_status"
-  git fetch origin master --tags
-  git merge-base --is-ancestor "$APPROVED_MERGE_SHA" origin/master
-  published_contract_tag="$(git ls-remote --tags origin refs/tags/v0.1.0)"
-  test -z "$published_contract_tag"
-  git checkout --detach "$APPROVED_MERGE_SHA"
-  python3 scripts/contracts.py check --base "$PR_BASE_SHA"
-  python3 -m unittest discover -s scripts -p 'test_*.py' -v
-  release_worktree_status="$(git status --porcelain)"
-  test -z "$release_worktree_status"
-  git tag -a v0.1.0 "$APPROVED_MERGE_SHA" -m 'Initial immutable contract catalogue'
-  git push origin refs/tags/v0.1.0
-)
-```
-
-3. Verify the remote tag peels to the approved merge commit and a clean
-   authenticated Git checkout can export every view. Record the commit and
-   observed protection state in release notes. Do not report proposed rulesets
-   as active. Creating a GitHub Release or packages is not
-   implicit in the commands above.
-4. Only then migrate Cloud main/legacy, WendyOS, Companion, pki-core and Auth in
-   their separate PRs. Embedded Core is conditional on its existing WendyOS
-   move. Frozen standalone Core/Go/Swift repositories receive no changes.
+Konstantin explicitly approved the initial publication before the foundation
+was rolled back. That historical approval does not authorize recreating the
+deleted tag. The obsolete bootstrap and publishing instructions have been
+removed. No release is part of the current source-only work.
 
 For private Git inputs, CI needs read access to service-protos. A consumer's
 ordinary repository token does not imply access to this repository. Use a

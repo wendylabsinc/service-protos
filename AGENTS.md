@@ -1,5 +1,10 @@
 # Shared API contracts
 
+> **Historical / superseded draft instructions.** The foundation was rolled
+> back and `v0.1.0` was deleted on 2026-10-31. The retained framework
+> instructions below do not describe the current source-only route. See the
+> [current approach](README.md#current-source-only-approach).
+
 Follow [the canonical compatibility policy](docs/compatibility.md) and the
 [release procedure](docs/releases.md). The accountable contract and release
 owner role is unassigned.

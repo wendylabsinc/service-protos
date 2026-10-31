@@ -1,5 +1,9 @@
 # Frozen compatibility views
 
+> **Historical / superseded draft.** These views were rolled back. The
+> `v0.1.0` tag was deleted on 2026-10-31 and is not a migration input. See the
+> [current source-only approach](../README.md#current-source-only-approach).
+
 `inventory.json` is the immutable source authority from the deployed-source
 import: 194 distinct files, 332 upstream records and 411 graph/import entries.
 `views.json` selects those sources at their original import paths and fixes
@@ -121,5 +125,5 @@ this shared graph. SensorLink is included because Agent v2 imports it.
 
 Follow the [canonical compatibility and retirement policy](../docs/compatibility.md)
 and [release/access procedure](../docs/releases.md).
-The views and checks work independently of release publication. Consumers migrate
-separately after an approved tag is published.
+The superseded proposal separated views/checks from release publication and
+planned tag-based consumer migration. Current source-only work uses commit pins.
