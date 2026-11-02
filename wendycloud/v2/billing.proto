@@ -4,9 +4,7 @@ package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
 
-// BillingService is Cloud-owned, defined in this repo (cloud-proto/, not the shared
-// service-protos submodule) for the same reason OrganizationInviteService is: it is cloud's own
-// per-organization surface, read only by the console, with no reason to be a cross-repo contract.
+// Cloud owns BillingService. Its definitions are shared with its clients.
 //
 // Reads only (WDY-3569). Nothing is billed yet: the plan names are mock tiers, no field states an
 // included quantity, a seat count or a limit, and there are no invoices. Two subscriptions, Cloud

@@ -8,11 +8,7 @@ import "google/protobuf/timestamp.proto";
 // still coming" -- the readiness signal WDY-2718 R1 requires so the first sign-in does not have
 // to block on pki tenant provisioning.
 //
-// Cloud-owned and deliberately outside the shared service-protos submodule, for the reason
-// OrganizationInviteService gives in its own header: this contract is cloud's alone. The state
-// it reports lives only in cloud's `organizations` table (migration 000076) and no other
-// service reads or writes it, so putting it in the shared module would publish a contract
-// nobody else participates in.
+// Cloud owns OrganizationProvisioningService. Its definitions are shared with its clients.
 //
 // POLL, not stream (sem's ruling). Every RPC here is unary and the client re-asks. A stream
 // would hold a connection open for a wait that is normally over in seconds and, when it is
