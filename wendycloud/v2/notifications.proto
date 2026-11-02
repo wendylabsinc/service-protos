@@ -30,8 +30,9 @@ service NotificationService {
   // Stable, canonical-ID-relative traversal for durable inbox clients.
   rpc ListNotificationsV2(ListNotificationsV2Request) returns (ListNotificationsV2Response);
   rpc GetNotification(GetNotificationRequest) returns (Notification);
-  // Resolves one stored Wendy-managed attachment for the authenticated recipient. The
-  // caller supplies no organization, tenant, clip identifier, or destination URL.
+  // Resolves one stored attachment after current recipient, organization, and source
+  // policy checks. The caller supplies only canonical notification and attachment IDs,
+  // never an organization, tenant, clip identifier, or destination URL.
   rpc ResolveNotificationAttachment(ResolveNotificationAttachmentRequest) returns (ResolveNotificationAttachmentResponse);
   // Performs one stored custom control for the authenticated recipient. Cloud loads the
   // canonical control and derives publisher routing; the caller supplies no payload.
@@ -108,8 +109,9 @@ message NotificationAttachment {
   // Optional visible description; 1-1,024 UTF-8 bytes when present, with no
   // surrounding whitespace or control characters.
   optional string caption = 3;
-  // Required absolute HTTPS Wendy-managed broker reference; 1-8,192 UTF-8
-  // bytes, with no credentials. Customer-hosted media is not supported in V1.
+  // Absolute HTTPS Wendy-managed broker reference; 1-8,192 UTF-8 bytes, with no
+  // credentials. Cloud requires exactly one locator: nonempty url or source_url.
+  // This field remains broker-reference only; direct sources use source_url.
   string url = 4;
   // Optional producer-declared media type; 1-256 ASCII characters when present.
   optional string content_type = 5;
@@ -128,6 +130,16 @@ message NotificationAttachment {
   }
   // Optional key of a declared named section. Omitted means the anonymous section.
   optional string section = 11;
+  // Direct absolute HTTPS media source; 1-8,192 UTF-8 bytes, with no userinfo.
+  // Cloud validates against the organization's allowed source origins without
+  // fetching media. If present, must be nonempty and url must be empty.
+  // Clients resolve by canonical notification + attachment IDs on each open,
+  // then fetch and cache media directly; Cloud never proxies, streams, or buffers it.
+  // A source URL may itself be a bearer capability; the source independently
+  // governs byte access. Never send Cloud credentials to the source.
+  // Requires supporting Cloud behavior before producers send this field;
+  // older servers ignore it and cannot use it as the required locator.
+  optional string source_url = 12;
 }
 
 message NotificationAttachmentImage {
@@ -343,10 +355,15 @@ message ResolveNotificationAttachmentRequest {
 }
 
 message ResolveNotificationAttachmentResponse {
-  // Absolute HTTPS URL suitable for a credential-free media request. V1 resolves
-  // Wendy-managed attachments only, and their URLs are short-lived.
+  // Absolute HTTPS URL for a direct client media GET after current recipient,
+  // organization, and source policy validation. May be the stored direct source;
+  // does not promise a broker URL or a freshly minted ticket. The URL may be a
+  // bearer capability whose byte access is governed independently by the source.
+  // Never send Cloud credentials with the GET. Cloud never fetches, proxies,
+  // streams, or buffers media.
   string url = 1;
-  // Present when url carries time-limited authorization.
+  // Optional source-owned expiry, when known. May be absent, including for a
+  // capability URL; resolution does not mint or extend the source's authorization.
   optional google.protobuf.Timestamp expires_at = 2;
 }
 
