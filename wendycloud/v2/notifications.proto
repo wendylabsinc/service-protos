@@ -30,8 +30,9 @@ service NotificationService {
   // Stable, canonical-ID-relative traversal for durable inbox clients.
   rpc ListNotificationsV2(ListNotificationsV2Request) returns (ListNotificationsV2Response);
   rpc GetNotification(GetNotificationRequest) returns (Notification);
-  // Resolves one stored Wendy-managed attachment for the authenticated recipient. The
-  // caller supplies no organization, tenant, clip identifier, or destination URL.
+  // Resolves one stored attachment after current recipient, organization, and source
+  // policy checks. The caller supplies only canonical notification and attachment IDs,
+  // never an organization, tenant, clip identifier, or destination URL.
   rpc ResolveNotificationAttachment(ResolveNotificationAttachmentRequest) returns (ResolveNotificationAttachmentResponse);
   // Performs one stored custom control for the authenticated recipient. Cloud loads the
   // canonical control and derives publisher routing; the caller supplies no payload.
@@ -108,8 +109,15 @@ message NotificationAttachment {
   // Optional visible description; 1-1,024 UTF-8 bytes when present, with no
   // surrounding whitespace or control characters.
   optional string caption = 3;
-  // Required absolute HTTPS Wendy-managed broker reference; 1-8,192 UTF-8
-  // bytes, with no credentials. Customer-hosted media is not supported in V1.
+  // Required absolute HTTPS media location: Wendy-owned storage/broker or a
+  // direct source such as a signed GCS URL. 1-8,192 UTF-8 bytes; no username,
+  // password, or userinfo. Signed query capabilities are allowed.
+  // Cloud validates the origin against the organization's allowed source origins
+  // or exact Wendy-owned origins; it never fetches, proxies, streams, or buffers media.
+  // Clients resolve by canonical notification + attachment IDs on each open,
+  // then download directly and cache under the documented client cache policy.
+  // The source independently governs byte access, including bearer capabilities;
+  // never send Cloud credentials to it.
   string url = 4;
   // Optional producer-declared media type; 1-256 ASCII characters when present.
   optional string content_type = 5;
@@ -343,10 +351,16 @@ message ResolveNotificationAttachmentRequest {
 }
 
 message ResolveNotificationAttachmentResponse {
-  // Absolute HTTPS URL suitable for a credential-free media request. V1 resolves
-  // Wendy-managed attachments only, and their URLs are short-lived.
+  // Absolute HTTPS URL for a direct client media GET after current recipient,
+  // organization, and source policy validation. May be the stored media location,
+  // Wendy-owned or a direct source; no broker URL or freshly minted ticket is
+  // promised. No userinfo; signed query capabilities are allowed. The URL may be a
+  // bearer capability whose byte access is governed independently by the source.
+  // Never send Cloud credentials with the GET. Cloud never fetches, proxies,
+  // streams, or buffers media.
   string url = 1;
-  // Present when url carries time-limited authorization.
+  // Optional source-owned expiry, when known. May be absent, including for a
+  // capability URL; resolution does not mint or extend the source's authorization.
   optional google.protobuf.Timestamp expires_at = 2;
 }
 
