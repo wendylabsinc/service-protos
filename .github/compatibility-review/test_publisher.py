@@ -1,12 +1,53 @@
 """Exercise the actual isolated publisher with an in-memory GitHub API."""
 import json
 from pathlib import Path
+import re
 import subprocess
 import textwrap
 import unittest
 
 
 class PublisherTests(unittest.TestCase):
+    def test_base_retarget_event_without_head_push(self):
+        workflow = (Path(__file__).parents[1] / 'workflows/compatibility-review.yml').read_text()
+        events = re.search(r'types: \[(.*?)\]', workflow)[1].split(', ')
+        self.assertIn('edited', events)
+        condition = re.search(r'    if: >-\n(.*?)    runs-on:', workflow, re.S)[1].strip()
+        group = re.search(r'group: .*\$\{\{ (github.event.action.*?) \}\}', workflow)[1]
+        # GitHub's missing properties evaluate as null. Optional chaining gives
+        # the fixture the same behavior for absent changes.base in JavaScript.
+        def javascript(expression):
+            return expression.replace('github.event.changes.base', 'event.changes?.base').replace('github.event.', 'event.').replace('github.repository', 'repository')
+        harness = r'''
+const assert = require('node:assert/strict');
+const repository = 'owner/repo';
+const eligible = new Function('event', 'repository', 'return (' + CONDITION + ')');
+const group = new Function('event', 'return (' + GROUP + ')');
+const event = {action:'edited', changes:{base:{ref:{from:'parent'}}},
+  pull_request:{draft:false, head:{sha:'unchanged-head',repo:{full_name:repository}},
+    base:{ref:'master',sha:'new-base'}}};
+assert.equal(eligible(event, repository), true);
+assert.equal(group(event), 'comparison');
+for (const changes of [{body:{from:'old'}}, {title:{from:'old'}}, {}]) {
+  event.changes=changes;
+  assert.equal(eligible(event, repository), false);
+  assert.equal(group(event), 'metadata'); // Chatter cannot displace any comparison.
+}
+for (const action of ['opened','ready_for_review','reopened','synchronize']) {
+  event.action=action; delete event.changes;
+  assert.equal(eligible(event, repository), true);
+  assert.equal(group(event), 'comparison');
+}
+event.action='edited'; event.changes={base:{ref:{from:'parent'}}};
+event.pull_request.draft=true;
+assert.equal(eligible(event, repository), false);
+event.pull_request.draft=false; event.pull_request.head.repo.full_name='fork/repo';
+assert.equal(eligible(event, repository), false);
+'''
+        harness = harness.replace('CONDITION', json.dumps(javascript(condition)), 1)
+        harness = harness.replace('GROUP', json.dumps(javascript(group)), 1)
+        subprocess.run(['node', '-e', harness], check=True)
+
     def test_exact_revisions_drafts_forks_and_single_report(self):
         workflow = (Path(__file__).parents[1] / 'workflows/compatibility-review.yml').read_text()
         script = textwrap.dedent(workflow.split('          script: |\n', 1)[1])

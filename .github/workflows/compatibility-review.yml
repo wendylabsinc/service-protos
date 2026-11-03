@@ -4,18 +4,20 @@ name: Compatibility Review
 # or executed. There is no label or manual trigger, and no draft publication.
 on:
   pull_request_target:
-    types: [opened, ready_for_review, reopened, synchronize]
+    types: [opened, ready_for_review, reopened, synchronize, edited]
 
 permissions: {}
 concurrency:
-  group: compatibility-review-${{ github.event.pull_request.number }}
+  # Metadata-only edits must not displace running or pending comparisons.
+  group: compatibility-review-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && github.event.changes.base == null && 'metadata' || 'comparison' }}
   cancel-in-progress: true
 
 jobs:
   review:
     if: >-
       !github.event.pull_request.draft &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'edited' || github.event.changes.base != null)
     runs-on: ubuntu-latest
     timeout-minutes: 6
     permissions:

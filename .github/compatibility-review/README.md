@@ -2,6 +2,8 @@
 
 Advisory semantic review alongside Buf. Runs for opened, reopened, ready and pushed
 non-draft PRs from this repository, against their actual base (including stacks).
+Base retargets also trigger review without a head push. Other title/body edits
+neither start model work nor cancel an active review.
 There is no manual dispatch or draft publishing. The workflow must land before it
 can run. Buf is unchanged and remains responsible for structural checks.
 
