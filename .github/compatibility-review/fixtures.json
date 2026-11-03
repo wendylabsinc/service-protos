@@ -1,0 +1,46 @@
+[
+  {
+    "name": "new-required-meaning",
+    "before": "message ListRequest { optional string region = 1; }\n// Omitted region means all regions.\n",
+    "after": "message ListRequest { optional string region = 1; }\n// Region is required. Omission returns INVALID_ARGUMENT.\n",
+    "direction": "older-client",
+    "quote": "Region is required. Omission returns INVALID_ARGUMENT.",
+    "affected": "Existing clients that omit `region`",
+    "action": "List resources",
+    "failure": "The previously valid request is rejected with `INVALID_ARGUMENT`",
+    "suggestion": "Consider retaining the omitted-region default during migration."
+  },
+  {
+    "name": "removed-enum-meaning",
+    "before": "enum SessionState { UNSPECIFIED = 0; ACTIVE = 2; }\n// ACTIVE permits sending session traffic.\n",
+    "after": "enum SessionState { UNSPECIFIED = 0; reserved 2; }\n// Active sessions are no longer represented.\n",
+    "direction": "newer-client",
+    "quote": "reserved 2;",
+    "affected": "New clients reading older agent session responses",
+    "action": "Decode an active session and decide whether traffic can be sent",
+    "failure": "State `2` has no retained active meaning",
+    "suggestion": "Consider retaining `ACTIVE = 2` while older agents return it."
+  },
+  {
+    "name": "compatible-optional-collection",
+    "before": "message ListResponse { repeated string ids = 1; }\n",
+    "after": "message ListResponse { repeated string ids = 1; optional string etag = 2; repeated string names = 3; }\n"
+  },
+  {
+    "name": "doc-only",
+    "before": "// Lists resources.\nmessage ListRequest {}\n",
+    "after": "// Lists the resources.\nmessage ListRequest {}\n"
+  },
+  {
+    "name": "observed-signed-envelope-cutover",
+    "provenance": "Reduced excerpt/scenario from 09097e8: wendycloud/v2/assets.proto and signed_request.proto. The envelope gap is documented in saasdocs security-invariants/expand-migrate-contract.md. Other cases are fault injections and compatible controls. No present deployment claim.",
+    "before": "// The signature travels in x-wendy-request-signature.\nrpc CreateAsset(CreateAssetRequest) returns (Asset);\n",
+    "after": "// This body envelope is the only accepted form. The cutover is atomic: a\n// signature carried in the `x-wendy-request-signature` header, or a signed\n// method called with its bare request message, is refused.\nrpc CreateAsset(SignedRequest) returns (Asset) {\n  option (wendy.signed_request) = true;\n}\n",
+    "direction": "older-client",
+    "quote": "rpc CreateAsset(SignedRequest) returns (Asset) {",
+    "affected": "Older clients using the bare request and signature header",
+    "action": "Create an asset through the signed RPC",
+    "failure": "The request is refused by a service accepting only the body envelope",
+    "suggestion": "Consider an explicitly authorized migration path that preserves required signature verification."
+  }
+]

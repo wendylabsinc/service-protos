@@ -1,0 +1,103 @@
+name: Compatibility Review
+
+# Trusted workflow/code only. Head objects are fetched as data, never checked out
+# or executed. There is no label or manual trigger, and no draft publication.
+on:
+  pull_request_target:
+    types: [opened, ready_for_review, reopened, synchronize]
+
+permissions: {}
+concurrency:
+  group: compatibility-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    outputs:
+      report: ${{ steps.review.outputs.report }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Always run the default branch's reviewed code, including stacked PRs.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch comparison objects without executing PR code
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh auth setup-git
+          git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+      - name: Review bounded source context
+        id: review
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 .github/compatibility-review/review.py
+
+  report:
+    needs: review
+    if: >-
+      always() && needs.review.outputs.report != '' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Update a single advisory report at the exact reviewed revisions
+        uses: actions/github-script@v9
+        env:
+          REPORT_JSON: ${{ needs.review.outputs.report }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        with:
+          script: |
+            const number = context.payload.pull_request.number;
+            const api = { ...context.repo, pull_number: number };
+            async function current() {
+              const { data: pr } = await github.rest.pulls.get(api);
+              return pr.state === 'open' && !pr.draft &&
+                pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}` &&
+                pr.head.sha === process.env.HEAD_SHA && pr.base.sha === process.env.BASE_SHA;
+            }
+            if (!(await current())) {
+              core.setFailed('Superseded or ineligible revisions: report was not published.');
+              return;
+            }
+            const body = JSON.parse(process.env.REPORT_JSON);
+            const comments = await github.paginate(github.rest.issues.listComments,
+              { ...context.repo, issue_number: number, per_page: 100 });
+            const existing = comments.find(c => c.user?.login === 'github-actions[bot]' &&
+              c.body?.startsWith('<!-- automated-compatibility-review -->'));
+            if (!(await current())) {
+              core.setFailed('Revisions changed before publication.');
+              return;
+            }
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: number, body });
+            }
+            // GitHub comments have no conditional-write API. Remove a report if
+            // the head changed in the final GET/write race rather than label it current.
+            if (!(await current())) {
+              const latest = await github.paginate(github.rest.issues.listComments,
+                { ...context.repo, issue_number: number, per_page: 100 });
+              const stale = latest.find(c => c.user?.login === 'github-actions[bot]' && c.body === body);
+              if (stale) await github.rest.issues.updateComment({ ...context.repo,
+                comment_id: stale.id,
+                body: '<!-- automated-compatibility-review -->\nAutomated Compatibility Review — superseded. No current conclusion. Earlier findings remain unresolved.' });
+              core.setFailed('Revisions changed during publication.');
+            }
