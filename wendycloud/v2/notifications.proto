@@ -109,9 +109,15 @@ message NotificationAttachment {
   // Optional visible description; 1-1,024 UTF-8 bytes when present, with no
   // surrounding whitespace or control characters.
   optional string caption = 3;
-  // Absolute HTTPS Wendy-managed broker reference; 1-8,192 UTF-8 bytes, with no
-  // credentials. Cloud requires exactly one locator: nonempty url or source_url.
-  // This field remains broker-reference only; direct sources use source_url.
+  // Required absolute HTTPS media location: Wendy-owned storage/broker or a
+  // direct source such as a signed GCS URL. 1-8,192 UTF-8 bytes; no username,
+  // password, or userinfo. Signed query capabilities are allowed.
+  // Cloud validates the origin against the organization's allowed source origins
+  // or exact Wendy-owned origins; it never fetches, proxies, streams, or buffers media.
+  // Clients resolve by canonical notification + attachment IDs on each open,
+  // then download directly and cache under the documented client cache policy.
+  // The source independently governs byte access, including bearer capabilities;
+  // never send Cloud credentials to it.
   string url = 4;
   // Optional producer-declared media type; 1-256 ASCII characters when present.
   optional string content_type = 5;
@@ -130,16 +136,6 @@ message NotificationAttachment {
   }
   // Optional key of a declared named section. Omitted means the anonymous section.
   optional string section = 11;
-  // Direct absolute HTTPS media source; 1-8,192 UTF-8 bytes, with no userinfo.
-  // Cloud validates against the organization's allowed source origins without
-  // fetching media. If present, must be nonempty and url must be empty.
-  // Clients resolve by canonical notification + attachment IDs on each open,
-  // then fetch and cache media directly; Cloud never proxies, streams, or buffers it.
-  // A source URL may itself be a bearer capability; the source independently
-  // governs byte access. Never send Cloud credentials to the source.
-  // Requires supporting Cloud behavior before producers send this field;
-  // older servers ignore it and cannot use it as the required locator.
-  optional string source_url = 12;
 }
 
 message NotificationAttachmentImage {
@@ -356,8 +352,9 @@ message ResolveNotificationAttachmentRequest {
 
 message ResolveNotificationAttachmentResponse {
   // Absolute HTTPS URL for a direct client media GET after current recipient,
-  // organization, and source policy validation. May be the stored direct source;
-  // does not promise a broker URL or a freshly minted ticket. The URL may be a
+  // organization, and source policy validation. May be the stored media location,
+  // Wendy-owned or a direct source; no broker URL or freshly minted ticket is
+  // promised. No userinfo; signed query capabilities are allowed. The URL may be a
   // bearer capability whose byte access is governed independently by the source.
   // Never send Cloud credentials with the GET. Cloud never fetches, proxies,
   // streams, or buffers media.
