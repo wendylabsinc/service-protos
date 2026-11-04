@@ -109,11 +109,13 @@ message NotificationAttachment {
   // Optional visible description; 1-1,024 UTF-8 bytes when present, with no
   // surrounding whitespace or control characters.
   optional string caption = 3;
-  // Required absolute HTTPS media location: Wendy-owned storage/broker or a
-  // direct source such as a signed GCS URL. 1-8,192 UTF-8 bytes; no username,
-  // password, or userinfo. Signed query capabilities are allowed.
-  // Cloud validates the origin against the organization's allowed source origins
-  // or exact Wendy-owned origins; it never fetches, proxies, streams, or buffers media.
+  // Required at create; omitted on expired reads. Absolute HTTPS media location:
+  // Wendy-owned storage/broker or direct source such as a signed GCS URL.
+  // 1-8,192 UTF-8 bytes; no username, password, or userinfo.
+  // Signed query capabilities are allowed.
+  // Cloud validates the HTTPS origin and any configured normalized-path prefix
+  // against organization or Wendy-owned allowed sources; it never fetches, proxies,
+  // streams, or buffers media.
   // Clients resolve by canonical notification + attachment IDs on each open,
   // then download directly and cache under the documented client cache policy.
   // The source independently governs byte access, including bearer capabilities;
@@ -136,6 +138,13 @@ message NotificationAttachment {
   }
   // Optional key of a declared named section. Omitted means the anonymous section.
   optional string section = 11;
+  // Optional sender-declared media-retention deadline; absent preserves existing
+  // URL and cache behavior. For clips, use the actual clip-retention deadline;
+  // the source permalink token must expire at the same time.
+  // At now >= expires_at, Cloud omits url from every notification projection and
+  // Resolve response but retains expires_at so clients can show "Media Expired".
+  // Clients stop using media and delete protected cached bytes at the deadline.
+  optional google.protobuf.Timestamp expires_at = 13;
 }
 
 message NotificationAttachmentImage {
@@ -358,9 +367,11 @@ message ResolveNotificationAttachmentResponse {
   // bearer capability whose byte access is governed independently by the source.
   // Never send Cloud credentials with the GET. Cloud never fetches, proxies,
   // streams, or buffers media.
+  // Omitted at or after the stored attachment's expires_at; expiry is retained.
   string url = 1;
-  // Optional source-owned expiry, when known. May be absent, including for a
-  // capability URL; resolution does not mint or extend the source's authorization.
+  // Optional source-owned expiry, including the stored attachment deadline when
+  // set. Retained when url is omitted after expiry. May be absent; resolution
+  // does not mint or extend the source's authorization.
   optional google.protobuf.Timestamp expires_at = 2;
 }
 
