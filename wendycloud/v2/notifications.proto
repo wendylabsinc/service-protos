@@ -248,9 +248,11 @@ message Notification {
   // receiver; older receivers may omit this field without enforcing expiry.
   // This is a projection at response time, not the sender's stored deadline:
   // policy changes can change it for existing content; unread never extends it.
-  // At now >= expires_at the notification is unavailable, including its media,
-  // controls, counts and pending pushes. Clients hide it at the observed deadline
-  // and refresh for policy changes; cached values do not prove current policy.
+  // At receiver now >= expires_at it is unavailable through notification APIs,
+  // including counts, media resolution and controls; pending pushes are not sent.
+  // Clients hide it when their observed UTC time reaches this deadline and refresh
+  // to observe policy changes; cached values do not prove current policy. Expiry
+  // cannot recall delivered pushes, copied source URLs or externally held media.
   optional google.protobuf.Timestamp expires_at = 22;
 }
 

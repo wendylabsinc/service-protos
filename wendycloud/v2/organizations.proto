@@ -105,6 +105,7 @@ message Organization {
   // supporting receivers; new organizations default to off. Applies to existing
   // and new notifications, including unread and security notifications; reading
   // never extends retention. Current policy determines the organization cutoff.
+  // Audit retention and backup lifetimes remain independent of this content policy.
   optional int32 notification_retention_days = 12;
 }
 
