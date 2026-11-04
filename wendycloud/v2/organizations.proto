@@ -100,6 +100,12 @@ message Organization {
   // (WDY-4052). Empty means none: the member reaches no device until someone binds a device
   // role. New organizations start at Device manager. Filled by GetOrganization.
   string default_device_role_id = 11;
+  // Optional notification retention: positive whole UTC days (each 86,400 seconds)
+  // since Notification.created_at, with no midnight rounding. Absent means off on
+  // supporting receivers; new organizations default to off. Applies to existing
+  // and new notifications, including unread and security notifications; reading
+  // never extends retention. Current policy determines the organization cutoff.
+  optional int32 notification_retention_days = 12;
 }
 
 message OrganizationMember {
@@ -144,6 +150,15 @@ message UpdateOrganizationRequest {
   optional string details = 3;
   optional string domain = 4;
   optional string slug = 5;
+  // Sets notification retention to a positive whole number of UTC days; zero or
+  // negative is INVALID_ARGUMENT. Absent with clear_notification_retention false
+  // leaves the policy unchanged, including for older clients. Ignored when clear
+  // is true, matching SetMemberDefaults clear semantics. Uses this RPC's existing
+  // organization authorization and exact signed payload.
+  optional int32 notification_retention_days = 6;
+  // Disables organization retention; the sender's expiry still applies. Does not
+  // restore purged notifications. Takes precedence over notification_retention_days.
+  bool clear_notification_retention = 7;
 }
 
 message DeleteOrganizationRequest {

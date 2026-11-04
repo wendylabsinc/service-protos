@@ -242,6 +242,16 @@ message Notification {
   optional string preview_attachment_id = 20;
   // Ordered canonical controls; at most 10. V1 permits button only.
   repeated NotificationControl controls = 21;
+  // Effective UTC deadline: the earlier of the stored sender expires_at and
+  // created_at + the current organization's notification_retention_days * 86,400
+  // seconds, using whichever exists. Absent means neither limit on a supporting
+  // receiver; older receivers may omit this field without enforcing expiry.
+  // This is a projection at response time, not the sender's stored deadline:
+  // policy changes can change it for existing content; unread never extends it.
+  // At now >= expires_at the notification is unavailable, including its media,
+  // controls, counts and pending pushes. Clients hide it at the observed deadline
+  // and refresh for policy changes; cached values do not prove current policy.
+  optional google.protobuf.Timestamp expires_at = 22;
 }
 
 message CreateNotificationRequest {
@@ -291,6 +301,15 @@ message CreateNotificationV2Request {
   // Ordered controls; at most 10. V1 permits button only and keys must be unique.
   // Any section reference must name a declared section or the entire request is invalid.
   repeated NotificationControl controls = 13;
+  // Optional sender-supplied UTC expiry instant. The receiver rejects malformed
+  // protobuf Timestamps (including out-of-range seconds/nanos) or a value at or
+  // before its current time with INVALID_ARGUMENT. Omission sets no sender limit;
+  // organization retention still applies. A later sender expiry never extends
+  // the organization's cutoff. Notification.expires_at projects the effective
+  // earlier deadline, which can change with organization policy.
+  // Send only after supporting Cloud is tagged and confirmed live on Prod;
+  // older receivers ignore this field and do not enforce the sender's deadline.
+  optional google.protobuf.Timestamp expires_at = 14;
 }
 
 message CreateNotificationV2Response {
