@@ -1,0 +1,30 @@
+# Default: Buf config, workflows, README
+*                                    @justsem @Joannis
+
+# Cloud
+/*.proto                             @justsem
+/wendycloud/                         @justsem
+/wendy/options.proto                 @justsem
+/wendycloud/data/                    @justsem
+/wendycloud/tunnel/lite/             @justsem
+
+# PKI and Auth
+/pkicore/                            @justsem
+/wendyauth/                          @justsem
+
+# Agent and System API
+/wendy/agent/                        @Joannis @thombles @EBro912
+/wendy/system/                       @Joannis @thombles @EBro912
+
+# Lite device protocol
+/wendylite/                          @thombles @gmondada @Joannis
+
+# Conformance vectors follow their contract
+/conformance/                        @justsem
+/conformance/lite-relay/             @justsem
+/conformance/agent-provisioning-v2/  @Joannis @thombles @EBro912
+
+# Third-party input, only while vendored
+/opentelemetry/                      @justsem @Joannis
+
+/.github/CODEOWNERS                  @justsem @Joannis
