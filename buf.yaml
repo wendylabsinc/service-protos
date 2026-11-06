@@ -40,9 +40,6 @@ lint:
     FIELD_LOWER_SNAKE_CASE:
       # Inherited deviceType field spelling is a source and JSON contract.
       - wendy/agent/services/v1/wendy_agent_v1_service.proto
-    IMPORT_NO_PUBLIC:
-      # Re-export canonical video symbols for existing proto imports.
-      - agent_video_service.proto
     PACKAGE_SAME_DIRECTORY:
       # The legacy video import path forwards to the canonical Agent package.
       - agent_video_service.proto
