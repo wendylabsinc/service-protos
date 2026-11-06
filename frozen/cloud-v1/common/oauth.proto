@@ -1,0 +1,158 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Service for managing OAuth2 clients within an organization.
+// Backed by Ory Hydra for the actual OAuth2 protocol.
+// This service handles organization-level client management.
+service OAuthService {
+  // Create a new OAuth client for an organization.
+  // Returns the client with the secret (only returned once at creation).
+  rpc CreateOAuthClient(CreateOAuthClientRequest) returns (OAuthClientWithSecret);
+
+  // List all OAuth clients for an organization.
+  rpc ListOAuthClients(ListOAuthClientsRequest) returns (stream ListOAuthClientsResponse);
+
+  // Get details of a specific OAuth client.
+  rpc GetOAuthClient(GetOAuthClientRequest) returns (OAuthClient);
+
+  // Update an OAuth client's metadata (name, description, scopes, redirect URIs).
+  // Cannot change the client_id or rotate the secret (use RegenerateClientSecret for that).
+  rpc UpdateOAuthClient(UpdateOAuthClientRequest) returns (OAuthClient);
+
+  // Delete/revoke an OAuth client. This is a soft delete for audit purposes.
+  // The client will no longer be able to obtain tokens.
+  rpc DeleteOAuthClient(DeleteOAuthClientRequest) returns (DeleteOAuthClientResponse);
+
+  // Regenerate the client secret. Returns the new secret (only returned once).
+  // The old secret is immediately invalidated.
+  rpc RegenerateClientSecret(RegenerateClientSecretRequest) returns (OAuthClientWithSecret);
+}
+
+// OAuth client metadata (without secret)
+message OAuthClient {
+  string id = 1;  // Client ID (UUID)
+  int32 organization_id = 2;
+
+  string name = 3;
+  string description = 4;
+
+  // Allowed OAuth2 scopes
+  repeated string allowed_scopes = 5;
+
+  // Grant types this client can use
+  repeated OAuthGrantType grant_types = 6;
+
+  // Redirect URIs for authorization code flow
+  repeated string redirect_uris = 7;
+
+  // Whether this is a confidential client
+  bool is_confidential = 8;
+
+  // Audit fields
+  string created_by_user_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+
+  // Revocation info (if revoked)
+  google.protobuf.Timestamp revoked_at = 12;
+  string revoked_by_user_id = 13;
+}
+
+// OAuth client with secret (returned only at creation or secret regeneration)
+message OAuthClientWithSecret {
+  OAuthClient client = 1;
+  string client_secret = 2;  // Only returned once - client must store it securely
+}
+
+// Supported OAuth2 grant types
+enum OAuthGrantType {
+  OAUTH_GRANT_TYPE_UNSPECIFIED = 0;
+  OAUTH_GRANT_TYPE_CLIENT_CREDENTIALS = 1;  // M2M authentication
+  OAUTH_GRANT_TYPE_AUTHORIZATION_CODE = 2;  // User-delegated access
+  OAUTH_GRANT_TYPE_REFRESH_TOKEN = 3;       // Token refresh
+}
+
+// Predefined OAuth2 scopes
+// Organizations can define their own scopes, but these are built-in
+enum OAuthScope {
+  OAUTH_SCOPE_UNSPECIFIED = 0;
+  OAUTH_SCOPE_ASSETS_READ = 1;
+  OAUTH_SCOPE_ASSETS_WRITE = 2;
+  OAUTH_SCOPE_APPS_READ = 3;
+  OAUTH_SCOPE_APPS_WRITE = 4;
+  OAUTH_SCOPE_DEPLOYMENTS_READ = 5;
+  OAUTH_SCOPE_DEPLOYMENTS_WRITE = 6;
+  OAUTH_SCOPE_CERTIFICATES_READ = 7;
+  OAUTH_SCOPE_CERTIFICATES_ISSUE = 8;
+  OAUTH_SCOPE_MAPS_READ = 9;
+  OAUTH_SCOPE_MAPS_WRITE = 10;
+}
+
+// Request to create a new OAuth client
+message CreateOAuthClientRequest {
+  int32 organization_id = 1;
+
+  string name = 2;
+  string description = 3;
+
+  // Scopes this client is allowed to request (as strings, e.g., "assets:read")
+  repeated string allowed_scopes = 4;
+
+  // Grant types (defaults to client_credentials if empty)
+  repeated OAuthGrantType grant_types = 5;
+
+  // Redirect URIs (required for authorization_code grant)
+  repeated string redirect_uris = 6;
+}
+
+// Request to list OAuth clients
+message ListOAuthClientsRequest {
+  int32 organization_id = 1;
+
+  // Include revoked clients in the response
+  bool include_revoked = 2;
+
+  // Pagination
+  optional int32 offset = 3;
+  optional int32 limit = 4;
+}
+
+// Response for listing OAuth clients (streamed)
+message ListOAuthClientsResponse {
+  OAuthClient client = 1;
+  int32 total = 2;
+}
+
+// Request to get a specific OAuth client
+message GetOAuthClientRequest {
+  string client_id = 1;
+}
+
+// Request to update an OAuth client
+message UpdateOAuthClientRequest {
+  string client_id = 1;
+
+  // Fields to update (only non-empty fields are updated)
+  optional string name = 2;
+  optional string description = 3;
+  repeated string allowed_scopes = 4;
+  repeated string redirect_uris = 5;
+}
+
+// Request to delete an OAuth client
+message DeleteOAuthClientRequest {
+  string client_id = 1;
+}
+
+// Response for deleting an OAuth client
+message DeleteOAuthClientResponse {
+  bool success = 1;
+}
+
+// Request to regenerate client secret
+message RegenerateClientSecretRequest {
+  string client_id = 1;
+}

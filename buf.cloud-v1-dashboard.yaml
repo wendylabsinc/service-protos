@@ -1,0 +1,20 @@
+# Exact legacy input: select one view, never both.
+version: v2
+modules:
+  # These eight files are byte-identical in both legacy inputs and master.
+  - path: .
+    includes:
+      - opentelemetry
+  - path: frozen/cloud-v1/common
+  - path: frozen/cloud-v1/dashboard
+# Preserve historical spelling in this isolated view; root lint is unchanged.
+lint:
+  use:
+    - MINIMAL
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+    - PACKAGE_VERSION_SUFFIX
+    - DIRECTORY_SAME_PACKAGE
+breaking:
+  use:
+    - FILE

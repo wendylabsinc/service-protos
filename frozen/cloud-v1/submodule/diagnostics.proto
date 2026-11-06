@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+// DiagnosticsService receives opt-in, redacted crash/diagnostic reports from
+// the Wendy CLI and lets users subscribe to be notified when a release fixes
+// the issue they reported.
+service DiagnosticsService {
+  rpc SubmitReport(SubmitReportRequest) returns (SubmitReportResponse);
+  rpc GetReportStatus(GetReportStatusRequest) returns (GetReportStatusResponse);
+  rpc Subscribe(SubscribeRequest) returns (SubscribeResponse);
+
+  // Cloud-only: mark a report fixed and notify subscribers. Not in the CLI contract.
+  rpc ResolveReport(ResolveReportRequest) returns (ResolveReportResponse);
+}
+
+message PlatformInfo {
+  string cli_version = 1;
+  string dev_os = 2;
+  string dev_os_version = 3;
+  string dev_arch = 4;
+  string dev_kernel = 5;
+
+  string target_agent_version = 10;
+  string target_os = 11;
+  string target_os_version = 12;
+  string target_hardware = 13;
+  string target_gpu_vendor = 14;
+  string target_jetpack_version = 15;
+  string target_cuda_version = 16;
+  string target_storage_medium = 17;
+}
+
+message SubmitReportRequest {
+  PlatformInfo platform_info = 1;
+  string error_class = 2;
+  string severity = 3;
+  map<string, string> redacted_fields = 4;
+  string error_chain = 5;
+  repeated string log_tail = 6;
+  repeated string build_output_tail = 7;
+  string contact = 8;
+}
+
+message SubmitReportResponse {
+  string tracking_id = 1;
+  string status_url = 2;
+}
+
+message GetReportStatusRequest {
+  string tracking_id = 1;
+}
+
+message GetReportStatusResponse {
+  string status = 1;
+  string fixed_in_release = 2;
+}
+
+message SubscribeRequest {
+  string tracking_id = 1;
+  string apns_device_token = 2;
+  string topic = 3;
+}
+
+message SubscribeResponse {
+  string subscription_id = 1;
+}
+
+message ResolveReportRequest {
+  string tracking_id = 1;
+  string fixed_in_release = 2;
+}
+
+message ResolveReportResponse {
+  int32 notified_count = 1;
+}

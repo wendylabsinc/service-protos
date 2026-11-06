@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service HackathonCertService {
+  rpc IssueUploadCertificate(IssueUploadCertificateRequest) returns (IssueUploadCertificateResponse);
+}
+
+message IssueUploadCertificateRequest {
+  int32 slot_id = 1;
+  int32 asset_id = 2;
+  int32 organization_id = 3;
+}
+
+message IssueUploadCertificateResponse {
+  string pem_certificate = 1;
+  string pem_private_key = 2;
+  string pem_certificate_chain = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}

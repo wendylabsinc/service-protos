@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Cloud authorization contract (AAA W15): RightsAttestationService, the Cloud-served RPC pki-core
+// calls to check an operator's rights at signing time. Cloud is the SERVER; pki-core is the
+// client. This is a REAL, code-generated gRPC service: the generated types ARE the wire format.
+//
+// HISTORY (2026-07-27): this file previously also carried DOCUMENTARY-ONLY proto schemas for the
+// W9/W18 JSON-in-JWS payloads (CloudAuthorizationGrant, EnrollmentTokenRevocation,
+// OperatorEnrollmentRequest, DeviceClass). Those payloads are never wire-serialized as protobuf --
+// they travel as opaque JWS bytes in wendyauth.v1.SignedArtifact -- so the schemas were
+// documentation, not code, and were removed from this file. The authoritative wire contracts for
+// them live in the cloud contract documentation and are enforced by pki-core's shipped verifiers
+// (internal/grant, internal/ssf).
+
+// ---------------------------------------------------------------------------
+// W15 -- device-facing verification: rights at signing time
+// ---------------------------------------------------------------------------
+// When a device asks pki-core to verify a queued operator-signed change request, pki-core verifies
+// the operator signature + cert-validity-at-signing (against its RFC 3161 TSA timestamp), then
+// calls this to confirm the operator's rights AT THAT TIME.
+//
+// Cloud answers from the tamper-evident accounting record of the accept-gate decision it made when
+// it accepted and queued that exact request (keyed by request_descriptor_hash) -- a point-in-time
+// answer by RECORDED DECISION, not a reconstruction of historical roles.
+service RightsAttestationService {
+  rpc AttestRightsAtSigningTime(RightsAttestationRequest) returns (RightsAttestationResponse);
+}
+
+message RightsAttestationRequest {
+  // Tenant SPIFFE URI of the operator who signed the request. Resolved by pki-core from the
+  // verified x5c certificate chain's tenant SAN -- NOT read from any claim inside the request
+  // descriptor itself.
+  string operator_principal = 1;
+
+  // SHA-256 of the canonical request descriptor the operator signed: 32 RAW bytes (this is a real
+  // proto `bytes` field on a real RPC, so it is NOT base64-encoded at this layer).
+  //
+  // ===================== THE PREIMAGE, EXACTLY =====================
+  // preimage = the DECODED INNER JWS PAYLOAD of the operator's signed request.
+  //
+  // That is: take the operator's request as a 3-segment JWS Compact Serialization
+  // (header "." payload "." signature), base64url-DECODE the middle segment, and hash THOSE bytes.
+  //
+  //   request_descriptor_hash = SHA-256( base64url_decode( jws_payload_segment ) )
+  //
+  // NOT the full 3-segment compact-JWS string. NOT the still-base64url-encoded payload segment.
+  // NOT a re-serialization, re-indentation, or key-reordering of the decoded JSON -- hash the
+  // decoded bytes exactly as they arrived, byte-for-byte. There is no canonical-JSON step: the
+  // operator's own signature already fixes those bytes, so both sides hash the identical octets
+  // with no normalization on either side.
+  //
+  // Cloud must therefore record this hash over the same decoded-payload bytes when it accepts and
+  // queues the request, or its audit lookup will simply miss and every attestation will fail closed.
+  //
+  // This is a DIFFERENT byte range from the RFC 3161 timestamp binding, which is over the ENTIRE
+  // signed-request JWS bytes. The two hash different things on purpose: the descriptor hash says
+  // WHAT was requested; the timestamp imprint says WHEN the signed request existed. Do not
+  // conflate them.
+  //
+  // (pki-core carries this value internally as a base64url-no-padding string and decodes it to
+  // these 32 raw bytes for the RPC; that encoding is an implementation detail on its side, not
+  // part of this wire contract.)
+  bytes request_descriptor_hash = 2;
+
+  // The signing time T -- the trusted RFC 3161 genTime pki-core recovered from the TSA token, i.e.
+  // a point in the PAST, never wall-clock "now" at query time. Asking about the past is the entire
+  // point of the two-signature (operator + TSA) design.
+  google.protobuf.Timestamp signing_time = 3;
+}
+
+message RightsAttestationResponse {
+  // Fail-closed: false when Cloud has no recorded accept-gate decision for this request. A request
+  // Cloud never accepted cannot be attested.
+  //
+  // ============ "WE SAY NO" AND "WE DON'T KNOW" ARE DIFFERENT ANSWERS ============
+  // pki-core treats these two outcomes as materially different, and they are NOT interchangeable:
+  //
+  //   OK status + authorized=false  -> an explicit, authoritative DENIAL. pki-core records the
+  //                                   request as verified-but-not-authorized.
+  //   any non-OK gRPC status        -> "UNKNOWN, not denied". pki-core treats EVERY RPC error
+  //                                   uniformly as a transport failure and falls back to offline
+  //                                   mode (valid=true, authorized=false, offline=true) rather
+  //                                   than failing the request outright.
+  //
+  // So if Cloud cannot determine an answer (no record of the operator, an internal dependency
+  // down), it must CHOOSE deliberately which of the two it means. Returning OK+false for "our
+  // database is unreachable" tells pki-core a lie it will act on; returning an error for "this
+  // operator genuinely had no such right" throws away a real denial.
+  bool authorized = 1;
+
+  // When Cloud recorded the accept-gate decision (should bracket `signing_time`).
+  google.protobuf.Timestamp decision_time = 2;
+
+  // The entitlement(s) the accept-gate enforced for this request (Cloud-defined grammar, same
+  // vocabulary as a W9 grant's entitlements).
+  repeated string required_entitlements = 3;
+
+  // Cross-service trace id stitching this flow through the audit chains.
+  string correlation_id = 4;
+}

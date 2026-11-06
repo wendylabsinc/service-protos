@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// OrganizationInviteService is Cloud-owned and intentionally separate from the hackathon's
+// InviteLinkService, so the two never share code and can split into separate repositories
+// later.
+service OrganizationInviteService {
+  // Create an invite link for an organization. Caller must be owner/admin; role is limited
+  // to admin/member/viewer. Returns the link metadata and the raw token (shown once).
+  rpc CreateOrganizationInvite(CreateOrganizationInviteRequest) returns (CreateOrganizationInviteResponse);
+  // List an organization's invite links (owner/admin).
+  rpc ListOrganizationInvites(ListOrganizationInvitesRequest) returns (stream OrganizationInvite);
+  // Revoke an invite link (owner/admin).
+  rpc RevokeOrganizationInvite(RevokeOrganizationInviteRequest) returns (google.protobuf.Empty);
+  // Redeem an invite. The caller authenticates first, so the org membership is tied to their
+  // real Cloud identity. Validates the token, ensures a Cloud users row exists, and joins the
+  // org with the link's role.
+  rpc AcceptOrganizationInvite(AcceptOrganizationInviteRequest) returns (AcceptOrganizationInviteResponse);
+}
+
+message OrganizationInvite {
+  int32 id = 1;
+  int32 organization_id = 2;
+  string role = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  bool revoked = 5;
+  string created_by_user_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message CreateOrganizationInviteRequest {
+  int32 organization_id = 1;
+  string role = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message CreateOrganizationInviteResponse {
+  OrganizationInvite invite = 1;
+  string token = 2;
+}
+
+message ListOrganizationInvitesRequest {
+  int32 organization_id = 1;
+}
+
+message RevokeOrganizationInviteRequest {
+  int32 id = 1;
+  int32 organization_id = 2;
+}
+
+message AcceptOrganizationInviteRequest {
+  string token = 1;
+  string email = 2;
+  string name = 3;
+}
+
+message AcceptOrganizationInviteResponse {
+  int32 organization_id = 1;
+  string role = 2;
+}

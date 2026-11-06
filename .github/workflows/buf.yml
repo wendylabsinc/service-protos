@@ -32,7 +32,7 @@ jobs:
           fi
 
           mapfile -t proto_files < <(
-            git diff --name-only --diff-filter=ACMR "$base_sha" "$GITHUB_SHA" -- '*.proto'
+            git diff --name-only --diff-filter=ACMR "$base_sha" "$GITHUB_SHA" -- '*.proto' ':!frozen/cloud-v1/**'
           )
           if (( ${#proto_files[@]} == 0 )); then
             echo "No changed proto files to lint."
@@ -44,6 +44,16 @@ jobs:
             lint_args+=(--path "$proto_file")
           done
           buf lint "${lint_args[@]}"
+      - name: Check isolated frozen Cloud v1 views
+        run: |
+          for config in buf.cloud-v1-dashboard.yaml buf.cloud-v1-submodule.yaml; do
+            buf lint --config "$config"
+            # New views have no master baseline on their first introduction.
+            if [[ "${{ github.event_name }}" == "pull_request" ]] && git cat-file -e "origin/master:$config" 2>/dev/null; then
+              buf breaking --config "$config" --against-config "$config" \
+                --against "https://github.com/wendylabsinc/service-protos.git#branch=master"
+            fi
+          done
       # Breaking-change guard for ALL cross-service protos — the drift guard,
       # caught in one place. Runs on PRs against master.
       - name: Breaking change check (vs master)

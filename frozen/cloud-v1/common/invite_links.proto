@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package wendycloud.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+service InviteLinkService {
+  rpc CreateInviteLink(CreateInviteLinkRequest) returns (CreateInviteLinkResponse);
+  rpc GetInviteLink(GetInviteLinkRequest) returns (InviteLink);
+  rpc UseInviteLink(UseInviteLinkRequest) returns (UseInviteLinkResponse);
+  rpc RevokeInviteLink(RevokeInviteLinkRequest) returns (google.protobuf.Empty);
+  rpc ListInviteLinks(ListInviteLinksRequest) returns (stream ListInviteLinksResponse);
+}
+
+message InviteLink {
+  int32 id = 1;
+  int32 organization_id = 2;
+  string role = 3;
+  optional int32 team_id = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  bool revoked = 6;
+  optional string created_by_user_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message CreateInviteLinkRequest {
+  int32 organization_id = 1;
+  string role = 2;
+  optional int32 team_id = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message CreateInviteLinkResponse {
+  InviteLink invite_link = 1;
+  string token = 2;
+}
+
+message GetInviteLinkRequest {
+  int32 id = 1;
+  int32 organization_id = 2;
+}
+
+message UseInviteLinkRequest {
+  string token = 1;
+  optional string email = 2;
+  optional string name = 3;
+  optional string password = 4;
+}
+
+message UseInviteLinkResponse {
+  string auth_token = 1;
+  bool account_created = 2;
+}
+
+message RevokeInviteLinkRequest {
+  int32 id = 1;
+  int32 organization_id = 2;
+}
+
+message ListInviteLinksRequest {
+  int32 organization_id = 1;
+}
+
+message ListInviteLinksResponse {
+  InviteLink invite_link = 1;
+}
