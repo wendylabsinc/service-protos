@@ -2,31 +2,5 @@ syntax = "proto3";
 package wendy.agent.services.v1;
 option go_package = "github.com/wendylabsinc/cloud/services/internal/proto";
 
-service WendyVideoService {
-  rpc ListVideoDevices(ListVideoDevicesRequest) returns (ListVideoDevicesResponse);
-  rpc StreamVideo(StreamVideoRequest) returns (stream VideoFrame);
-}
-
-message ListVideoDevicesRequest {}
-
-message ListVideoDevicesResponse {
-  repeated VideoDevice devices = 1;
-}
-
-message VideoDevice {
-  uint32 id          = 1;
-  string name        = 2;
-  string device_path = 3;
-}
-
-message StreamVideoRequest {
-  uint32 id     = 1;
-  uint32 width  = 2;
-  uint32 height = 3;
-  uint32 fps    = 4;
-}
-
-message VideoFrame {
-  bytes  data         = 1;
-  uint64 timestamp_ns = 2;
-}
+// Legacy import path; generate the imported canonical file as well.
+import public "wendy/agent/services/v1/wendy_agent_v1_video_service.proto";
