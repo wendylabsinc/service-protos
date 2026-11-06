@@ -20,7 +20,6 @@ lint:
     - RPC_REQUEST_RESPONSE_UNIQUE
   ignore_only:
     PACKAGE_DIRECTORY_MATCH:
-      - agent_video_service.proto # Legacy forwarding import used by Cloud codegen.
       - notifications.proto # Legacy import path used by existing clients.
       - organizations.proto # Legacy import path used by existing clients.
       # Cloud's codegen passes bare basenames, and its already-generated modules
@@ -34,26 +33,11 @@ lint:
       # Custom-option package: the option name `(wendy.signed_request)` is what
       # every annotated RPC spells, so it stays unversioned (like google.api).
       - wendy/options.proto
-    DIRECTORY_SAME_PACKAGE:
-      # Preserve the legacy root import path during consumer migration.
-      - agent_video_service.proto
     FIELD_LOWER_SNAKE_CASE:
       # Inherited deviceType field spelling is a source and JSON contract.
       - wendy/agent/services/v1/wendy_agent_v1_service.proto
-    PACKAGE_SAME_DIRECTORY:
-      # The legacy video import path forwards to the canonical Agent package.
-      - agent_video_service.proto
-      - wendy/agent/services/v1/shared.proto
-      - wendy/agent/services/v1/wendy_agent_v1_bluetooth.proto
-      - wendy/agent/services/v1/wendy_agent_v1_container_service.proto
-      - wendy/agent/services/v1/wendy_agent_v1_provisioning_service.proto
-      - wendy/agent/services/v1/wendy_agent_v1_service.proto
-      - wendy/agent/services/v1/wendy_agent_v1_shell_service.proto
-      - wendy/agent/services/v1/wendy_agent_v1_telemetry_service.proto
-      - wendy/agent/services/v1/wendy_agent_v1_video_service.proto
     PACKAGE_SAME_GO_PACKAGE:
       # Preserve producer and existing consumer Go options; consumers override mappings.
-      - agent_video_service.proto
       - wendy/agent/services/v1/shared.proto
       - wendy/agent/services/v1/wendy_agent_v1_bluetooth.proto
       - wendy/agent/services/v1/wendy_agent_v1_container_service.proto
@@ -91,6 +75,11 @@ breaking:
   use:
     - FILE
   ignore_only:
+    # Approved Agent video relocation; remove once the actual default includes it.
+    FIELD_SAME_NAME:
+      - wendy/agent/services/v1/wendy_agent_v1_video_service.proto
+    FIELD_SAME_JSON_NAME:
+      - wendy/agent/services/v1/wendy_agent_v1_video_service.proto
     # WDY-3458: operator-signed RPCs now take wendycloud.v2.SignedRequest (the
     # signature moved from headers into the body). One intentional break,
     # shipped in a coordinated merge round. Drop this entry in a follow-up PR
@@ -107,6 +96,8 @@ breaking:
       - wendycloud/v2/pki_admin.proto
       - wendycloud/v2/roles.proto
     FILE_NO_DELETE:
+      # Approved Agent video relocation; remove once the actual default includes it.
+      - agent_video_service.proto
       # wendycloud/v2/oauth.proto: OAuthService generated client secrets it never
       # stored or verified; no caller (WDY-3365). Machine credentials are
       # wendy-auth service accounts. v1 oauth.proto stays (legacy prod contract).

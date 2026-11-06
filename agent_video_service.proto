@@ -1,6 +1,0 @@
-syntax = "proto3";
-package wendy.agent.services.v1;
-option go_package = "github.com/wendylabsinc/cloud/services/internal/proto";
-
-// Legacy import path; generate the imported canonical file as well.
-import public "wendy/agent/services/v1/wendy_agent_v1_video_service.proto";
