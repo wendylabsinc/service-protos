@@ -71,6 +71,7 @@ lint:
       - wendy/agent/services/v2/data_service.proto
       - wendy/agent/services/v2/device_info_service.proto
       - wendy/agent/services/v2/driver_service.proto
+      - wendy/agent/services/v2/file_sync_service.proto
       - wendy/agent/services/v2/local_mesh_admin_service.proto
       - wendy/agent/services/v2/mesh_service.proto
       - wendy/agent/services/v2/os_update_service.proto
@@ -82,6 +83,7 @@ lint:
       - wendy/agent/services/v2/shared.proto
       - wendy/agent/services/v2/telemetry_service.proto
       - wendy/agent/services/v2/timesync_service.proto
+      - wendy/agent/services/v2/tunnel_service.proto
       - wendy/agent/services/v2/unitree_robot_service.proto
       - wendy/agent/services/v2/unitree_service.proto
       - wendy/agent/services/v2/wifi_service.proto
