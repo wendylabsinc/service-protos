@@ -19,6 +19,12 @@ The protobuf files are organized to support various service interactions and mai
 
 ## Contract catalogue versions
 
+Shared contracts live here: change them by PR, pass Buf, publish a version tag,
+then deliberately bump consumer pins. Generate from the pin; never maintain or
+edit local copies. Follow the [shared gRPC API contracts convention](https://github.com/wendylabsinc/saasdocs/blob/main/security-invariants/shared-grpc-api-contracts.md).
+Approved exceptions remain out of band. Prefer additive changes; breaking changes require
+a major version and expand → migrate → contract.
+
 Publish immutable `vMAJOR.MINOR.PATCH` Git tags from reviewed commits on `master`
 with passing CI. Never move or reuse a tag, including a deleted tag.
 
