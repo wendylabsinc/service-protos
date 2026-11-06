@@ -16,5 +16,3 @@ Import these protobuf definitions into your projects to ensure consistent data s
 ## Structure
 
 The protobuf files are organized to support various service interactions and maintain backwards compatibility across different service versions.
-
-Frozen Cloud v1 generation inputs are available as [isolated source views](frozen/cloud-v1/README.md).
