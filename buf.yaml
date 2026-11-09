@@ -75,11 +75,6 @@ breaking:
   use:
     - FILE
   ignore_only:
-    # Approved Agent video relocation; remove once the actual default includes it.
-    FIELD_SAME_NAME:
-      - wendy/agent/services/v1/wendy_agent_v1_video_service.proto
-    FIELD_SAME_JSON_NAME:
-      - wendy/agent/services/v1/wendy_agent_v1_video_service.proto
     # WDY-3458: operator-signed RPCs now take wendycloud.v2.SignedRequest (the
     # signature moved from headers into the body). One intentional break,
     # shipped in a coordinated merge round. Drop this entry in a follow-up PR
@@ -96,8 +91,6 @@ breaking:
       - wendycloud/v2/pki_admin.proto
       - wendycloud/v2/roles.proto
     FILE_NO_DELETE:
-      # Approved Agent video relocation; remove once the actual default includes it.
-      - agent_video_service.proto
       # wendycloud/v2/oauth.proto: OAuthService generated client secrets it never
       # stored or verified; no caller (WDY-3365). Machine credentials are
       # wendy-auth service accounts. v1 oauth.proto stays (legacy prod contract).
