@@ -277,6 +277,10 @@ message GetAgentVersionResponse {
     // without that access, so a CLI can refuse such a project before building
     // it. Empty on agents predating this field, which are not checked.
     repeated string entitlement_types = 29;
+    // Which agent runs and how the last agent update went, from the WendyOS
+    // agent supervisor. Absent when no supervisor started this agent (older
+    // images, generic Linux, macOS).
+    optional AgentSupervision supervision = 30;
 }
 
 // A network interface on the device and the IP addresses assigned to it.
@@ -806,4 +810,39 @@ message GpuCapabilities {
     // Device node or sysfs path that identified the GPU on Linux
     // (e.g. /dev/dri/card0, /dev/nvidia0, /dev/kfd). Empty on macOS.
     string path = 3;
+}
+
+message AgentSupervision {
+    // Which agent runs.
+    AgentRole role = 1;
+    // Version of the agent in the OS image, the one the device falls back to.
+    string image_version = 2;
+    // How the last agent update went.
+    AgentUpdateState update_state = 3;
+    // Why the last update was rejected, or why the image agent runs.
+    string reason = 4;
+    // sha256 of the agent update_state and reason are about, so a client can
+    // tell its own upload's verdict from an earlier one.
+    string update_sha256 = 5;
+}
+
+enum AgentRole {
+    AGENT_ROLE_UNSPECIFIED = 0;
+    // The agent in the OS image.
+    AGENT_ROLE_IMAGE = 1;
+    // An update that passed its checks, run from /data.
+    AGENT_ROLE_APPROVED = 2;
+    // A new update still being checked.
+    AGENT_ROLE_TRIAL = 3;
+}
+
+enum AgentUpdateState {
+    // No agent update yet.
+    AGENT_UPDATE_STATE_UNSPECIFIED = 0;
+    // No verdict yet: the update is staged or running its trial.
+    AGENT_UPDATE_STATE_TRIAL = 1;
+    // It passed its checks.
+    AGENT_UPDATE_STATE_APPROVED = 2;
+    // It failed its checks, and the device went back to the agent before it.
+    AGENT_UPDATE_STATE_REJECTED = 3;
 }
