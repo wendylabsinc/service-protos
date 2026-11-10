@@ -65,6 +65,7 @@ lint:
       - wendy/agent/services/v2/sensor_pairing_service.proto
       - wendy/agent/services/v2/sensor_service.proto
       - wendy/agent/services/v2/shared.proto
+      - wendy/agent/services/v2/site_model_service.proto
       - wendy/agent/services/v2/telemetry_service.proto
       - wendy/agent/services/v2/timesync_service.proto
       - wendy/agent/services/v2/tunnel_service.proto
