@@ -12,6 +12,7 @@ Tool installation belongs to the consumer's existing locked toolchain setup.
 There are deliberately no install commands, arbitrary hooks, or implicit cleaning.
 """
 import fnmatch
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -248,8 +249,10 @@ def owned(root, out):
     return result
 
 
-def source_guard(root, cfg, catalogue, exceptions):
-    names = {p.name for p in catalogue.rglob('*.proto')}
+def source_guard(root, cfg, catalogues, exceptions):
+    schemas = [p for catalogue in catalogues for p in catalogue.rglob('*.proto')]
+    names = {p.name for p in schemas}
+    identities = {hashlib.sha256(p.read_bytes()).digest() for p in schemas}
     if not names:
         raise Error('empty shared schema catalogue')
     # Include known former spellings, even when an old pin predates the catalogue path.
@@ -292,9 +295,13 @@ def source_guard(root, cfg, catalogue, exceptions):
                     if name.endswith('.proto'):
                         local.add(path.relative_to(root).as_posix())
     for rel in sorted(local):
-        if Path(rel).name in names and rel not in exceptions:
+        path = safe(root, rel)
+        if not path.exists():
+            continue
+        reserved = any(rel.startswith(alias + '/') for alias in forbidden)
+        if rel not in exceptions and (reserved or Path(rel).name in names or
+                hashlib.sha256(path.read_bytes()).digest() in identities):
             raise Error(f'local shared schema copy or alias: {rel}')
-        safe(root, rel)
 
 
 def collect_output(source, destination, written):
@@ -321,7 +328,8 @@ def prepare(root, cfg, template, scratch, revision, exceptions):
     policy = scratch / 'policy'
     run(['git', 'init', '--bare', '--quiet', str(policy)])
     run(['git', '-C', str(policy), 'fetch', '--quiet', '--depth=1', '--no-tags', SOURCE, 'master'])
-    checker = run(['git', '-C', str(policy), 'show', 'FETCH_HEAD:tools/check-pin.sh'], capture=True)
+    policy_revision = run(['git', '-C', str(policy), 'rev-parse', 'FETCH_HEAD'], capture=True).decode().strip()
+    checker = run(['git', '-C', str(policy), 'show', f'{policy_revision}:tools/check-pin.sh'], capture=True)
     if not checker.strip():
         raise Error('canonical pin checker is empty')
     (scratch / 'check-pin.sh').write_bytes(checker)
@@ -333,7 +341,11 @@ def prepare(root, cfg, template, scratch, revision, exceptions):
             raise Error(f'{Path(tool["command"][0]).name} version mismatch: expected {expected_version!r}, found {actual!r}')
     catalogue = scratch / 'catalogue'
     run(['buf', 'export', f'{SOURCE}#ref={revision}', '--output', str(catalogue)])
-    source_guard(root, cfg, catalogue, exceptions)
+    # Copy policy follows the same current master snapshot as the checker.
+    # Generation, local staging and fixtures still use only the immutable pin.
+    policy_catalogue = scratch / 'policy-catalogue'
+    run(['buf', 'export', f'{SOURCE}#ref={policy_revision}', '--output', str(policy_catalogue)])
+    source_guard(root, cfg, (policy_catalogue, catalogue), exceptions)
     selected = scratch / 'selected'
     run(['buf', 'export', f'{SOURCE}#ref={revision}', '--output', str(selected),
          '--exclude-imports', *[a for p in cfg['paths'] for a in ('--path', p)]])

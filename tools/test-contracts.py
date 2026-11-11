@@ -89,6 +89,16 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     env[f'GIT_CONFIG_KEY_{count + 1}'] = 'http.https://example.invalid/.extraheader'
     env[f'GIT_CONFIG_VALUE_{count + 1}'] = 'AUTHORIZATION: synthetic-contract-test'
     env['GIT_CONFIG_COUNT'] = str(count + 2)
+    if not args.consumer:
+        # Master gains a real-schema-derived identity after the consumer pin.
+        # Keep generation pinned while testing policy against current master.
+        policy_schema = source / 'policy_new.proto'
+        policy_schema.write_bytes(b'// Master-only policy fixture.\n' +
+            (source / 'authorization.proto').read_bytes().replace(
+                b'package wendycloud.v1;', b'package contracts.runner.policy;', 1))
+        git('add', policy_schema.name, cwd=source)
+        git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
+            'commit', '-q', '-m', 'Add master-only policy identity', cwd=source)
     git('checkout', '-q', '-b', 'branch-only', cfg['commit'], cwd=source)
     git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
         'commit', '-q', '--allow-empty', '-m', 'Unmerged control', cwd=source)
@@ -131,6 +141,30 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     if not args.consumer:
         invoke(['generate'])
     invoke(['check'])
+    if not args.consumer:
+        local = consumer / 'schemas/policy_new.proto'
+        local.parent.mkdir()
+        local.write_bytes((source / 'policy_new.proto').read_bytes())
+        invoke(['check'], 'local shared schema copy or alias')
+        local.unlink()
+        renamed = consumer / 'schemas/renamed.proto'
+        renamed.write_bytes((source / 'authorization.proto').read_bytes())
+        invoke(['check'], 'local shared schema copy or alias')
+        renamed.unlink()
+        reserved = consumer / 'proto/my_contract.proto'
+        reserved.parent.mkdir()
+        # Neither the filename nor raw bytes identify a catalogue schema.
+        reserved.write_bytes(b'// Renamed local definition.\n' + (source / 'authorization.proto').read_bytes())
+        invoke(['check'], 'local shared schema copy or alias')
+        allowed = yaml.safe_load(original_exceptions) if original_exceptions else {}
+        allowed['proto/my_contract.proto'] = 'Explicit reserved-root local-input control'
+        exception_file.write_text(yaml.safe_dump(allowed))
+        invoke(['check'])
+        reserved.unlink()
+        if original_exceptions is None:
+            exception_file.unlink()
+        else:
+            exception_file.write_bytes(original_exceptions)
     if not args.consumer:
         # Version assertions read existing lock metadata rather than copying
         # its version into the contract manifest.
@@ -318,6 +352,21 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     write_config(dict(cfg, stage={cfg['paths'][0]: '.GIT/index'}))
     invoke(['generate'], 'unsafe relative path')
     write_config(cfg)
+    if not args.consumer:
+        # Only current-master export fails; the older pin remains fetchable and
+        # valid. Policy acquisition must never fall back to the pinned catalogue.
+        config_path = source / 'buf.yaml'
+        old_config = config_path.read_bytes()
+        config_path.write_text('version: invalid\n')
+        git('add', 'buf.yaml', cwd=source)
+        git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
+            'commit', '-q', '-m', 'Fail current policy export control', cwd=source)
+        invoke(['check'], 'buf failed')
+        invoke(['generate'], 'buf failed')
+        config_path.write_bytes(old_config)
+        git('add', 'buf.yaml', cwd=source)
+        git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
+            'commit', '-q', '-m', 'Restore valid policy export', cwd=source)
     # All fetches fail through real Git, without a mock returning success.
     key = f'GIT_CONFIG_KEY_{count}'
     env[key] = f'url.file://{scratch / "unavailable"}.insteadOf'
