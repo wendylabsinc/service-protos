@@ -7,6 +7,7 @@ Optional full-consumer probe: --consumer /scratch/consumer --source /repo/servic
 Default controls copy real schemas and vectors from this checkout and use a
 disposable Git graph without network access. Optional full-consumer probes copy
 the prepared fixture and its fetched source history. Inputs stay untouched.
+Run as an ordinary non-root user for real permission-failure coverage.
 URL rewriting is scoped to child processes.
 """
 import argparse
@@ -28,6 +29,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--consumer', type=Path, help='Optional full-consumer fixture')
 parser.add_argument('--source', type=Path, default=HERE.parent)
 args = parser.parse_args()
+if os.geteuid() == 0:
+    parser.error('permission controls require an ordinary non-root user')
 
 
 def git(*argv, cwd=None, env=None):
@@ -346,6 +349,36 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     spec = importlib.util.spec_from_file_location('contracts', HERE / 'contracts.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    if os.geteuid() != 0:
+        # Real permissions, no mocked syscall. Fail deleting a stale file only
+        # AFTER an output, a new file and the pin have all been installed.
+        permissions = scratch / 'permissions-rollback'
+        (permissions / 'out').mkdir(parents=True)
+        (permissions / 'blocked').mkdir()
+        first = permissions / 'out/first.pb.go'
+        pin = permissions / 'contracts.json'
+        stale = permissions / 'blocked/stale.pb.go'
+        first.write_bytes(b'original output'); first.chmod(0o444)
+        pin.write_bytes(b'original pin'); pin.chmod(0o444)
+        stale.write_bytes(b'original stale'); stale.chmod(0o444)
+        (permissions / 'blocked').chmod(0o555)
+        try:
+            try:
+                module.install(permissions,
+                    {'out/first.pb.go': b'NEW output', 'out/new.pb.go': b'NEW file', 'contracts.json': b'NEW pin'},
+                    {'out/first.pb.go': b'original output', 'blocked/stale.pb.go': b'original stale'})
+            except PermissionError as error:
+                assert 'blocked/stale.pb.go' in str(error), str(error)
+            else:
+                raise AssertionError('real permission failure was swallowed')
+            for path, data in [(first, b'original output'), (pin, b'original pin'), (stale, b'original stale')]:
+                assert path.read_bytes() == data
+                assert path.stat().st_mode & 0o777 == 0o444
+            assert not (permissions / 'out/new.pb.go').exists()
+            cases += 1
+            print(f'ok {cases}: real permission rollback restores bytes/modes, pin and new-file absence', flush=True)
+        finally:
+            (permissions / 'blocked').chmod(0o755)
     rollback = scratch / 'rollback'
     rollback.mkdir()
     (rollback / 'first').write_bytes(b'old')
@@ -371,4 +404,30 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     assert (rollback / 'contracts.json').read_bytes() == original_pin
     cases += 1
     print(f'ok {cases}: installation rollback preserves pin and output', flush=True)
+    # Supplemental injection checks diagnostics and continued restoration if a
+    # restore itself fails. The permission regression above is entirely native.
+    diagnostics = scratch / 'rollback-diagnostics'
+    diagnostics.mkdir()
+    for name in ('first', 'second', 'contracts.json'):
+        (diagnostics / name).write_bytes(b'old')
+    calls = 0
+    def primary_and_restore_failure(src, dst):
+        global calls
+        calls += 1
+        if calls == 3:
+            raise OSError('PRIMARY installation failure')
+        if calls == 4:
+            raise OSError('ROLLBACK second-file failure')
+        return replace(src, dst)
+    try:
+        with patch.object(module.os, 'replace', side_effect=primary_and_restore_failure):
+            module.install(diagnostics, {'first': b'new', 'second': b'new', 'contracts.json': b'new'}, {})
+    except module.Error as error:
+        assert 'PRIMARY installation failure' in str(error) and 'ROLLBACK second-file failure' in str(error), str(error)
+    else:
+        raise AssertionError('primary/rollback failures were swallowed')
+    assert calls == 5 and (diagnostics / 'first').read_bytes() == b'old'
+    assert (diagnostics / 'contracts.json').read_bytes() == b'old'
+    cases += 1
+    print(f'ok {cases}: rollback attempts all mutations and retains primary/restore diagnostics', flush=True)
     print(f'Passed {cases} real consumer controls; branch-only commit {branch_only}', flush=True)

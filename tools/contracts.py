@@ -500,35 +500,49 @@ def current(root, cfg):
     return actual
 
 
+def atomic_write(path, data, mode):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix='.contracts-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(data)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
 def install(root, expected, actual):
-    # Backup every affected file before the first write; roll back a failed install.
-    paths = set(expected) | set(actual)
-    for rel in paths:
-        safe(root, rel)
-    saved = {rel: (safe(root, rel).read_bytes() if safe(root, rel).exists() else None) for rel in paths}
+    # Snapshot bytes/modes before the first mutation. Read-only originals can
+    # be replaced in writable directories, so rollback must use replacement too.
+    saved = {}
+    for rel in expected.keys() | actual.keys():
+        path = safe(root, rel)
+        saved[rel] = (path.read_bytes(), stat.S_IMODE(path.stat().st_mode)) if path.exists() else None
+    mutated = []
     try:
         for rel, data in expected.items():
             path = safe(root, rel)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            # Atomic file replacement also preserves other hardlink targets.
-            fd, tmp = tempfile.mkstemp(prefix='.contracts-', dir=path.parent)
-            try:
-                with os.fdopen(fd, 'wb') as stream:
-                    os.fchmod(stream.fileno(), stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644)
-                    stream.write(data)
-                os.replace(tmp, path)
-            finally:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
+            atomic_write(path, data, saved[rel][1] if saved[rel] else 0o644)
+            mutated.append(rel)
         for rel in actual.keys() - expected.keys():
             safe(root, rel).unlink()
-    except BaseException:
-        for rel, data in saved.items():
-            path = safe(root, rel)
-            if data is None:
-                path.unlink(missing_ok=True)
-            else:
-                path.write_bytes(data)
+            mutated.append(rel)
+    except BaseException as primary:
+        failures = []
+        for rel in reversed(mutated):
+            try:
+                path = safe(root, rel)
+                if saved[rel] is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_write(path, *saved[rel])
+            except BaseException as rollback:
+                failures.append(f'{rel}: {type(rollback).__name__}: {rollback}')
+        if failures:
+            raise Error(f'installation failed: {type(primary).__name__}: {primary}\n'
+                        'rollback failed: ' + '; '.join(failures)) from primary
         raise
 
 
