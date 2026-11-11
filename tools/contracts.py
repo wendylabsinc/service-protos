@@ -40,11 +40,15 @@ def run(args, cwd=None, capture=False):
         raise Error(f'{Path(args[0]).name} failed (exit {e.returncode})') from None
 
 
+def walk_error(error):
+    raise error
+
+
 def relative(value):
     if not isinstance(value, str) or not value or '\\' in value:
         raise Error(f'invalid relative path: {value!r}')
     p = PurePosixPath(value)
-    if p.is_absolute() or any(x in ('', '.', '..', '.git') for x in value.split('/')):
+    if p.is_absolute() or any(x in ('', '.', '..') or x.lower() == '.git' for x in value.split('/')):
         raise Error(f'unsafe relative path: {value!r}')
     return value
 
@@ -160,7 +164,7 @@ def owned(root, out):
         return result
     if not directory.is_dir():
         raise Error(f'output must be a directory: {out["path"]}')
-    for parent, dirs, files in os.walk(directory, followlinks=False):
+    for parent, dirs, files in os.walk(directory, followlinks=False, onerror=walk_error):
         for name in dirs + files:
             path = Path(parent) / name
             rel = path.relative_to(directory).as_posix()
@@ -205,7 +209,7 @@ def source_guard(root, cfg, catalogue):
         if directory.is_symlink() or (directory / '.git').exists():
             raise Error(f'local shared source checkout or symlink: {alias}')
         if directory.is_dir():
-            for parent, dirs, files in os.walk(directory, followlinks=False):
+            for parent, dirs, files in os.walk(directory, followlinks=False, onerror=walk_error):
                 for name in dirs + files:
                     path = Path(parent) / name
                     if path.is_symlink():

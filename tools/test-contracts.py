@@ -14,9 +14,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 URL = 'https://github.com/wendylabsinc/service-protos.git'
 parser = argparse.ArgumentParser(description=__doc__)
@@ -197,9 +199,20 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     invoke(['generate'], 'unsafe symlink')
     out.unlink()
     relocated.rename(out)
+    unreadable = out / 'unreadable'
+    unreadable.mkdir()
+    unreadable.chmod(0)
+    try:
+        if os.geteuid() != 0:
+            invoke(['generate'], 'Permission denied')
+    finally:
+        unreadable.chmod(0o700)
+        unreadable.rmdir()
     bad_stage = dict(cfg, stage={cfg['paths'][0]: '../outside.proto'})
     write_config(bad_stage)
     # Config failures happen before generation and carry the same repair command.
+    invoke(['generate'], 'unsafe relative path')
+    write_config(dict(cfg, stage={cfg['paths'][0]: '.GIT/index'}))
     invoke(['generate'], 'unsafe relative path')
     write_config(cfg)
     # All fetches fail through real Git, without a mock returning success.
