@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Exercise the runner with a real, prepared consumer fixture and pinned tools.
+"""Exercise the runner with real repository schemas, Git, Buf 1.75.0 and protoc 36.2.
 
-python3 tools/test-contracts.py --consumer /scratch/consumer --source /repo/service-protos
-The consumer contains contracts.json, buf.gen.yaml, real generated output and
-local import inputs. It is copied, never modified. Source master and the schema
-pin must already be fetched locally. Tests preserve real history and introduce
-one actual branch-only commit. URL rewriting is scoped to child processes.
+python3 -m pip install -r tools/contracts-requirements.txt
+python3 tools/test-contracts.py
+Optional full-consumer probe: --consumer /scratch/consumer --source /repo/service-protos
+Default controls copy real schemas and vectors from this checkout and use a
+disposable Git graph without network access. Optional full-consumer probes copy
+the prepared fixture and its fetched source history. Inputs stay untouched.
+URL rewriting is scoped to child processes.
 """
 import argparse
 import importlib.util
@@ -16,14 +18,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import yaml
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 URL = 'https://github.com/wendylabsinc/service-protos.git'
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--consumer', type=Path, required=True)
-parser.add_argument('--source', type=Path, required=True)
+parser.add_argument('--consumer', type=Path, help='Optional full-consumer fixture')
+parser.add_argument('--source', type=Path, default=HERE.parent)
 args = parser.parse_args()
 
 
@@ -35,17 +38,45 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     scratch = Path(tmp)
     source = scratch / 'source'
     consumer = scratch / 'consumer'
-    shutil.copytree(args.consumer, consumer, ignore=shutil.ignore_patterns('.git', '.build', 'Build'))
+    if args.consumer:
+        shutil.copytree(args.consumer, consumer, ignore=shutil.ignore_patterns('.git', '.build', 'Build'))
+        cfg = json.loads((consumer / 'contracts.json').read_text())
+        git('init', '-q', '--initial-branch=initial', str(source))
+        git('fetch', '-q', str(args.source.resolve()), 'refs/remotes/origin/master:refs/heads/master', cfg['commit'], cwd=source)
+        git('checkout', '-q', 'master', cwd=source)
+    else:
+        # Real schemas and vectors from this PR, real Git graph, real Buf and
+        # protoc. No network, external consumer checkout or machine paths.
+        git('init', '-q', '--initial-branch=master', str(source))
+        entries = git('ls-files', cwd=args.source).splitlines()
+        for rel in entries:
+            if rel.endswith('.proto') or rel in ('buf.yaml', 'tools/check-pin.sh', 'conformance/set/set-vectors-v1.json'):
+                dst = source / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(args.source / rel, dst)
+        git('add', '.', cwd=source)
+        git('-c', 'user.name=Contract test', '-c', 'user.email=contracts@example.invalid',
+            '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
+            'commit', '-q', '-m', 'Real source fixture', cwd=source)
+        consumer.mkdir()
+        cfg = {'commit': git('rev-parse', 'HEAD', cwd=source), 'paths': ['wendy/options.proto'],
+               'outputs': [{'path': 'generated', 'patterns': ['*_pb2.py']}],
+               'tools': [{'command': ['buf', '--version'], 'expect': '1.75.0'},
+                         {'command': ['protoc', '--version'], 'expect': 'libprotoc 36.2'}],
+               'repair': 'bash tools/contracts.sh generate'}
+        (consumer / 'contracts.json').write_text(json.dumps(cfg, indent=2) + '\n')
+        (consumer / 'buf.gen.yaml').write_text(
+            '# Standard Buf YAML; compiler versions are checked separately.\n'
+            'version: v2\nplugins:\n  - protoc_builtin: python\n    out: generated\n    strategy: all\n')
     git('init', '-q', str(consumer))
-    cfg = json.loads((consumer / 'contracts.json').read_text())
     original_pin = (consumer / 'contracts.json').read_bytes()
     original_template = (consumer / 'buf.gen.yaml').read_bytes()
-    git('init', '-q', '--initial-branch=initial', str(source))
-    git('fetch', '-q', str(args.source.resolve()), 'refs/remotes/origin/master:refs/heads/master', cfg['commit'], cwd=source)
-    git('checkout', '-q', 'master', cwd=source)
+    exception_file = consumer / 'contracts-exceptions.yaml'
+    original_exceptions = exception_file.read_bytes() if exception_file.exists() else None
     git('config', 'user.name', 'Contract test', cwd=source)
     git('config', 'user.email', 'contracts@example.invalid', cwd=source)
     env = os.environ.copy()
+    env['PATH'] = str(Path(sys.executable).parent) + os.pathsep + env['PATH']
     env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=str(scratch / 'gitconfig'),
                GIT_TERMINAL_PROMPT='0', CONTRACTS_RUNNER=str(HERE.parent))
     # Retain existing scoped CI credentials; append only this test's URL rewrite.
@@ -94,9 +125,61 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
         print(f'ok {cases}: {" ".join(command)} {message or "passes"}', flush=True)
         return proc.stdout
 
+    if not args.consumer:
+        invoke(['generate'])
     invoke(['check'])
+    if not args.consumer:
+        # Version assertions read existing lock metadata rather than copying
+        # its version into the contract manifest.
+        lock = consumer / 'locked-tools.json'
+        lock.write_text(json.dumps({'packages': {'node_modules/protoc': {'version': '36.2'}}}))
+        lock_cfg = json.loads(json.dumps(cfg))
+        lock_cfg['tools'][1] = {'command': ['protoc', '--version'], 'lockfile': lock.name,
+                                'package': 'protoc', 'prefix': 'libprotoc '}
+        write_config(lock_cfg)
+        invoke(['check'])
+        lock.write_text(json.dumps({'packages': {'node_modules/protoc': {'version': '0.0'}}}))
+        invoke(['generate'], 'version mismatch')
+        write_config(cfg)
+        lock.unlink()
+        # A local generated input is explicit twice: an import declaration and
+        # a literal exception. Reuse a real schema instead of a mock generator.
+        local_input = consumer / 'local/authorization.proto'
+        local_input.parent.mkdir()
+        shutil.copyfile(source / 'authorization.proto', local_input)
+        local_cfg = dict(cfg, imports={'local/authorization.proto': 'local_authorization.proto'},
+                         plugin_paths=[[*cfg['paths'], 'local/authorization.proto']])
+        write_config(local_cfg)
+        invoke(['generate'], 'literal source exception')
+        exception_file.write_text('local/authorization.proto: Explicit local-input control using the real schema.\n')
+        invoke(['generate'])
+        invoke(['check'])
+        local_input.unlink()
+        exception_file.unlink()
+        write_config(cfg)
+        invoke(['generate'])
+        write_config(dict(cfg, compiler='protoc'))
+        invoke(['generate'])
+        invoke(['check'])
+        write_config(cfg)
+        invoke(['generate'])
+        template = yaml.safe_load(original_template)
+        subset_cfg = dict(cfg, paths=[*cfg['paths'], 'authorization.proto'],
+                          plugin_paths=[cfg['paths'], ['authorization.proto']])
+        template['plugins'].append(dict(template['plugins'][0]))
+        (consumer / 'buf.gen.yaml').write_text(yaml.safe_dump(template))
+        write_config(subset_cfg)
+        invoke(['generate'])
+        invoke(['check'])
+        write_config(dict(subset_cfg, plugin_paths=[cfg['paths'], ['not-declared.proto']]))
+        invoke(['generate'], 'declared input paths')
+        write_config(dict(subset_cfg, plugin_paths=[cfg['paths'], cfg['paths']]))
+        invoke(['generate'], 'conflicting plugin output')
+        (consumer / 'buf.gen.yaml').write_bytes(original_template)
+        write_config(cfg)
+        invoke(['generate'])
     out = consumer / cfg['outputs'][0]['path']
-    generated = next(out.rglob('*.pb.swift'))
+    generated = next(p for p in out.rglob('*') if p.is_file() and p.name != 'Manual.swift')
     saved = generated.read_bytes()
     generated.unlink()
     invoke(['check'], 'missing:')
@@ -104,7 +187,7 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     generated.write_bytes(saved + b'\n// stale\n')
     invoke(['check'], 'changed:')
     generated.write_bytes(saved)
-    extra = out / 'extra.pb.swift'
+    extra = generated.with_name('extra_' + generated.name)
     extra.write_bytes(saved)
     invoke(['check'], 'extra:')
     manual = out / 'Manual.swift'
@@ -112,9 +195,9 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     invoke(['generate'])
     assert not extra.exists() and manual.read_text() == '// handwritten\n'
     assert generated.stat().st_mode & 0o777 == 0o644
-    preserve = out / 'Preserved.pb.swift'
+    preserve = generated.with_name('Preserved_' + generated.name)
     preserve.write_text('// preserved consumer-owned output\n')
-    excluded = dict(cfg, outputs=[{**cfg['outputs'][0], 'exclude': ['Preserved.pb.swift']}, *cfg['outputs'][1:]])
+    excluded = dict(cfg, outputs=[{**cfg['outputs'][0], 'exclude': [preserve.relative_to(out).as_posix()]}, *cfg['outputs'][1:]])
     write_config(excluded)
     invoke(['generate'])
     assert preserve.read_text() == '// preserved consumer-owned output\n'
@@ -140,13 +223,30 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     git('update-index', '--add', '--cacheinfo', f'160000,{cfg["commit"]},clip-store/proto', cwd=consumer)
     invoke(['check'], 'local shared schema gitlink:')
     git('update-index', '--force-remove', 'clip-store/proto', cwd=consumer)
+    ignored_import = consumer / '.ignored/custom.proto'
+    ignored_import.parent.mkdir()
+    shutil.copyfile(source / 'authorization.proto', ignored_import)
+    ignore = consumer / '.gitignore'
+    saved_ignore = ignore.read_bytes() if ignore.exists() else b''
+    ignore.write_bytes(saved_ignore + b'\n/.ignored/\n')
+    write_config(dict(cfg, imports={'.ignored/custom.proto': 'authorization.proto'}))
+    invoke(['check'], 'local shared schema import needs exception')
+    ignored_import.unlink()
+    ignore.write_bytes(saved_ignore)
+    write_config(cfg)
     local = consumer / 'local/authorization.proto'
     local.write_text('syntax = "proto3";\n')
-    allowed = dict(cfg, exceptions={**cfg.get('exceptions', {}),
-                                  'local/authorization.proto': 'Real local schema exception control'})
-    write_config(allowed)
+    allowed = yaml.safe_load(original_exceptions) if original_exceptions else {}
+    allowed['local/authorization.proto'] = 'Real local schema exception control'
+    exception_file.write_text(yaml.safe_dump(allowed))
     invoke(['check'])
     local.unlink()
+    if original_exceptions is None:
+        exception_file.unlink()
+    else:
+        exception_file.write_bytes(original_exceptions)
+    write_config(dict(cfg, fixtures={'conformance/set/set-vectors-v1.json': 'contracts-exceptions.yaml'}))
+    invoke(['generate'], 'overlap configuration')
     write_config(cfg)
     # Fixtures are read at the schema pin and drift is part of the same comparison.
     fixture_cfg = dict(cfg, fixtures={'conformance/set/set-vectors-v1.json': 'test-fixtures/set.json'})
@@ -175,7 +275,7 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     invoke(['generate'], 'selected schema missing from pin')
     invoke(['bump', cfg['commit']], 'selected schema missing from pin')
     write_config(cfg)
-    template = json.loads(original_template)
+    template = yaml.safe_load(original_template)
     template['plugins'][0]['opt'] = ['InvalidOption=broken']
     (consumer / 'buf.gen.yaml').write_text(json.dumps(template))
     invoke(['generate'], 'buf failed')

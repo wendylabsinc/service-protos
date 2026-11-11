@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-"""Pinned shared generation. Config: contracts.json plus JSON-form buf.gen.yaml.
+"""Pinned shared generation. Config: contracts.json, buf.gen.yaml, optional contracts-exceptions.yaml.
 
 Run from the consumer root: contracts.sh check | generate | bump <fullsha>.
+plugin_paths optionally selects declared source paths per plugin, in Buf order.
+Local generated inputs must also be declared imports and literal exceptions.
+contracts-exceptions.yaml maps exact local file paths to reasons (no wildcards).
+Tool assertions read Package.resolved/npm/uv lockfiles; versions stay there.
+Python 3.11+ is required (stdlib TOML support).
+Install contracts-requirements.txt into the runner's Python environment once.
 Tool installation belongs to the consumer's existing locked toolchain setup.
 There are deliberately no install commands, arbitrary hooks, or implicit cleaning.
 """
@@ -29,10 +35,10 @@ class Error(Exception):
     pass
 
 
-def run(args, cwd=None, capture=False):
+def run(args, cwd=None, capture=False, env=None):
     # Never print environment values or command lines: Git auth may be inherited.
     try:
-        return subprocess.run(args, cwd=cwd, check=True,
+        return subprocess.run(args, cwd=cwd, check=True, env=env,
                               stdout=subprocess.PIPE if capture else None).stdout
     except FileNotFoundError:
         raise Error(f'required tool not found: {Path(args[0]).name}') from None
@@ -64,9 +70,55 @@ def safe(root, value):
 
 def load(path):
     try:
-        return json.loads(path.read_text())
+        if path.suffix != '.yaml':
+            return json.loads(path.read_text())
+        import importlib.metadata
+        try:
+            import yaml
+        except ImportError:
+            raise Error('install runner dependencies: python3 -m pip install -r ' +
+                        str(Path(__file__).with_name('contracts-requirements.txt'))) from None
+        required = Path(__file__).with_name('contracts-requirements.txt').read_text().strip().split('==')[1]
+        if importlib.metadata.version('PyYAML') != required:
+            raise Error(f'runner requires PyYAML {required}')
+        try:
+            return yaml.safe_load(path.read_text())
+        except yaml.YAMLError as e:
+            raise Error(f'invalid YAML in {path.name}: {e}') from None
     except (ValueError, OSError) as e:
-        raise Error(f'{path.name}: requires JSON syntax (also valid YAML): {e}') from None
+        raise Error(f'cannot read {path.name}: {e}') from None
+
+
+def tool_version(root, tool):
+    if 'expect' in tool:
+        return tool['expect']
+    path = safe(root, tool['lockfile'])
+    if path.name == 'uv.lock':
+        import tomllib
+        try:
+            lock = tomllib.loads(path.read_text())
+        except (ValueError, OSError) as e:
+            raise Error(f'invalid uv.lock: {e}') from None
+    else:
+        lock = load(path)
+    if 'pins' in lock:
+        matches = [p['state']['version'] for p in lock['pins'] if p['identity'] == tool['package']]
+        if len(matches) != 1:
+            raise Error(f'package missing or ambiguous in lockfile: {tool["package"]}')
+        version = matches[0]
+    elif 'packages' in lock:
+        package = lock['packages'].get('node_modules/' + tool['package'], {})
+        version = package.get('version')
+    elif 'package' in lock:
+        matches = [p['version'] for p in lock['package'] if p['name'] == tool['package']]
+        if len(matches) != 1:
+            raise Error(f'package missing or ambiguous in uv.lock: {tool["package"]}')
+        version = matches[0]
+    else:
+        raise Error('version source must be Package.resolved, npm package-lock.json or uv.lock')
+    if not isinstance(version, str) or not version:
+        raise Error(f'package version missing in lockfile: {tool["package"]}')
+    return tool.get('prefix', '') + version
 
 
 def fields(obj, allowed, required=()):
@@ -74,9 +126,9 @@ def fields(obj, allowed, required=()):
         raise Error(f'invalid configuration fields; allowed: {", ".join(allowed)}')
 
 
-def validate(root, cfg, template):
-    fields(cfg, ('commit', 'paths', 'stage', 'imports', 'exceptions', 'outputs',
-                 'fixtures', 'tools', 'compiler', 'python_import_prefix', 'repair'), ('commit', 'paths', 'outputs', 'tools', 'repair'))
+def validate(root, cfg, template, exceptions):
+    fields(cfg, ('commit', 'paths', 'stage', 'imports', 'outputs', 'plugin_paths',
+                 'fixtures', 'tools', 'compiler', 'python_import_prefix', 'swift_public_imports', 'cloud_signed_methods', 'repair'), ('commit', 'paths', 'outputs', 'tools', 'repair'))
     if not re.fullmatch('[0-9a-f]{40}', cfg['commit']):
         raise Error('commit must be a full lowercase 40-hex SHA')
     if not cfg['paths'] or len(set(cfg['paths'])) != len(cfg['paths']):
@@ -94,7 +146,7 @@ def validate(root, cfg, template):
     for src in cfg.get('imports', {}):
         if not safe(root, src).is_file():
             raise Error(f'local import is missing: {src}')
-    for path, reason in cfg.get('exceptions', {}).items():
+    for path, reason in exceptions.items():
         if not isinstance(reason, str) or not reason.strip() or not safe(root, path).is_file():
             raise Error(f'exception needs a reason and an existing regular file: {path}')
     fields(template, ('version', 'plugins'), ('version', 'plugins'))
@@ -104,19 +156,28 @@ def validate(root, cfg, template):
         raise Error('tools must enforce the existing exact tool versions')
     checked = []
     for tool in cfg['tools']:
-        fields(tool, ('command', 'expect'), ('command', 'expect'))
-        if not isinstance(tool['command'], list) or not tool['command'] or not tool['expect']:
+        fields(tool, ('command', 'expect', 'lockfile', 'package', 'prefix', 'executable'), ('command',))
+        if ('expect' in tool) == ('lockfile' in tool):
+            raise Error('tool needs exactly one version source: expect or lockfile')
+        if 'lockfile' in tool and 'package' not in tool:
+            raise Error('lockfile version check needs a package name')
+        if not isinstance(tool['command'], list) or not tool['command'] or not tool_version(root, tool):
             raise Error('tool requires a version command and exact expected stdout')
-        checked.append(tool['command'][0])
+        checked.append(tool.get('executable', tool['command'][0]))
     if cfg.get('compiler') and cfg['compiler'] not in checked:
         raise Error('compiler needs an exact version check in tools')
+    for adapter in ('swift_public_imports', 'cloud_signed_methods'):
+        if adapter in cfg and cfg[adapter] is not True:
+            raise Error(f'{adapter} must be true when enabled')
+    if cfg.get('cloud_signed_methods') and 'protoc' not in checked:
+        raise Error('Cloud signed methods requires a checked protoc on PATH')
     if 'buf' not in checked:
         raise Error('tools must check the exact buf version')
     dirs = []
     for out in cfg['outputs']:
         fields(out, ('path', 'patterns', 'exclude'), ('path', 'patterns'))
         safe(root, out['path'])
-        if out['path'] in ('contracts.json', 'buf.gen.yaml'):
+        if out['path'] in ('contracts.json', 'buf.gen.yaml', 'contracts-exceptions.yaml'):
             raise Error('output roots must not overwrite configuration')
         if not out['patterns']:
             raise Error('output ownership needs explicit patterns')
@@ -131,8 +192,16 @@ def validate(root, cfg, template):
     if len(set(cfg.get('fixtures', {}).values())) != len(cfg.get('fixtures', {})):
         raise Error('fixture destinations must be unique')
     for dst in cfg.get('fixtures', {}).values():
-        if dst in ('contracts.json', 'buf.gen.yaml') or any(dst == d or dst.startswith(d + '/') for d in dirs):
+        if dst in ('contracts.json', 'buf.gen.yaml', 'contracts-exceptions.yaml') or any(dst == d or dst.startswith(d + '/') for d in dirs):
             raise Error('fixtures must not overlap configuration or output roots')
+    subsets = cfg.get('plugin_paths', [cfg['paths']] * len(template['plugins']))
+    if not isinstance(subsets, list) or len(subsets) != len(template['plugins']):
+        raise Error('plugin_paths must have exactly one list per Buf plugin')
+    for subset in subsets:
+        if not isinstance(subset, list) or not subset or any(p not in set(cfg['paths']) | set(cfg.get('imports', {})) for p in subset) or len(set(subset)) != len(subset):
+            raise Error('plugin_paths must select nonempty unique declared input paths')
+        if any(p in cfg.get('imports', {}) and p not in exceptions for p in subset):
+            raise Error('generating a local input requires its literal source exception')
     for plugin in template['plugins']:
         fields(plugin, ('local', 'protoc_builtin', 'protoc_path', 'out', 'opt', 'strategy'), ('out',))
         if ('local' in plugin) == ('protoc_builtin' in plugin):
@@ -179,7 +248,7 @@ def owned(root, out):
     return result
 
 
-def source_guard(root, cfg, catalogue):
+def source_guard(root, cfg, catalogue, exceptions):
     names = {p.name for p in catalogue.rglob('*.proto')}
     if not names:
         raise Error('empty shared schema catalogue')
@@ -200,6 +269,12 @@ def source_guard(root, cfg, catalogue):
     local = set(filter(None, run(['git', 'ls-files', '--cached', '--others',
                                  '--exclude-standard', '-z', '--', '*.proto'],
                                 cwd=root, capture=True).decode().split('\0')))
+    # Declared local imports are maintained inputs even when Git ignores their
+    # cache directory or they were renamed before being staged at a shared path.
+    for src, dst in cfg.get('imports', {}).items():
+        local.add(src)
+        if Path(dst).name in names and src not in exceptions:
+            raise Error(f'local shared schema import needs exception: {src}')
     top_names = {p.name for p in root.iterdir()}
     for alias in forbidden:
         # Avoid treating Proto and proto as two roots on case-insensitive Macs.
@@ -217,12 +292,30 @@ def source_guard(root, cfg, catalogue):
                     if name.endswith('.proto'):
                         local.add(path.relative_to(root).as_posix())
     for rel in sorted(local):
-        if Path(rel).name in names and rel not in cfg.get('exceptions', {}):
+        if Path(rel).name in names and rel not in exceptions:
             raise Error(f'local shared schema copy or alias: {rel}')
         safe(root, rel)
 
 
-def prepare(root, cfg, template, scratch, revision):
+def collect_output(source, destination, written):
+    # Isolate each invocation before reconciling it, including per-directory
+    # protoc calls. No later options pass may silently overwrite earlier bytes.
+    for parent, dirs, files in os.walk(source, onerror=walk_error):
+        for name in dirs + files:
+            path = Path(parent) / name
+            rel = path.relative_to(source).as_posix()
+            safe(source, rel)
+            if not path.is_file():
+                continue
+            if rel.casefold() in written:
+                raise Error(f'conflicting plugin output: {rel}')
+            written.add(rel.casefold())
+            dst = safe(destination, rel)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, dst)
+
+
+def prepare(root, cfg, template, scratch, revision, exceptions):
     # Fetch checker policy independently of the immutable schema pin. Reuse its
     # ancestry policy verbatim; do not reimplement merge-base checks here.
     policy = scratch / 'policy'
@@ -235,11 +328,12 @@ def prepare(root, cfg, template, scratch, revision):
     run(['bash', str(scratch / 'check-pin.sh'), revision])
     for tool in cfg['tools']:
         actual = run(tool['command'], cwd=root, capture=True).decode().strip()
-        if actual != tool['expect']:
-            raise Error(f'{Path(tool["command"][0]).name} version mismatch: expected {tool["expect"]!r}, found {actual!r}')
+        expected_version = tool_version(root, tool)
+        if actual != expected_version:
+            raise Error(f'{Path(tool["command"][0]).name} version mismatch: expected {expected_version!r}, found {actual!r}')
     catalogue = scratch / 'catalogue'
     run(['buf', 'export', f'{SOURCE}#ref={revision}', '--output', str(catalogue)])
-    source_guard(root, cfg, catalogue)
+    source_guard(root, cfg, catalogue, exceptions)
     selected = scratch / 'selected'
     run(['buf', 'export', f'{SOURCE}#ref={revision}', '--output', str(selected),
          '--exclude-imports', *[a for p in cfg['paths'] for a in ('--path', p)]])
@@ -275,24 +369,22 @@ def prepare(root, cfg, template, scratch, revision):
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(safe(root, src), path)
     generated = scratch / 'generated'
-    config = scratch / 'buf.gen.yaml'
-    # Resolve local executables relative to consumer, while Buf runs in scratch.
-    for plugin in template['plugins']:
+    subsets = cfg.get('plugin_paths', [cfg['paths']] * len(template['plugins']))
+    generated.mkdir()
+    written = set()
+    compiler = cfg.get('compiler')
+    if compiler and '/' in compiler and not Path(compiler).is_absolute():
+        compiler = str(root / relative(compiler.removeprefix('./')))
+    for index, plugin in enumerate(template['plugins']):
+        paths = [cfg.get('stage', {}).get(p, cfg.get('imports', {}).get(p, p)) for p in subsets[index]]
+        plugin_output = scratch / f'plugin-{index}'
         key = 'local' if 'local' in plugin else 'protoc_path'
         cmd = plugin.get(key, 'protoc')
         first = cmd if isinstance(cmd, str) else cmd[0]
         if '/' in first and not Path(first).is_absolute():
-            resolved = str(safe(root, first.removeprefix('./')))
+            resolved = str(root / relative(first.removeprefix('./')))
             plugin[key] = resolved if isinstance(cmd, str) else [resolved, *cmd[1:]]
-    config.write_text(json.dumps(template))
-    if cfg.get('compiler'):
-        # Buf's local-plugin requests omit compiler_version. Go stamps that as
-        # '(unknown)', so retain the consumer's real protoc when byte parity
-        # requires it. Options/output paths still come only from buf.gen.yaml.
-        compiler = cfg['compiler']
-        if '/' in compiler and not Path(compiler).is_absolute():
-            compiler = str(safe(root, compiler.removeprefix('./')))
-        for index, plugin in enumerate(template['plugins']):
+        if compiler:
             plugin_args = []
             command = [compiler]
             if 'local' in plugin:
@@ -309,20 +401,25 @@ def prepare(root, cfg, template, scratch, revision):
                 command = [command] if isinstance(command, str) else command
                 if command[0] != compiler:
                     raise Error('builtin protoc_path must use the checked compiler')
-            dest = safe(generated, plugin['out'])
-            dest.mkdir(parents=True, exist_ok=True)
             opts = plugin.get('opt', [])
             opts = [opts] if isinstance(opts, str) else opts
             groups = [paths] if plugin.get('strategy', 'directory') == 'all' else [
                 [p for p in paths if str(PurePosixPath(p).parent) == directory]
                 for directory in sorted({str(PurePosixPath(p).parent) for p in paths})]
-            for group in groups:
+            for request_index, group in enumerate(groups):
+                call_output = scratch / f'plugin-{index}-request-{request_index}'
+                dest = safe(call_output, plugin['out'])
+                dest.mkdir(parents=True, exist_ok=True)
                 run([*command, f'--proto_path={staged}', *plugin_args,
                      f'--{alias}_out={dest}',
                      *[f'--{alias}_opt={opt}' for opt in opts], *group], cwd=staged)
-    else:
-        run(['buf', 'generate', '.', '--template', str(config), '--output', str(generated),
-             *[a for p in paths for a in ('--path', p)]], cwd=staged)
+                collect_output(call_output, generated, written)
+        else:
+            config = scratch / 'buf.gen.yaml'
+            config.write_text(json.dumps({'version': 'v2', 'plugins': [plugin]}))
+            run(['buf', 'generate', '.', '--template', str(config), '--output', str(plugin_output),
+                 *[a for p in paths for a in ('--path', p)]], cwd=staged)
+            collect_output(plugin_output, generated, written)
     if cfg.get('python_import_prefix'):
         # Console's existing grpcio-tools output lives under app.generated.
         # Preserve that package binding, without changing compiler headers.
@@ -337,6 +434,15 @@ def prepare(root, cfg, template, scratch, revision):
                     f"BuildTopDescriptorsAndMessages(DESCRIPTOR, '{package}",
                     f"BuildTopDescriptorsAndMessages(DESCRIPTOR, '{prefix}.{package}")
             path.write_text(content)
+    if cfg.get('swift_public_imports'):
+        # Keep WendyOS's existing public-import pass exactly; this changes API
+        # visibility, not generator headers or descriptor bytes.
+        for path in generated.rglob('*.swift'):
+            content = path.read_text()
+            content = re.sub(r'^(import (?:GRPCCore|GRPCProtobuf|SwiftProtobuf|Foundation|FoundationEssentials))$',
+                             r'public \1', content, flags=re.MULTILINE)
+            content = re.sub(r'^public public import', 'public import', content, flags=re.MULTILINE)
+            path.write_text(content)
     expected = {}
     for out in cfg['outputs']:
         files = owned(generated, out)
@@ -346,6 +452,26 @@ def prepare(root, cfg, template, scratch, revision):
     all_generated = {p.relative_to(generated).as_posix() for p in generated.rglob('*') if p.is_file()}
     if all_generated != set(expected):
         raise Error('generator wrote files outside declared ownership: ' + ', '.join(sorted(all_generated - set(expected))))
+    if cfg.get('cloud_signed_methods'):
+        # Run Cloud's existing, fixed integration in a disposable repository
+        # layout. Both collection and its invariant checks see the SAME pin.
+        mirror = scratch / 'cloud-signed-methods'
+        script = 'swift/scripts/signed-methods.sh'
+        target = safe(mirror, script)
+        target.parent.mkdir(parents=True)
+        shutil.copyfile(safe(root, script), target)
+        (mirror / 'swift/Sources/Proto').mkdir(parents=True)
+        for path in safe(root, 'cloud-proto').glob('*.proto'):
+            src = safe(root, path.relative_to(root).as_posix())
+            dst = mirror / 'cloud-proto' / path.name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+        env = dict(os.environ, SHARED_GRPC_API_CONTRACTS_DIR=str(catalogue))
+        run(['bash', str(target)], cwd=mirror, env=env)
+        destination = 'swift/Sources/Proto/SignedRequestMethods.swift'
+        if destination in expected:
+            raise Error('Cloud signed methods overlaps plugin output')
+        expected[destination] = safe(mirror, destination).read_bytes()
     if cfg.get('fixtures'):
         repo = scratch / 'fixtures.git'
         run(['git', 'init', '--bare', '--quiet', str(repo)])
@@ -366,6 +492,11 @@ def current(root, cfg):
         path = safe(root, dst)
         if path.exists():
             actual[dst] = path.read_bytes()
+    if cfg.get('cloud_signed_methods'):
+        destination = 'swift/Sources/Proto/SignedRequestMethods.swift'
+        path = safe(root, destination)
+        if path.exists():
+            actual[destination] = path.read_bytes()
     return actual
 
 
@@ -410,12 +541,16 @@ def main():
     cfg = load(pin)
     try:
         template = load(safe(root, 'buf.gen.yaml'))
-        validate(root, cfg, template)
+        exception_file = safe(root, 'contracts-exceptions.yaml')
+        exceptions = (load(exception_file) or {}) if exception_file.exists() else {}
+        if not isinstance(exceptions, dict):
+            raise Error('contracts-exceptions.yaml must map literal paths to reasons')
+        validate(root, cfg, template, exceptions)
         revision = sys.argv[2] if sys.argv[1] == 'bump' else cfg['commit']
         if not re.fullmatch('[0-9a-f]{40}', revision):
             raise Error('bump requires a full lowercase 40-hex SHA')
         with tempfile.TemporaryDirectory(prefix='contracts-') as tmp:
-            expected = prepare(root, cfg, template, Path(tmp), revision)
+            expected = prepare(root, cfg, template, Path(tmp), revision, exceptions)
             actual = current(root, cfg)
             if sys.argv[1] == 'check':
                 changes = sorted(p for p in actual.keys() | expected.keys() if actual.get(p) != expected.get(p))
