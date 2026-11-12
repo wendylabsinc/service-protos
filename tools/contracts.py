@@ -261,6 +261,9 @@ def schema_identity(data):
     package = b''
     definitions = set()
     depth = 0
+    scopes = []
+    extension_depth = None
+    brackets = 0
     for index, token in enumerate(tokens):
         if depth == 0 and token == b'package':
             end = next((i for i in range(index + 1, len(tokens)) if tokens[i] == b';'), len(tokens))
@@ -271,9 +274,28 @@ def schema_identity(data):
             name = tokens[index + 1]
             if re.fullmatch(rb'[A-Za-z_]\w*', name):
                 definitions.add((token, name))
+        if token == b'extend':
+            end = next((i for i in range(index + 1, len(tokens)) if tokens[i] in (b'{', b';')), len(tokens))
+            if re.fullmatch(rb'\.?[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*', b''.join(tokens[index + 1:end])):
+                extension_depth = depth + 1
+        if token == b'=' and depth == extension_depth and brackets == 0 and index:
+            name = tokens[index - 1]
+            if re.fullmatch(rb'[A-Za-z_]\w*', name):
+                # Extension names belong to their declaration scope, not the
+                # extended type or field number. Distinct vendor options stay distinct.
+                definitions.add((b'extension', b'.'.join([s for s in scopes if s] + [name])))
+        if token == b'[':
+            brackets += 1
+        elif token == b']':
+            brackets -= 1
         if token == b'{':
+            scopes.append(tokens[index - 1] if index > 1 and tokens[index - 2] == b'message' else b'')
             depth += 1
         elif token == b'}':
+            if depth == extension_depth:
+                extension_depth = None
+            if scopes:
+                scopes.pop()
             depth -= 1
     normalized = [b's:' + t[1:-1] if t.startswith((b'"', b"'")) else b't:' + t for t in tokens]
     return (hashlib.sha256(b'\0'.join(normalized)).digest(),

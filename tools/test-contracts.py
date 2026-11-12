@@ -169,6 +169,23 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
         invoke(['check'], 'local shared schema copy or alias')
         renamed.write_bytes(shared + b'\nmessage RunnerAddedLocalType { string value = 1; }\n')
         invoke(['check'], 'local shared schema copy or alias')
+        annotations = (source / 'wendy/options.proto').read_bytes()
+        renamed.write_bytes(annotations + b'\nmessage LocalOnlyAnnotationMarker { string note = 1; }\n')
+        invoke(['check'], 'local shared schema copy or alias')
+        # Real custom-option declarations with distinct qualified identities
+        # remain valid local dependencies without introducing exceptions.
+        vendor = annotations.replace(b'package wendy;', b'package contracts.runner.vendor;').replace(
+            b'50001', b'51001').replace(b'50002', b'51002')
+        renamed.write_bytes(vendor)
+        subprocess.run(['buf', 'build', str(renamed), '--as-file-descriptor-set',
+                        '-o', str(scratch / 'vendor-options.bin')], env=env, check=True)
+        invoke(['check'])
+        local_options = annotations.replace(b'signed_request', b'local_annotation').replace(
+            b'50001', b'52001').replace(b'50002', b'52002')
+        renamed.write_bytes(local_options)
+        subprocess.run(['buf', 'build', str(renamed), '--as-file-descriptor-set',
+                        '-o', str(scratch / 'local-options.bin')], env=env, check=True)
+        invoke(['check'])
         renamed.unlink()
         reserved = consumer / 'proto/my_contract.proto'
         reserved.parent.mkdir()
@@ -424,6 +441,14 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     assert module.schema_identity(identity_source)[1].isdisjoint(module.schema_identity(identity_source.replace(b'Value', b'Other'))[1])
     cases += 1
     print(f'ok {cases}: stable schema identity preserves strings and distinguishes qualified definitions', flush=True)
+    option_identity = module.schema_identity((args.source / 'wendy/options.proto').read_bytes())[1]
+    assert option_identity == {(b'wendy', b'extension', b'signed_request'),
+                               (b'wendy', b'extension', b'device_signed_request')}
+    nested_options = b'package wendy; message VendorOptions { extend .google.protobuf.MethodOptions { bool signed_request = 51001 [deprecated = true]; } }'
+    assert (b'wendy', b'extension', b'VendorOptions.signed_request') in module.schema_identity(nested_options)[1]
+    assert module.schema_identity(nested_options)[1].isdisjoint(option_identity)
+    cases += 1
+    print(f'ok {cases}: actual shared extension fields and distinct message-scoped extensions have qualified identities', flush=True)
     # Real signals in separate ordinary-user processes. No syscall or runner
     # function is mocked: observe an actual replacement, then terminate.
     for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
