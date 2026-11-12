@@ -162,7 +162,8 @@ service ArtifactRegistryService {
   // CreateDeployment records the deployment only; devices receive it here.
   // Deprecated: moved to DeploymentService.AssignDevice (ruling D2); removed
   // when the registry service splits out. Kept until every client and device
-  // has moved.
+  // has moved. Refused with FAILED_PRECONDITION while the app is being
+  // deleted, as under the new name.
   // Signed; payload_type "wendycloud.v2.DeviceAssignment".
   rpc AssignDevice(SignedRequest) returns (AssignDeviceResponse) {
     option (wendy.signed_request) = true;
@@ -240,10 +241,14 @@ message DeviceAssignment {
   // the replaced deployment lives on and may take this device back later, so
   // replaces_revision is never 0 and never the maximum.
   // Above the mark for deployment_id, the device refuses it when
-  // replaces_revision is not above its mark for replaces_deployment_id, is 0
-  // or the maximum, when replaces_deployment_id equals deployment_id, or when
-  // it holds replaces_deployment_id for a different app_id. On apply, it
-  // records replaces_revision as a removal mark for replaces_deployment_id.
+  // replaces_revision is below its mark for replaces_deployment_id or equal to
+  // an assignment's mark there, is 0 or the maximum, when
+  // replaces_deployment_id equals deployment_id, or when it holds
+  // replaces_deployment_id for a different app_id. A replaces_revision equal
+  // to an existing REMOVAL mark for replaces_deployment_id means the old side
+  // is already done (its removal arrived first): it installs this deployment.
+  // On apply, it records replaces_revision as a removal mark for
+  // replaces_deployment_id.
   // Cloud refuses replaces_* naming a deployment of another app, or not
   // matching the move it recorded. Once received, the statement counts as the
   // replaced deployment's removal for this device.

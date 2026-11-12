@@ -75,13 +75,16 @@ service DeploymentService {
   // DeploymentChangeResponse.to_sign, and how any operator who may make the
   // change resumes after an interruption, from any of their keys. Pending is
   // every device whose last statement cloud has received differs from the
-  // current revision:
+  // current revision in content (release, configuration, desired state,
+  // membership), not merely in revision number:
   // - a device in the current set: an Assign at the current revision;
   // - a device outside the current set that still holds an older revision,
   //   also one a superseded revision dropped before its removal was sent: an
   //   Unassign at the current revision;
   // - a removed deployment: its outstanding terminal removals (maximum
   //   revision);
+  // - never a device whose move out of this deployment has been recorded:
+  //   the move statement is its removal;
   // - by app_id while the app is being deleted: every device that still
   //   lacks its terminal removal, across the app's deployments.
   rpc ListPendingDeviceStatements(ListPendingDeviceStatementsRequest) returns (ListPendingDeviceStatementsResponse);
@@ -99,7 +102,8 @@ service DeploymentService {
   // device: its authority to apply and its pull authorization. A move between
   // two deployments of one app is ONE statement (DeviceAssignment.replaces_*),
   // never an Unassign plus an Assign. The device's rules are on
-  // DeviceAssignment in registry.proto.
+  // DeviceAssignment in registry.proto. Refused with FAILED_PRECONDITION while
+  // the app is being deleted (App.deletion_started_at).
   // Signed; payload_type "wendycloud.v2.DeviceAssignment".
   rpc AssignDevice(SignedRequest) returns (DeviceStatementResponse) {
     option (wendy.signed_request) = true;

@@ -64,9 +64,14 @@ message UpdateAppRequest {
 message DeleteAppRequest {
   string id = 1;
   string organization_id = 2;
-  // Operator-signed UnassignDeviceRequests, one per device that still holds
-  // a deployment of the app. Each is a TERMINAL removal: it carries the
-  // maximum revision, 2147483647 (UnassignDeviceRequest.revision).
+  // Operator-signed UnassignDeviceRequests, one per device in the removal
+  // set: every device in any live deployment's current set of the app, or
+  // with any Assign for the app relayed to it, not only devices known to hold
+  // one. Each is a TERMINAL removal: it carries the maximum revision,
+  // 2147483647 (UnassignDeviceRequest.revision).
+  // - Authorized by the caller's right to delete the app, not by access to
+  //   each device: a removal only takes the app away, the app is the
+  //   deleter's to delete, and otherwise an interrupted delete has no way out.
   // - Each passes the full request-signing gate as an UnassignDevice call
   //   would: the `operation` claim of DeploymentService.UnassignDevice or its
   //   deprecated ArtifactRegistryService twin, the deployment's resource
@@ -83,8 +88,9 @@ message DeleteAppRequest {
   //   devices still lacking a removal: ListPendingDeviceStatements by app_id.
   // - From the first accepted call until the delete completes, the app is
   //   being deleted (App.deletion_started_at). Creating or changing a
-  //   deployment of it, and publishing a release for it, are refused with
-  //   FAILED_PRECONDITION saying the app is being deleted.
+  //   deployment of it, AssignDevice under either name, and publishing a
+  //   release for it, are refused with FAILED_PRECONDITION saying the app is
+  //   being deleted.
   // - The call after which no device lacks a removal deletes the app, its
   //   releases and its deployments, without waiting for the devices. Until
   //   then each call ends with FAILED_PRECONDITION saying how many devices
