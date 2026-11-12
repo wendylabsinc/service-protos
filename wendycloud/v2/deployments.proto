@@ -85,10 +85,14 @@ service DeploymentService {
   //   revision);
   // - never a device whose move out of this deployment has been recorded:
   //   the move statement is its removal;
-  // - by app_id, before an app delete starts and while it runs: every device
-  //   in the app's removal set that still lacks its terminal removal, across
-  //   the app's deployments (DeleteAppRequest.device_removals). A client
-  //   reads this before it sends its first DeleteApp batch.
+  // By app_id it is a different list: before an app delete starts and while
+  // it runs, every device in the app's removal set that still lacks its
+  // terminal removal, across the app's deployments
+  // (DeleteAppRequest.device_removals). A client reads this before it sends
+  // its first DeleteApp batch. By app_id the read requires the right to
+  // delete the app, because the removal set can include devices the caller
+  // cannot otherwise see (removals inside an app delete are authorized by
+  // that right, not by device access).
   rpc ListPendingDeviceStatements(ListPendingDeviceStatementsRequest) returns (ListPendingDeviceStatementsResponse);
 
   // ==================== Per-device statements ====================
@@ -636,22 +640,18 @@ message AssetApp {
   // The release the device reported running, when it named a release of this
   // app; app_release_id (3) stays the desired release.
   optional string reported_release_id = 18;
-  // Whether the device has been told the deployment's current revision, for
-  // one list that shows per device what it should run next to what it
-  // reports. Both are cloud-asserted display information: nothing a device
-  // acts on, and no authority (the device acts only on signed statements).
-  // Also returned per deployment, through ListAppDeviceStates
-  // (AppDeviceState.state).
-  // - deployment_revision: the current revision of deployment_id (9).
-  // - delivered_revision: the revision of the last statement for that
-  //   deployment delivered to this device (a terminal removal counts as the
-  //   maximum revision); 0 when none.
-  // delivered_revision below deployment_revision = not told yet: the device
-  // is waiting for its instruction. Both are 0 for an app the device runs
-  // without a deployment (run directly, or only reported: unassigned (17)),
-  // and from a cloud that predates them.
-  int32 deployment_revision = 19;
-  int32 delivered_revision = 20;
+  // True exactly when this device is in the pending list for deployment_id
+  // (9): cloud still needs a statement for it under the same content rule
+  // as ListPendingDeviceStatements, including a removal it is owed. Computed
+  // from the same record, so this list and the pending read never disagree.
+  // Shown as "waiting for its instruction". Cloud-asserted display
+  // information: nothing a device or client acts on, no authority, and never
+  // a to-do list (what to sign comes only from ListPendingDeviceStatements and
+  // the change the operator confirmed). Also returned per deployment, through
+  // ListAppDeviceStates (AppDeviceState.state). False for an app the device
+  // runs without a deployment (run directly, or only reported: unassigned
+  // (17)), and from a cloud that predates it.
+  bool statement_pending = 19;
 }
 
 message ListAssetAppsResponse {

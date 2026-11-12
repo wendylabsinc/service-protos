@@ -87,9 +87,15 @@ message DeleteAppRequest {
   //   who may delete the app can finish it, from any of their keys. The
   //   devices still lacking a removal: ListPendingDeviceStatements by app_id,
   //   which answers before the first batch too.
-  // - A call that carries no removals while the app still has devices to
-  //   tell is refused with FAILED_PRECONDITION saying how many devices need
-  //   one, and does NOT start the delete: an older client that sends no
+  // - A valid removal passes the full gate above and names a device in the
+  //   removal set that still lacks one. A removal for a device already
+  //   covered is skipped and does not count. One removal that fails the gate
+  //   refuses the whole call, and nothing in that call is queued.
+  // - Every count below is given only after the caller's right to delete the
+  //   app is checked.
+  // - A call that carries no valid removal while the app still has devices
+  //   to tell is refused with FAILED_PRECONDITION saying how many devices
+  //   need one, and does NOT start the delete: an older client that sends no
   //   removals cannot lock an app by accident. With no devices to tell, the
   //   call deletes the app at once.
   // - From the first accepted call (one that carries at least one valid
