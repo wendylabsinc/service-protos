@@ -115,13 +115,17 @@ message DeleteAppRequest {
   //   that is not yet covered. An entry for a device already covered, or no
   //   longer in the removal set (unenrolled or deleted after the pending
   //   read, or moved out earlier), is skipped and does not count; it never
-  //   refuses the call.
+  //   refuses the call. An entry whose payload cannot be parsed fails the
+  //   gate rather than being skipped, and a skipped entry is not recorded in
+  //   the audit trail as the operator's statement.
   // - One entry per device per call: two entries for the same device in one
   //   call (a removal and a detach, or two of either) refuse the call, naming
   //   the second entry.
   // - One entry that fails its gate refuses the whole call. Nothing in that
   //   call is queued, and the refusal names the first failing entry (its
   //   list, index, device and the reason) so the client re-signs that one.
+  //   A stale entry (past its signing expiry) means the batch is stale: the
+  //   client re-signs the batch from the pending list.
   //   For a removal the caller has no device access for, the reason reads
   //   "You can't reach this device. Ask someone who can to remove it, or
   //   detach it (the app keeps running there)", and the client asks the
@@ -131,7 +135,8 @@ message DeleteAppRequest {
   //   in the same transaction that queues its batch, so a refused call claims
   //   none. A client that resends its signed copies of a refused or half-seen
   //   batch never fails on a nonce its own earlier attempt claimed, and gets
-  //   the same answer. A copy past its signing expiry fails at receipt like
+  //   the same answer, unless that call completed the delete: a resend then
+  //   gets NOT_FOUND, which the client treats as done. A copy past its signing expiry fails at receipt like
   //   any stale request and is named for re-signing.
   // - Every count below is given only after the caller's right to delete the
   //   app is checked.

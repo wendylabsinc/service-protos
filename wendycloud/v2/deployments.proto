@@ -698,7 +698,9 @@ enum DetachState {
   DETACH_STATE_SENT = 1;
   // The device refused the detach, and its agent does not list DetachDevice
   // in PullChangesRequest.accepted_operations (an agent that predates
-  // detach). Cloud sends the detach again once each time the device's
+  // detach). A refusal is judged by the accepted_operations sent with the
+  // pull that delivered that entry, so an old agent's refusal that arrives
+  // after an upgraded agent's first pull is not taken as REFUSED. Cloud sends the detach again once each time the device's
   // accepted_operations changes to include DetachDevice, until the device
   // applies it or its validity ends. Until then the device keeps running the
   // app as a deployment.
@@ -709,8 +711,8 @@ enum DetachState {
   // is gone, so no new detach can be signed. The device owner removes the app
   // locally, or resets the device.
   DETACH_STATE_EXPIRED = 3;
-  // An agent that lists DetachDevice refused the detach (its outcome is in
-  // `outcome` (16)). Final: no re-send. As with EXPIRED, there is no way out
+  // An agent that listed DetachDevice, in the pull that delivered the entry,
+  // refused the detach (its outcome is in `outcome` (16)). Final: no re-send. As with EXPIRED, there is no way out
   // through cloud; the device owner removes the app locally or resets the
   // device. Cloud's checks at accept make this rare.
   DETACH_STATE_REFUSED = 4;

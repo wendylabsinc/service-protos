@@ -57,7 +57,8 @@ Roll order (hard requirement): an agent that knows only the old names refuses
 an entry signed for the new ones and consumes it, so the statement is lost.
 (1) The agent first: both names, `config_json`, `revision`, `replaces_*` and
 the ordering rules on `DeviceAssignment` (registry.proto), and
-`DetachDevice` with its payload type `DetachDeviceRequest`. (2) Then cloud:
+`DetachDevice` with its payload type `DetachDeviceRequest`, listed in
+`PullChangesRequest.accepted_operations`. (2) Then cloud:
 re-pin, the new RPCs, the old ones kept. (3) Then the clients.
 
 Detach (`DetachDeviceRequest`, registry.proto) is a third terminal statement
@@ -71,8 +72,9 @@ An agent lists the relayed operations it accepts in
 `DetachDevice` refuses it (REJECTED_TARGET) and keeps the app as a deployment
 (`DETACH_STATE_WAITING_FOR_AGENT`). Cloud keeps the accepted detach and sends
 it again once each time that list changes to include `DetachDevice`, until
-the device applies it or its validity ends. A refusal from an agent that lists
-`DetachDevice` is final (`DETACH_STATE_REFUSED`).
+the device applies it or its validity ends. A refusal is judged by the list
+sent with the pull that delivered the entry: a refusal from an agent that
+listed `DetachDevice` there is final (`DETACH_STATE_REFUSED`).
 
 Named limits:
 - A detach that expires or is refused before the device applies it leaves the
