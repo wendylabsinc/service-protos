@@ -44,6 +44,7 @@ validity, set by the signing operator client inside the signed payload:
 | `DeploymentService.ControlContainer` | `ControlContainerRequest.valid_until` (5) |
 | `DeploymentService.AssignDevice`, and the deprecated `ArtifactRegistryService.AssignDevice` | `DeviceAssignment.expires_at` (10), which already existed and cloud already requires |
 | `DeploymentService.UnassignDevice`, and the deprecated `ArtifactRegistryService.UnassignDevice` | `UnassignDeviceRequest.valid_until` (4) |
+| `DeploymentService.DetachDevice` (only inside `DeleteAppRequest.device_detachments`) | `DetachDeviceRequest.valid_until` (5) |
 
 AssignDevice and UnassignDevice moved to `DeploymentService` (ruling D2,
 2026-11-12) and keep their payload types. The JWS `operation` claim names the
@@ -55,8 +56,20 @@ RemoveDeployment are never relayed and never on the device's list.
 Roll order (hard requirement): an agent that knows only the old names refuses
 an entry signed for the new ones and consumes it, so the statement is lost.
 (1) The agent first: both names, `config_json`, `revision`, `replaces_*` and
-the ordering rules on `DeviceAssignment` (registry.proto). (2) Then cloud:
+the ordering rules on `DeviceAssignment` (registry.proto), and
+`DetachDevice` with its payload type `DetachDeviceRequest`. (2) Then cloud:
 re-pin, the new RPCs, the old ones kept. (3) Then the clients.
+
+Detach (`DetachDeviceRequest`, registry.proto) is a third terminal statement
+alongside the removals below. It ends the deployment on the device at the
+maximum mark, but keeps the app there as a direct run. An agent that does not
+know `DetachDevice` refuses it (REJECTED_TARGET) and keeps the app as a
+deployment. Cloud keeps the accepted detach and sends it again whenever the
+device reports an agent that knows it, until the device applies it or its
+validity ends (`AssetApp.detach_state`). A detach whose validity ends first
+leaves the device holding the deleted deployment, which blocks a new app with
+the same id there. That is a named limit: the device owner removes the app
+locally or resets the device.
 
 Removals come in two kinds (`UnassignDeviceRequest.revision`):
 
@@ -91,12 +104,14 @@ Rules:
   `valid_until − iat` (the signed `iat`). The operator client defaults
   `valid_until` to `iat` + the tenant cap, or to `iat` + the deployment's
   validity for a DeviceAssignment.
-- **Removals** (`UnassignDeviceRequest`, including DeleteApp's
-  `device_removals`): the client defaults `valid_until` to `iat` + the platform
-  cap, and the tenant cap does not apply. Only the platform cap does: a removal
-  can only take something away, so a long validity is the safe direction. A
-  device offline for longer than the platform cap misses the removal and keeps
-  the app: a named limit of the contract.
+- **Removals and detaches** (`UnassignDeviceRequest`, including DeleteApp's
+  `device_removals`, and `DetachDeviceRequest`): the client defaults
+  `valid_until` to `iat` + the platform cap, and the tenant cap does not apply.
+  Only the platform cap does: a removal can only take something away, and a
+  detach removes nothing and grants nothing, so a long validity is the safe
+  direction. A device offline for longer than the platform cap misses the
+  statement and keeps the app as a deployment: a named limit of the
+  contract.
 - **Cloud, at accept** (on top of the generic gate, whose 30 s `expiry`
   stays): refuse when `valid_until` is absent (`validity_missing`; enforced
   once the CLI and console set it, see the contract ledger), above the
