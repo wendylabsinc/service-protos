@@ -18,7 +18,8 @@ import "wendycloud/v2/signed_request.proto";
 //   wrap: wraps are made by an operator client and arrive inside a request that
 //   operator signed. A compromised registry can withhold or delete, never grant.
 // - Authority is the operator signature. A device acts on its own signed
-//   assignment (ArtifactRegistryService.AssignDevice) and checks every byte it
+//   assignment (DeploymentService.AssignDevice, formerly
+//   ArtifactRegistryService.AssignDevice) and checks every byte it
 //   fetches here against digests that assignment signs. A wrong blob or a wrong
 //   wrap fails closed on the device.
 // - Device pull authorization is the live assignment: device from the mTLS
@@ -159,11 +160,17 @@ service ArtifactRegistryService {
   // Cloud refuses it unless the deployment has a SealedContentKey and a
   // CUSTODIAN wrap at deployment_key_id. For a registry-backed release,
   // CreateDeployment records the deployment only; devices receive it here.
+  // Deprecated: moved to DeploymentService.AssignDevice (ruling D2); removed
+  // when the registry service splits out. Kept until every client and device
+  // has moved.
   // Signed; payload_type "wendycloud.v2.DeviceAssignment".
   rpc AssignDevice(SignedRequest) returns (AssignDeviceResponse) {
     option (wendy.signed_request) = true;
   }
   // Postbox-relayed to the device; cloud drops the assignment, so pulls stop.
+  // Deprecated: moved to DeploymentService.UnassignDevice (ruling D2); removed
+  // when the registry service splits out. Kept until every client and device
+  // has moved.
   // Signed; payload_type "wendycloud.v2.UnassignDeviceRequest".
   rpc UnassignDevice(SignedRequest) returns (UnassignDeviceResponse) {
     option (wendy.signed_request) = true;
@@ -187,6 +194,18 @@ message DeviceAssignment {
   // The assignment's instruction validity (WDY-4015 item 3): this message's
   // valid_until, under the same rules (conformance/postbox-entry/README.md).
   google.protobuf.Timestamp expires_at = 10;
+  // The configuration the device applies: one JSON object, UTF-8, at most
+  // 64 KiB, carried verbatim so the signed bytes are what the device applies.
+  // Empty means `{}`. The device refuses an assignment whose config_json is
+  // not one JSON object or is over 64 KiB, and applies exactly this text.
+  string config_json = 11;
+  // The deployment revision this statement implements. The device orders
+  // statements for the same deployment by revision, never by a timestamp: it
+  // refuses one whose revision is lower than the one it holds for that
+  // deployment. Cloud refuses revision 0 (a client that predates revisions)
+  // and any statement whose release, config_json, desired_state or device does
+  // not match the deployment's current revision.
+  int32 revision = 12;
 }
 
 message AssignDeviceResponse {
@@ -201,6 +220,11 @@ message UnassignDeviceRequest {
   // operator's signature: required when cloud relays the request to a device
   // postbox. Rules: conformance/postbox-entry/README.md.
   google.protobuf.Timestamp valid_until = 4;
+  // The deployment revision that removed this device. 0 only inside
+  // DeleteAppRequest.device_removals: the app is gone, so there is no later
+  // revision to order against. The device refuses a non-zero revision lower
+  // than the one it holds for that deployment.
+  int32 revision = 5;
 }
 
 message UnassignDeviceResponse {

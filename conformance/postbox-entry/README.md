@@ -42,8 +42,15 @@ validity, set by the signing operator client inside the signed payload:
 |---|---|
 | `DeploymentService.CreateDeployment` | `CreateDeploymentRequest.valid_until` (8) |
 | `DeploymentService.ControlContainer` | `ControlContainerRequest.valid_until` (5) |
-| `ArtifactRegistryService.AssignDevice` | `DeviceAssignment.expires_at` (10), which already existed and cloud already requires |
-| `ArtifactRegistryService.UnassignDevice` | `UnassignDeviceRequest.valid_until` (4) |
+| `DeploymentService.AssignDevice`, and the deprecated `ArtifactRegistryService.AssignDevice` | `DeviceAssignment.expires_at` (10), which already existed and cloud already requires |
+| `DeploymentService.UnassignDevice`, and the deprecated `ArtifactRegistryService.UnassignDevice` | `UnassignDeviceRequest.valid_until` (4) |
+
+AssignDevice and UnassignDevice moved to `DeploymentService` (ruling D2,
+2026-11-12) and keep their payload types. The JWS `operation` claim names the
+called method, so the same statement can carry either name. Until the
+deprecated methods are removed, a device accepts both names for the same
+`payload_type` and nothing else. Devices that accept the new names must be
+live before any client signs for them.
 
 **Why the payload and not a JWS claim:** the JWS claims are the call to cloud.
 They are shared by every verifier of the generic gate, and `expiry` already

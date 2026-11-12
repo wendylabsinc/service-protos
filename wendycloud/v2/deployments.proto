@@ -20,11 +20,60 @@ service DeploymentService {
 
   // ==================== Deployments ====================
   // Signed; payload_type "wendycloud.v2.CreateDeploymentRequest".
+  // Deprecated: use CreateDeploymentV2, which also returns the per-device
+  // statements still to sign. Kept for clients that have not re-pinned; its
+  // response type cannot change (wire-incompatible for them).
   rpc CreateDeployment(SignedRequest) returns (Deployment) {
+    option (wendy.signed_request) = true;
+  }
+  // Creates a named, lasting deployment at revision 1. Not relayed to
+  // devices: each device gets its own AssignDevice statement, which the client
+  // signs from DeploymentChangeResponse.to_sign.
+  // Signed; payload_type "wendycloud.v2.CreateDeploymentRequest".
+  rpc CreateDeploymentV2(SignedRequest) returns (DeploymentChangeResponse) {
     option (wendy.signed_request) = true;
   }
   rpc GetDeployment(GetDeploymentRequest) returns (Deployment);
   rpc ListDeployments(ListDeploymentsRequest) returns (stream ListDeploymentsResponse);
+  // Update, roll back and remove each create exactly one revision, and are
+  // refused with ABORTED unless expected_revision is the current revision.
+  // None of them is relayed to devices; the per-device statements in the
+  // response are. Resource binding: org/<org>/deployment/<deployment_id>.
+  // Signed; payload_type "wendycloud.v2.UpdateDeploymentRequest".
+  rpc UpdateDeployment(SignedRequest) returns (DeploymentChangeResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.RollbackDeploymentRequest".
+  rpc RollbackDeployment(SignedRequest) returns (DeploymentChangeResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Signed; payload_type "wendycloud.v2.RemoveDeploymentRequest".
+  rpc RemoveDeployment(SignedRequest) returns (DeploymentChangeResponse) {
+    option (wendy.signed_request) = true;
+  }
+  rpc ListDeploymentRevisions(ListDeploymentRevisionsRequest) returns (ListDeploymentRevisionsResponse);
+
+  // ==================== Per-device statements ====================
+  // Moved here from ArtifactRegistryService (orchestrator ruling D2): same
+  // payload types and the same postbox relay; the deprecated originals stay
+  // until every client and device has moved. The signed `operation` claim
+  // names THIS method, so a device accepts both names for the same payload
+  // type (conformance/postbox-entry/README.md). An agent that knows only the
+  // old names refuses an entry signed for these, so devices are updated
+  // before any client signs for them.
+  //
+  // One signed statement per target device, postbox-relayed verbatim to that
+  // device: its authority to apply and its pull authorization (see
+  // DeviceAssignment in registry.proto).
+  // Signed; payload_type "wendycloud.v2.DeviceAssignment".
+  rpc AssignDevice(SignedRequest) returns (DeviceStatementResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Postbox-relayed to the device; cloud drops the assignment, so pulls stop.
+  // Signed; payload_type "wendycloud.v2.UnassignDeviceRequest".
+  rpc UnassignDevice(SignedRequest) returns (DeviceStatementResponse) {
+    option (wendy.signed_request) = true;
+  }
 
   // ==================== Asset App Desired Instructions (wendy-agent) ====================
   rpc HandleReportedState(stream UpdateReportedStateRequest) returns (stream DesiredStateResponse);
@@ -54,6 +103,12 @@ message AppRelease {
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
   ReleaseType release_type = 9;
+  // The release's default configuration: the app section of the project's
+  // wendy.json at publish, as CreateAppReleaseRequest carried it. Empty means
+  // `{}`. Cloud-served and not signed by anyone the device trusts: the client
+  // shows it as the starting point, and only the configuration the operator
+  // then signs (DeviceAssignment.config_json) reaches a device.
+  string default_config_json = 10;
 }
 
 message CreateAppReleaseRequest {
@@ -62,6 +117,9 @@ message CreateAppReleaseRequest {
   string name = 3;
   string details = 4;
   ReleaseType release_type = 5;
+  // Set by the CLI from wendy.json at publish. One JSON object, UTF-8, at most
+  // 64 KiB, stored verbatim. Empty means `{}`.
+  string default_config_json = 6;
 }
 
 // Use this to assign a image_digest to an app_release after it has been pushed to the registry
@@ -91,8 +149,11 @@ message ListAppReleasesResponse {
 message Deployment {
   string id = 1;
   string organization_id = 2;
+  // Deprecated: never used for targeting.
   string jq_filter = 3;
   string app_release_id = 4;
+  // Deprecated: the "why" is now a revision note (DeploymentRevision.note).
+  // Cloud keeps filling it with revision 1's note.
   string details = 5;
   string created_by_user_id = 6;
   google.protobuf.Timestamp created_at = 7;
@@ -105,6 +166,55 @@ message Deployment {
   // The targeting the deployment was created with (WDY-3576). Both empty: every device.
   repeated string target_tags = 10;
   repeated string target_device_ids = 11;
+  // Named, lasting deployments with revisions (apps and deployments spec
+  // section 3, sem 2026-11-12). A cloud that predates them leaves 12-18 unset:
+  // revision 0, no name.
+  // Chosen by the user; unique per app among live deployments.
+  string name = 12;
+  string app_id = 13;
+  // The full effective configuration of the current revision: one JSON
+  // object, UTF-8, at most 64 KiB, verbatim.
+  string config_json = 14;
+  // RUNNING, or STOPPED for "install only". Never ABSENT on a deployment that
+  // has a revision.
+  Running desired_state = 15;
+  // The current revision, from 1.
+  int32 revision = 16;
+  // When the current revision was created.
+  google.protobuf.Timestamp updated_at = 17;
+  // Unset = live.
+  google.protobuf.Timestamp removed_at = 18;
+}
+
+// One recorded change to a deployment. Revisions are numbered from 1 and never
+// rewritten; a rollback is a new revision that copies an earlier one.
+message DeploymentRevision {
+  string deployment_id = 1;
+  int32 revision = 2;
+  // Empty if that release was deleted since.
+  string app_release_id = 3;
+  string config_json = 4;
+  Running desired_state = 5;
+  // The resolved device set of this revision (asset UUIDs).
+  repeated string device_ids = 6;
+  // The tags it was selected by, for display.
+  repeated string target_tags = 7;
+  string author_user_id = 8;
+  string note = 9;
+  google.protobuf.Timestamp created_at = 10;
+  // 0 = not a rollback; otherwise the revision it restored.
+  int32 rollback_of = 11;
+  // Devices this revision moved in from, or out to, another deployment of the
+  // same app.
+  repeated DeviceMove moves = 12;
+  // This revision removed the deployment.
+  bool removed = 13;
+}
+
+message DeviceMove {
+  string device_id = 1;
+  string from_deployment_id = 2;
+  string to_deployment_id = 3;
 }
 
 // infer the created_by_user_id from the authService
@@ -125,6 +235,111 @@ message CreateDeploymentRequest {
   // operator's signature: required when cloud relays the request to a device
   // postbox. Rules: conformance/postbox-entry/README.md.
   google.protobuf.Timestamp valid_until = 8;
+  // Fields 9-12 are read by CreateDeploymentV2. Under the operator's
+  // signature; cloud checks them, and none of them reaches a device as is.
+  // On CreateDeploymentV2, `running` (5) is the deployment's desired state and
+  // must be RUNNING (run now) or STOPPED (install only); ABSENT is refused.
+  // Required. Refused if empty, or if a live deployment of the app has it.
+  string name = 9;
+  // One JSON object, UTF-8, at most 64 KiB, kept verbatim. Empty = the
+  // release's default_config_json.
+  string config_json = 10;
+  // Optional history note for revision 1.
+  string note = 11;
+  // The explicit choice to move devices that are already in another live
+  // deployment of this app. When false, such a device refuses the request,
+  // and the refusal names the device and the deployment.
+  bool move_devices = 12;
+}
+
+// The full new device set of a deployment.
+message DeviceSelection {
+  repeated string target_tags = 1;
+  // Asset UUIDs. A selection with both lists empty is refused; it never means
+  // "every device".
+  repeated string target_device_ids = 2;
+}
+
+message UpdateDeploymentRequest {
+  string organization_id = 1;
+  string deployment_id = 2;
+  int32 expected_revision = 3;
+  // Unset = unchanged.
+  optional string app_release_id = 4;
+  // Unset = unchanged. Same rules as CreateDeploymentRequest.config_json.
+  optional string config_json = 5;
+  // Start (RUNNING) or stop (STOPPED). Unset = unchanged; ABSENT is refused.
+  optional Running desired_state = 6;
+  // Unset = unchanged; set = the full new set.
+  DeviceSelection devices = 7;
+  string note = 8;
+  bool move_devices = 9;
+}
+
+message RollbackDeploymentRequest {
+  string organization_id = 1;
+  string deployment_id = 2;
+  int32 expected_revision = 3;
+  // The new revision copies this one's release, configuration, desired state
+  // and devices.
+  int32 to_revision = 4;
+  string note = 5;
+  bool move_devices = 6;
+}
+
+message RemoveDeploymentRequest {
+  string organization_id = 1;
+  string deployment_id = 2;
+  int32 expected_revision = 3;
+  string note = 4;
+}
+
+// What the change recorded, and the per-device statements the client must
+// still sign and send (AssignDevice / UnassignDevice). Cloud never signs;
+// until a device's statement arrives it shows as "waiting".
+message DeploymentChangeResponse {
+  Deployment deployment = 1;
+  DeploymentRevision revision = 2;
+  repeated PendingDeviceStatement to_sign = 3;
+}
+
+// Cloud-asserted, so it is a to-do list, not authority. The client builds and
+// signs each statement only from the change its operator confirmed (release,
+// configuration and desired state of that revision, and a device the operator
+// saw in the device set) and refuses an entry that does not match it.
+message PendingDeviceStatement {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_ASSIGN = 1;
+    KIND_UNASSIGN = 2;
+  }
+  Kind kind = 1;
+  // For a move's UNASSIGN this is the OTHER deployment.
+  string deployment_id = 2;
+  // The device's SPIFFE URI.
+  string device = 3;
+  // The revision the statement must carry.
+  int32 revision = 4;
+}
+
+message ListDeploymentRevisionsRequest {
+  string deployment_id = 1;
+  int32 page_size = 2;
+  // next_page_token of the previous page; empty = the first page.
+  string page_token = 3;
+}
+
+message ListDeploymentRevisionsResponse {
+  // Newest first.
+  repeated DeploymentRevision revisions = 1;
+  // Empty = the last page.
+  string next_page_token = 2;
+}
+
+// What AssignDevice and UnassignDevice return on DeploymentService. Same wire
+// shape as the deprecated AssignDeviceResponse and UnassignDeviceResponse.
+message DeviceStatementResponse {
+  int64 postbox_entry_id = 1;
 }
 
 message GetDeploymentRequest {
@@ -133,9 +348,12 @@ message GetDeploymentRequest {
 
 message ListDeploymentsRequest {
   string organization_id = 1;
+  // Empty = every app (the Deployments page lists all, grouped by app).
   string app_id = 2;
   int32 offset = 3;
   int32 limit = 4;
+  // Also return removed deployments. Default: live only.
+  bool include_removed = 5;
 }
 
 message ListDeploymentsResponse {
@@ -274,6 +492,9 @@ message ListAppDeviceStatesRequest {
   int32 page_size = 3;
   // next_page_token of the previous page; empty = the first page.
   string page_token = 4;
+  // When set, only the devices of this deployment of the app (desired next to
+  // reported), for the deployment details page.
+  string deployment_id = 5;
 }
 
 // One device's row for the app: the AssetApp ListAssetApps returns for that
