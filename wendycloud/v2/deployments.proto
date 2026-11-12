@@ -180,17 +180,29 @@ enum ApplyOutcome {
   // REJECTED_* value: those mean the device refused the entry itself. The
   // failure reason stays in the device's audit log.
   APPLY_OUTCOME_APPLY_FAILED = 9;
-  // The entry passed every verification check, the device accepted it, and
-  // it is pulling the release from the registry: downloading, or waiting to
-  // retry. Not a final outcome: the device reports the same entry again when
-  // the pull ends. Not a failure.
+  // The entry passed its signature, target and freshness checks, and the
+  // device is actively downloading or decrypting the release. The digest and
+  // unwrap checks run during the pull. Not final: the device reports the same
+  // entry again with APPLIED (install only), NOT_STARTED, PULL_REFUSED,
+  // REJECTED_DIGEST, REJECTED_UNWRAP, APPLY_FAILED or SUPERSEDED, or with
+  // PULL_RETRYING while it cannot pull. Not a failure.
   APPLY_OUTCOME_PULLING = 10;
   // The device pulled and imported the release for an entry whose desired
   // state is running, and has not started the app. Not APPLIED: a running
   // entry counts as applied only once the app runs. An install-only entry
   // (desired state stopped) reports APPLIED once imported, never this value.
-  // Not APPLY_FAILED: nothing went wrong.
+  // Not APPLY_FAILED: nothing went wrong. Not final: the device reports the
+  // same entry again as APPLIED once the app runs, or APPLY_FAILED if
+  // starting it fails.
   APPLY_OUTCOME_NOT_STARTED = 11;
+  // The entry passed its signature, target and freshness checks, but the
+  // device cannot pull the release right now and is retrying: the registry
+  // is unreachable or answers that it is temporarily unavailable. Not final:
+  // the device reports PULLING when it starts pulling again, then ends in the
+  // same values as PULLING. If the entry's validity ends while it is still
+  // retrying, the device reports PULL_REFUSED. The reason stays in the
+  // device's log and audit trail, not on the wire.
+  APPLY_OUTCOME_PULL_RETRYING = 12;
 }
 
 // this is to be called by the wendy-agent to get the desired state of an app on an asset
