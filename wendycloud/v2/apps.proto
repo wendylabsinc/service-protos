@@ -61,7 +61,8 @@ message DeleteAppRequest {
   string id = 1;
   string organization_id = 2;
   // Operator-signed UnassignDeviceRequests, one per device that still holds
-  // a deployment of the app, at that deployment's current revision + 1.
+  // a deployment of the app. Each is a TERMINAL removal: it carries the
+  // maximum revision, 2147483647 (UnassignDeviceRequest.revision).
   // - Each passes the full request-signing gate as an UnassignDevice call
   //   would: the `operation` claim of DeploymentService.UnassignDevice or its
   //   deprecated ArtifactRegistryService twin, the deployment's resource

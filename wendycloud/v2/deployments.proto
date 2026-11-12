@@ -51,6 +51,9 @@ service DeploymentService {
   rpc RollbackDeployment(SignedRequest) returns (DeploymentChangeResponse) {
     option (wendy.signed_request) = true;
   }
+  // Its device statements are TERMINAL removals at the maximum revision
+  // (UnassignDeviceRequest.revision); the history records the removal as
+  // revision current + 1.
   // Signed; payload_type "wendycloud.v2.RemoveDeploymentRequest".
   rpc RemoveDeployment(SignedRequest) returns (DeploymentChangeResponse) {
     option (wendy.signed_request) = true;
@@ -229,8 +232,9 @@ message DeploymentRevision {
   // Devices this revision moved in from, or out to, another deployment of the
   // same app.
   repeated DeviceMove moves = 12;
-  // This revision removed the deployment (RemoveDeployment, or DeleteApp at
-  // the current revision + 1).
+  // This revision removed the deployment (RemoveDeployment). It is numbered
+  // current + 1 here; its device statements carry the maximum revision
+  // (terminal removal, UnassignDeviceRequest.revision).
   bool removed = 13;
   google.protobuf.Duration validity = 14;
 }
@@ -344,7 +348,10 @@ message DeploymentChangeResponse {
 // signs each statement only from the change its operator confirmed (release,
 // configuration and desired state of that revision, and a device the operator
 // saw in the device set) and refuses an entry that does not match it. It also
-// refuses a revision other than its own expected_revision + 1 (1 on create).
+// refuses a revision other than its own expected_revision + 1 (1 on create),
+// except the maximum revision on a KIND_UNASSIGN of a RemoveDeployment or
+// DeleteApp (terminal removal), which it requires there and refuses anywhere
+// else.
 message PendingDeviceStatement {
   enum Kind {
     KIND_UNSPECIFIED = 0;

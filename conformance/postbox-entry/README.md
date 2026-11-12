@@ -58,6 +58,20 @@ an entry signed for the new ones and consumes it, so the statement is lost.
 the ordering rules on `DeviceAssignment` (registry.proto). (2) Then cloud:
 re-pin, the new RPCs, the old ones kept. (3) Then the clients.
 
+Removals come in two kinds (`UnassignDeviceRequest.revision`):
+
+- **Terminal** (RemoveDeployment, DeleteApp): the deployment itself ends. The
+  statement carries the maximum revision, 2147483647. The device's mark for
+  that deployment becomes the maximum, so it refuses every later assignment
+  for it, whatever cloud claims about revisions. Deployment ids are never
+  reused, so nothing is lost. No assignment may carry the maximum, so the
+  equal-revision rule cannot revive the deployment.
+- **Non-terminal** (an update that takes the device out, the old side of a
+  move): the deployment lives on and may take the device back later, so the
+  statement carries the deployment's current revision + 1. Here the revision
+  comes from cloud: a cloud that lies about the current revision can set the
+  mark too low to block a withheld older assignment. This is a named limit.
+
 **Why the payload and not a JWS claim:** the JWS claims are the call to cloud.
 They are shared by every verifier of the generic gate, and `expiry` already
 lives there. An instruction validity next to it would invite the confusion the
