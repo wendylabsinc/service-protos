@@ -153,6 +153,17 @@ service ArtifactRegistryService {
   // can unwrap a key to wrap it onward. A user has one key per device; each
   // device opens the wraps at its own recipient_key_id.
   rpc GetMyWraps(GetMyWrapsRequest) returns (GetMyWrapsResponse);
+  // What the registry stores for one organization (apps and deployments spec
+  // 6.8, G7): each release's artifact with its size, who published it and
+  // when, whether every blob is stored, and the deployments that use it.
+  // Newest first by published_at, then app_release_id. A read: not signed.
+  // Gate: `artifact:read` in organization_id. organization_id must be the
+  // caller's verified organization (PERMISSION_DENIED otherwise), and every
+  // row is bound to it. Metadata only: ciphertext sizes, never keys,
+  // manifests, plaintext sizes or plaintext digests. The CLI calls the
+  // registry directly; the dashboard calls cloud, which forwards this same
+  // call with the operator's identity.
+  rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse);
 
   // One signed statement per target device (Q7, sem 2026-10-19 01:15: one
   // signature per device, not per deployment), postbox-relayed verbatim to that
@@ -341,6 +352,48 @@ message GetArtifactRequest {
 
 message GetArtifactResponse {
   ArtifactManifest manifest = 1;
+}
+
+message ListArtifactsRequest {
+  string organization_id = 1;
+  // Optional filter; empty = every app. An app of another organization
+  // returns an empty page.
+  string app_id = 2;
+  // 0 or less = 100. The server caps it at 500.
+  int32 page_size = 3;
+  // next_page_token of the previous page; empty = the first page.
+  string page_token = 4;
+}
+
+// One release's stored artifact. Releases without a registry artifact are
+// not listed.
+message StoredArtifact {
+  string app_release_id = 1;
+  string app_id = 2;
+  // AppRelease.name, the release's version label.
+  string release_name = 3;
+  // The ciphertext of every blob the manifest promises, stored or not
+  // (EncryptedBlob.ciphertext_size summed).
+  uint64 ciphertext_size = 4;
+  uint32 blob_count = 5;
+  // The verified signer's SPIFFE URI at publish; empty when none was verified.
+  string published_by = 6;
+  // Empty once that user is deleted.
+  string published_by_user_id = 7;
+  google.protobuf.Timestamp published_at = 8;
+  // Every blob the manifest promises is stored. An unfinished upload is
+  // cleaned up after a day (spec 6.9).
+  bool complete = 9;
+  // The live deployments whose current revision uses this release; at most
+  // 50, deployment_count is the total. Names: DeploymentService.
+  repeated string deployment_ids = 10;
+  uint32 deployment_count = 11;
+}
+
+message ListArtifactsResponse {
+  repeated StoredArtifact artifacts = 1;
+  // Empty = the last page.
+  string next_page_token = 2;
 }
 
 message GetMyWrapsRequest {
