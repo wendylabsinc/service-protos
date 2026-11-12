@@ -60,15 +60,22 @@ message UpdateAppRequest {
 message DeleteAppRequest {
   string id = 1;
   string organization_id = 2;
-  // One operator-signed UnassignDeviceRequest for every device that still
-  // holds a deployment of the app, each exactly as UnassignDevice takes it
-  // (payload_type "wendycloud.v2.UnassignDeviceRequest", the `operation` claim
-  // of DeploymentService.UnassignDevice or its deprecated
-  // ArtifactRegistryService twin, `x5c` only, revision 0 allowed). Cloud
-  // verifies each one and relays it verbatim to its device's postbox. Only
-  // then does it delete, without waiting for the devices. If any device is
-  // missing a removal, cloud refuses with FAILED_PRECONDITION and says how many
-  // devices still need one.
+  // Operator-signed UnassignDeviceRequests, one per device that still holds
+  // a deployment of the app, at that deployment's current revision + 1.
+  // - Each passes the full request-signing gate as an UnassignDevice call
+  //   would: the `operation` claim of DeploymentService.UnassignDevice or its
+  //   deprecated ArtifactRegistryService twin, the deployment's resource
+  //   binding, `x5c` only, its own nonce claimed, iat/expiry checked at
+  //   receipt. It must name a deployment of the app being deleted.
+  // - DeleteApp may be repeated with batches (clients send about 200 per
+  //   call; the whole request stays under the server's message limit). Each
+  //   call's removals are verified, queued and relayed verbatim.
+  // - From the first accepted call until the delete completes, cloud refuses
+  //   any change to the app's deployments.
+  // - The call after which no device lacks a removal deletes the app, its
+  //   releases and its deployments, without waiting for the devices. Until
+  //   then each call ends with FAILED_PRECONDITION saying how many devices
+  //   still need one.
   repeated SignedRequest device_removals = 3;
 }
 

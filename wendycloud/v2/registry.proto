@@ -180,7 +180,21 @@ service ArtifactRegistryService {
 // Everything the device checks comes from here, under the operator signature:
 // it targets this one device, pins the release digest and the deployment key,
 // and carries the device's own wrap of that key. Rotation = a new assignment
-// per device at the new key id (Q6).
+// per device at the new key id (Q6), at the same revision.
+//
+// The device's ordering rules (revisions; with UnassignDeviceRequest):
+// - It keeps, per deployment_id, the highest revision it has accepted and
+//   whether that was a removal. It keeps that mark after a removal for at
+//   least the platform cap (1 year), persistently across restarts.
+// - It refuses revision 0.
+// - It refuses an assignment whose revision is lower than the mark, or equal
+//   to a removal's mark.
+// - At a revision equal to an assignment's mark, it accepts only identical
+//   app_release_id, manifest_digest, config_json, desired_state and replaces_*
+//   (deployment_key_id, device_wrap and expires_at may differ: key rotation).
+// - One instance per app: it refuses an assignment for app_id while it holds
+//   another live deployment of that app, unless that deployment is
+//   replaces_deployment_id.
 message DeviceAssignment {
   string organization_id = 1;
   string deployment_id = 2;
@@ -194,18 +208,27 @@ message DeviceAssignment {
   // The assignment's instruction validity (WDY-4015 item 3): this message's
   // valid_until, under the same rules (conformance/postbox-entry/README.md).
   google.protobuf.Timestamp expires_at = 10;
-  // The configuration the device applies: one JSON object, UTF-8, at most
-  // 64 KiB, carried verbatim so the signed bytes are what the device applies.
-  // Empty means `{}`. The device refuses an assignment whose config_json is
-  // not one JSON object or is over 64 KiB, and applies exactly this text.
+  // The configuration the device applies: the deployment revision's
+  // resolved text, verbatim, so the signed bytes are what the device applies.
+  // Never empty (no configuration is `{}`). The device refuses an assignment
+  // whose config_json is empty, is not one JSON object, or is over 64 KiB.
   string config_json = 11;
-  // The deployment revision this statement implements. The device orders
-  // statements for the same deployment by revision, never by a timestamp: it
-  // refuses one whose revision is lower than the one it holds for that
-  // deployment. Cloud refuses revision 0 (a client that predates revisions)
-  // and any statement whose release, config_json, desired_state or device does
-  // not match the deployment's current revision.
+  // The deployment revision this statement implements. Statements for one
+  // deployment are ordered by revision, never by a timestamp (rules above).
+  // Cloud refuses revision 0 (a client that predates revisions) and any
+  // statement whose release, config_json, desired_state, replaces_* or device
+  // does not match the deployment's current revision.
   int32 revision = 12;
+  // A move (one atomic statement, never an Unassign plus an Assign): the other
+  // live deployment of app_id this device leaves, and that deployment's
+  // revision that records the move. Both empty/0 = not a move. Applying it
+  // removes the replaced deployment's instance and installs this one as one
+  // step. The device refuses it when replaces_revision is not above its mark
+  // for replaces_deployment_id (or is 0), or when replaces_deployment_id
+  // equals deployment_id. On apply, it records replaces_revision as a removal
+  // mark for replaces_deployment_id.
+  string replaces_deployment_id = 13;
+  int32 replaces_revision = 14;
 }
 
 message AssignDeviceResponse {
@@ -220,10 +243,15 @@ message UnassignDeviceRequest {
   // operator's signature: required when cloud relays the request to a device
   // postbox. Rules: conformance/postbox-entry/README.md.
   google.protobuf.Timestamp valid_until = 4;
-  // The deployment revision that removed this device. 0 only inside
-  // DeleteAppRequest.device_removals: the app is gone, so there is no later
-  // revision to order against. The device refuses a non-zero revision lower
-  // than the one it holds for that deployment.
+  // The deployment revision that took this device out: a revision of the
+  // deployment, its removal, or for DeleteApp the deployment's current
+  // revision + 1, which cloud records as a removed revision. Never 0. The
+  // device applies it when it is above its mark for deployment_id and records
+  // it as a removal mark (DeviceAssignment rules); one equal to a removal mark
+  // is a duplicate, consumed without effect; anything else is refused.
+  // valid_until: the client defaults it to iat + the platform cap (1 year),
+  // and the tenant cap does not apply to removals
+  // (conformance/postbox-entry/README.md).
   int32 revision = 5;
 }
 
