@@ -16,9 +16,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import yaml
 from unittest.mock import patch
 
@@ -28,9 +30,19 @@ URL = 'https://github.com/wendylabsinc/service-protos.git'
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--consumer', type=Path, help='Optional full-consumer fixture')
 parser.add_argument('--source', type=Path, default=HERE.parent)
+parser.add_argument('--installation-child', type=Path, help=argparse.SUPPRESS)
 args = parser.parse_args()
 if os.geteuid() == 0:
     parser.error('permission controls require an ordinary non-root user')
+
+if args.installation_child:
+    spec = importlib.util.spec_from_file_location('contracts', HERE / 'contracts.py')
+    child_runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(child_runner)
+    outputs = {f'generated/output-{i:05}.pb.go': b'NEW output' for i in range(10000)}
+    outputs['contracts.json'] = b'NEW pin'
+    child_runner.install(args.installation_child, outputs, {'generated/output-00000.pb.go': b'original output'})
+    raise SystemExit(0)
 
 
 def git(*argv, cwd=None, env=None):
@@ -398,6 +410,85 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     spec = importlib.util.spec_from_file_location('contracts', HERE / 'contracts.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # Real signals in separate ordinary-user processes. No syscall or runner
+    # function is mocked: observe an actual replacement, then terminate.
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        cancelled = scratch / ('cancel-' + signum.name)
+        (cancelled / 'generated').mkdir(parents=True)
+        first = cancelled / 'generated/output-00000.pb.go'
+        pin = cancelled / 'contracts.json'
+        first.write_bytes(b'original output'); first.chmod(0o444)
+        pin.write_bytes(b'original pin'); pin.chmod(0o444)
+        process = subprocess.Popen([sys.executable, '-B', str(HERE / 'test-contracts.py'),
+                                    '--installation-child', str(cancelled)],
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            started = time.monotonic()
+            while first.read_bytes() != b'NEW output':
+                assert process.poll() is None, 'child exited before an observed replacement'
+                assert time.monotonic() - started < 30, 'cancellation observation timed out'
+                time.sleep(.001)
+            os.kill(process.pid, signum)
+            output = process.communicate(timeout=30)[0]
+            assert process.returncode != 0 and signum.name in output, output
+            assert first.read_bytes() == b'original output' and first.stat().st_mode & 0o777 == 0o444
+            assert pin.read_bytes() == b'original pin' and pin.stat().st_mode & 0o777 == 0o444
+            assert [p.name for p in (cancelled / 'generated').iterdir()] == ['output-00000.pb.go']
+            cases += 1
+            print(f'ok {cases}: real {signum.name} during install restores outputs/pin/modes', flush=True)
+        finally:
+            if process.poll() is None:
+                process.kill(); process.wait()
+    # Exercise the exact bookkeeping windows with real replacements/deletions
+    # and a real SIGTERM immediately after the syscall returns.
+    for operation in ('replace', 'unlink'):
+        boundary = scratch / ('signal-boundary-' + operation)
+        boundary.mkdir()
+        (boundary / 'first').write_bytes(b'old output')
+        (boundary / 'stale').write_bytes(b'old stale')
+        (boundary / 'contracts.json').write_bytes(b'old pin')
+        native = getattr(module.os, operation)
+        native_replace = module.os.replace
+        fired = False
+        rollback_signal = False
+        original_handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        def terminate_after_mutation(*argv, **kwargs):
+            global fired
+            result = native(*argv, **kwargs)
+            target = Path(argv[-1] if operation == 'replace' else argv[0])
+            if not fired and target == boundary / ('first' if operation == 'replace' else 'stale'):
+                fired = True
+                os.kill(os.getpid(), signal.SIGTERM)
+            return result
+        def terminate_during_restore(src, dst):
+            global rollback_signal
+            result = native_replace(src, dst)
+            if fired and Path(dst) == boundary / 'stale' and not rollback_signal:
+                rollback_signal = True
+                os.kill(os.getpid(), signal.SIGTERM)
+            return result
+        try:
+            with patch.object(module.os, operation, side_effect=terminate_after_mutation):
+                if operation == 'unlink':
+                    with patch.object(module.os, 'replace', side_effect=terminate_during_restore):
+                        module.install(boundary, {'first': b'new output', 'contracts.json': b'new pin'},
+                                       {'first': b'old output', 'stale': b'old stale'})
+                else:
+                    module.install(boundary, {'first': b'new output', 'contracts.json': b'new pin'},
+                                   {'first': b'old output', 'stale': b'old stale'})
+        except module.Error as error:
+            assert 'SIGTERM' in str(error), str(error)
+        else:
+            raise AssertionError('bookkeeping-window cancellation was swallowed')
+        assert operation != 'unlink' or rollback_signal, 'repeated termination during rollback was not exercised'
+        assert fired and (boundary / 'first').read_bytes() == b'old output'
+        assert (boundary / 'stale').read_bytes() == b'old stale'
+        assert (boundary / 'contracts.json').read_bytes() == b'old pin'
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == original_mask
+        assert {sig: signal.getsignal(sig) for sig in original_handlers} == original_handlers
+        cases += 1
+        print(f'ok {cases}: SIGTERM at {operation} bookkeeping boundary restores all files/handlers', flush=True)
     if os.geteuid() != 0:
         # Real permissions, no mocked syscall. Fail deleting a stale file only
         # AFTER an output, a new file and the pin have all been installed.

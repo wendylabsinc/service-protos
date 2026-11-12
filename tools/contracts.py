@@ -11,6 +11,7 @@ Install contracts-requirements.txt into the runner's Python environment once.
 Tool installation belongs to the consumer's existing locked toolchain setup.
 There are deliberately no install commands, arbitrary hooks, or implicit cleaning.
 """
+from contextlib import contextmanager
 import fnmatch
 import hashlib
 import json
@@ -18,6 +19,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -525,37 +527,77 @@ def atomic_write(path, data, mode):
             os.unlink(tmp)
 
 
-def install(root, expected, actual):
-    # Snapshot bytes/modes before the first mutation. Read-only originals can
-    # be replaced in writable directories, so rollback must use replacement too.
-    saved = {}
-    for rel in expected.keys() | actual.keys():
-        path = safe(root, rel)
-        saved[rel] = (path.read_bytes(), stat.S_IMODE(path.stat().st_mode)) if path.exists() else None
-    mutated = []
+@contextmanager
+def installation_signals():
+    # Handlers record cancellation; they never throw between a replacement and
+    # its mutation record or during rollback. Only checkpoints raise it.
+    managed = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP}
+    old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, managed)
+    managed -= old_mask
+    previous = {}
+    observed = []
+    def record(signum, frame):
+        if not observed:
+            observed.append(signum)
+    def checkpoint(final=False):
+        if final:
+            # Commit boundary: defer later signals until handlers/mask have
+            # been restored, with either committed or rolled-back files intact.
+            signal.pthread_sigmask(signal.SIG_BLOCK, managed)
+        pending = observed or sorted(signal.sigpending() & managed)
+        if pending:
+            raise Error(f'installation interrupted by {signal.Signals(pending[0]).name}')
     try:
-        for rel, data in expected.items():
+        for signum in managed:
+            previous[signum] = signal.getsignal(signum)
+            signal.signal(signum, record)
+        signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+        yield checkpoint
+    finally:
+        signal.pthread_sigmask(signal.SIG_BLOCK, managed)
+        try:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+
+
+def install(root, expected, actual):
+    with installation_signals() as checkpoint:
+        # Snapshot bytes/modes before the first mutation. Read-only originals can
+        # be replaced in writable directories, so rollback must use replacement too.
+        saved = {}
+        for rel in expected.keys() | actual.keys():
             path = safe(root, rel)
-            atomic_write(path, data, saved[rel][1] if saved[rel] else 0o644)
-            mutated.append(rel)
-        for rel in actual.keys() - expected.keys():
-            safe(root, rel).unlink()
-            mutated.append(rel)
-    except BaseException as primary:
-        failures = []
-        for rel in reversed(mutated):
-            try:
+            saved[rel] = (path.read_bytes(), stat.S_IMODE(path.stat().st_mode)) if path.exists() else None
+        mutated = []
+        try:
+            checkpoint()
+            for rel, data in expected.items():
                 path = safe(root, rel)
-                if saved[rel] is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    atomic_write(path, *saved[rel])
-            except BaseException as rollback:
-                failures.append(f'{rel}: {type(rollback).__name__}: {rollback}')
-        if failures:
-            raise Error(f'installation failed: {type(primary).__name__}: {primary}\n'
-                        'rollback failed: ' + '; '.join(failures)) from primary
-        raise
+                atomic_write(path, data, saved[rel][1] if saved[rel] else 0o644)
+                mutated.append(rel)
+                checkpoint()
+            for rel in actual.keys() - expected.keys():
+                safe(root, rel).unlink()
+                mutated.append(rel)
+                checkpoint()
+            checkpoint(final=True)
+        except BaseException as primary:
+            failures = []
+            for rel in reversed(mutated):
+                try:
+                    path = safe(root, rel)
+                    if saved[rel] is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        atomic_write(path, *saved[rel])
+                except BaseException as rollback:
+                    failures.append(f'{rel}: {type(rollback).__name__}: {rollback}')
+            if failures:
+                raise Error(f'installation failed: {type(primary).__name__}: {primary}\n'
+                            'rollback failed: ' + '; '.join(failures)) from primary
+            raise
 
 
 def main():
