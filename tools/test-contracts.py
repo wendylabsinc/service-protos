@@ -162,6 +162,13 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
         renamed = consumer / 'schemas/renamed.proto'
         renamed.write_bytes((source / 'authorization.proto').read_bytes())
         invoke(['check'], 'local shared schema copy or alias')
+        shared = (source / 'authorization.proto').read_bytes()
+        renamed.write_bytes(b'// Local copy retained for client generation.\n' + shared)
+        invoke(['check'], 'local shared schema copy or alias')
+        renamed.write_bytes(b'/* Re-formatted local copy. */\n' + b'\n'.join(b'\t' + line + b'  ' for line in shared.split(b'\n')))
+        invoke(['check'], 'local shared schema copy or alias')
+        renamed.write_bytes(shared + b'\nmessage RunnerAddedLocalType { string value = 1; }\n')
+        invoke(['check'], 'local shared schema copy or alias')
         renamed.unlink()
         reserved = consumer / 'proto/my_contract.proto'
         reserved.parent.mkdir()
@@ -410,6 +417,13 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     spec = importlib.util.spec_from_file_location('contracts', HERE / 'contracts.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    identity_source = b'syntax="proto3"; package example.api; message Value {string x=1;} option java_package="https://host/a/*literal*///path";'
+    identity_formatted = b"/* comment */ syntax = 'proto3' ; package example . api ; // comment\nmessage /* gap */ Value { string x = 1 ; } option java_package = \"https://host/a/*literal*///path\" ;"
+    assert module.schema_identity(identity_source) == module.schema_identity(identity_formatted)
+    assert module.schema_identity(identity_source)[0] != module.schema_identity(identity_source.replace(b'/path', b'/other'))[0]
+    assert module.schema_identity(identity_source)[1].isdisjoint(module.schema_identity(identity_source.replace(b'Value', b'Other'))[1])
+    cases += 1
+    print(f'ok {cases}: stable schema identity preserves strings and distinguishes qualified definitions', flush=True)
     # Real signals in separate ordinary-user processes. No syscall or runner
     # function is mocked: observe an actual replacement, then terminate.
     for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):

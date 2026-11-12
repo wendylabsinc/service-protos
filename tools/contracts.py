@@ -251,10 +251,41 @@ def owned(root, out):
     return result
 
 
+def schema_identity(data):
+    # Lexical identity only: comments/spacing are ignored, quoted values are
+    # kept whole (URLs and comment markers inside strings are significant).
+    # Qualified top-level definitions also identify a copy with local edits.
+    tokens = [m.group() for m in re.finditer(
+        rb'//[^\r\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_][A-Za-z_0-9]*|[0-9]+|[^\s]',
+        data, re.DOTALL) if not m.group().startswith((b'//', b'/*'))]
+    package = b''
+    definitions = set()
+    depth = 0
+    for index, token in enumerate(tokens):
+        if depth == 0 and token == b'package':
+            end = next((i for i in range(index + 1, len(tokens)) if tokens[i] == b';'), len(tokens))
+            value = b''.join(tokens[index + 1:end])
+            if re.fullmatch(rb'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*', value):
+                package = value
+        if depth == 0 and token in (b'message', b'enum', b'service') and index + 1 < len(tokens):
+            name = tokens[index + 1]
+            if re.fullmatch(rb'[A-Za-z_]\w*', name):
+                definitions.add((token, name))
+        if token == b'{':
+            depth += 1
+        elif token == b'}':
+            depth -= 1
+    normalized = [b's:' + t[1:-1] if t.startswith((b'"', b"'")) else b't:' + t for t in tokens]
+    return (hashlib.sha256(b'\0'.join(normalized)).digest(),
+            {(package, kind, name) for kind, name in definitions})
+
+
 def source_guard(root, cfg, catalogues, exceptions):
     schemas = [p for catalogue in catalogues for p in catalogue.rglob('*.proto')]
     names = {p.name for p in schemas}
-    identities = {hashlib.sha256(p.read_bytes()).digest() for p in schemas}
+    parsed = [schema_identity(p.read_bytes()) for p in schemas]
+    identities = {fingerprint for fingerprint, _ in parsed}
+    definitions = set().union(*(declared for _, declared in parsed))
     if not names:
         raise Error('empty shared schema catalogue')
     # Include known former spellings, even when an old pin predates the catalogue path.
@@ -301,9 +332,10 @@ def source_guard(root, cfg, catalogues, exceptions):
         if not path.exists():
             continue
         reserved = any(rel.startswith(alias + '/') for alias in forbidden)
-        if rel not in exceptions and (reserved or Path(rel).name in names or
-                hashlib.sha256(path.read_bytes()).digest() in identities):
-            raise Error(f'local shared schema copy or alias: {rel}')
+        if rel not in exceptions:
+            fingerprint, declared = schema_identity(path.read_bytes())
+            if reserved or Path(rel).name in names or fingerprint in identities or declared & definitions:
+                raise Error(f'local shared schema copy or alias: {rel}')
 
 
 def collect_output(source, destination, written):
