@@ -131,7 +131,8 @@ service DeploymentService {
   }
   // Declared for its `operation` and payload type only: a DetachDeviceRequest
   // is accepted only nested in DeleteAppRequest.device_detachments, and cloud
-  // refuses every direct call with FAILED_PRECONDITION. Postbox-relayed
+  // refuses every direct call with FAILED_PRECONDITION ("DetachDevice is
+  // accepted only inside DeleteApp"). Postbox-relayed
   // verbatim to the one device it names. Detach outside an app delete
   // (for example with RemoveDeployment) is a follow-up, not part of this
   // contract.
@@ -413,7 +414,8 @@ message PendingDeviceStatement {
     // used for a move: a move is one KIND_ASSIGN with replaces_* set.
     KIND_UNASSIGN = 2;
     // By-app read only: a device in the app's removal set the caller cannot
-    // reach. Only a DetachDeviceRequest can cover it.
+    // reach. Only a DetachDeviceRequest can cover it. Its row has revision 0
+    // and empty replaces_*.
     KIND_DETACH = 3;
   }
   Kind kind = 1;
@@ -694,10 +696,12 @@ enum DetachState {
   DETACH_STATE_UNSPECIFIED = 0;
   // Cloud received the detach and queued it; the device has not applied it.
   DETACH_STATE_SENT = 1;
-  // The device's agent does not know DetachDevice and refused it. Cloud
-  // sends the detach again whenever the device reports an agent that knows
-  // it, until the device applies it or its validity ends. Until then the
-  // device keeps running the app as a deployment.
+  // The device refused the detach, and its agent does not list DetachDevice
+  // in PullChangesRequest.accepted_operations (an agent that predates
+  // detach). Cloud sends the detach again once each time the device's
+  // accepted_operations changes to include DetachDevice, until the device
+  // applies it or its validity ends. Until then the device keeps running the
+  // app as a deployment.
   DETACH_STATE_WAITING_FOR_AGENT = 2;
   // The detach's validity ended before the device applied it. The device
   // keeps the deleted deployment, which blocks a new app with the same id
@@ -705,6 +709,11 @@ enum DetachState {
   // is gone, so no new detach can be signed. The device owner removes the app
   // locally, or resets the device.
   DETACH_STATE_EXPIRED = 3;
+  // An agent that lists DetachDevice refused the detach (its outcome is in
+  // `outcome` (16)). Final: no re-send. As with EXPIRED, there is no way out
+  // through cloud; the device owner removes the app locally or resets the
+  // device. Cloud's checks at accept make this rare.
+  DETACH_STATE_REFUSED = 4;
 }
 
 message ListAssetAppsResponse {

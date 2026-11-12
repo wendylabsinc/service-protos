@@ -68,23 +68,28 @@ message DeleteAppRequest {
   // 21:19, 21:38, 21:40). Each device in the removal set is covered by ONE
   // operator-signed statement for that device: a removal (device_removals),
   // or a detach (device_detachments).
-  // - Removal set: every device to which a statement for one of the app's
-  //   deployments was relayed: an Assign under either name, or a legacy
-  //   relayed CreateDeployment. A device that is only in a deployment's set
-  //   (by tag or by "every device") and was never sent anything holds nothing
-  //   and needs no statement. Nothing can be missed: from the first accepted
-  //   call, AssignDevice under either name and creating or changing a
-  //   deployment are refused, and cloud decides "relayed" in the same
-  //   transaction that accepts an Assign. So an Assign was either relayed
-  //   before the delete started (its device is in the set) or is refused, and
-  //   a statement cloud never received is on no device.
+  // - Removal set: every device whose last relayed statement for one of the
+  //   app's deployments leaves it holding that deployment: an Assign under
+  //   either name, or a legacy relayed CreateDeployment, not followed by a
+  //   received removal of it (a non-terminal Unassign, a move out, or a
+  //   RemoveDeployment terminal removal, which counts as coverage). That
+  //   deployment is "the device's deployment" below. A device that is only
+  //   in a deployment's selection (by tag or by "every device") and was never
+  //   sent anything holds nothing and needs no statement.
+  // - Nothing can be missed: cloud serializes, on the app (one lock),
+  //   accepting a relayed statement for it (AssignDevice under either name,
+  //   the legacy CreateDeployment) and every DeleteApp call for it, and the
+  //   call that completes the delete re-reads the set under that lock. So an
+  //   Assign is either recorded before a call reads the set, or refused
+  //   because the delete has started; a statement cloud never received is on
+  //   no device.
   // - Removal: a TERMINAL UnassignDeviceRequest at the maximum revision,
   //   2147483647 (UnassignDeviceRequest.revision). Authorized by the caller's
   //   right on that device, the right UnassignDevice requires. It passes the
   //   full request-signing gate as an UnassignDevice call would: the
   //   `operation` claim of DeploymentService.UnassignDevice or its deprecated
-  //   ArtifactRegistryService twin, the resource binding, `x5c` only, its own
-  //   nonce claimed, iat/expiry checked at receipt.
+  //   ArtifactRegistryService twin, the deployment's resource binding, `x5c`
+  //   only, its own nonce claimed, iat/expiry checked at receipt.
   // - Detach: a DetachDeviceRequest (registry.proto). The app stays on that
   //   device and becomes a direct run. Authorized by the caller's right to
   //   delete the app alone, for any device in the removal set, reachable or
@@ -95,8 +100,9 @@ message DeleteAppRequest {
   //   offers removal and signs a detach only when the operator chooses it for
   //   that device. For a device the caller cannot reach, detach is the only
   //   option (ListPendingDeviceStatements by app_id tells which is which).
-  // - Each entry must name a device in the removal set and a deployment of
-  //   the app being deleted.
+  // - Each entry must name a device in the removal set and that device's
+  //   deployment (the one its row in the by-app read names); otherwise it
+  //   fails the gate.
   // - DeleteApp may be repeated with batches (clients send about 200 entries
   //   per call; the whole request stays under the server's message limit).
   //   Each call's entries are verified, queued and relayed verbatim.
@@ -116,8 +122,10 @@ message DeleteAppRequest {
   // - One entry that fails its gate refuses the whole call. Nothing in that
   //   call is queued, and the refusal names the first failing entry (its
   //   list, index, device and the reason) so the client re-signs that one.
-  //   For a removal the caller has no device access for, the reason says to
-  //   sign a detach instead, and the client asks the operator again.
+  //   For a removal the caller has no device access for, the reason reads
+  //   "You can't reach this device. Ask someone who can to remove it, or
+  //   detach it (the app keeps running there)", and the client asks the
+  //   operator again.
   // - Retries are idempotent. Skipped entries are set aside before any other
   //   check, the nonce check included, and the nonces of a call are claimed
   //   in the same transaction that queues its batch, so a refused call claims
@@ -128,8 +136,8 @@ message DeleteAppRequest {
   // - Every count below is given only after the caller's right to delete the
   //   app is checked.
   // - A call that carries no valid entry while the app still has devices to
-  //   tell is refused with FAILED_PRECONDITION saying how many devices are
-  //   uncovered, and does NOT start the delete: an older client that sends
+  //   tell is refused with FAILED_PRECONDITION saying "N devices still need a
+  //   removal or a detach", and does NOT start the delete: an older client that sends
   //   nothing cannot lock an app by accident. With no devices to tell, the
   //   call deletes the app at once.
   // - From the first accepted call (one that carries at least one valid
@@ -139,14 +147,23 @@ message DeleteAppRequest {
   //   refused with FAILED_PRECONDITION saying the app is being deleted.
   // - The call after which no device is uncovered deletes the app, its
   //   releases and its deployments, without waiting for the devices. Until
-  //   then each call ends with FAILED_PRECONDITION saying how many devices
-  //   are still uncovered.
+  //   then each call ends with FAILED_PRECONDITION saying "N devices still
+  //   need a removal or a detach".
   // - Desired state (the unsigned legacy stream): cloud drops the app from a
   //   removal-covered device's desired state only once its removal has been
   //   received. For a detach-covered device it keeps the app at the device's
   //   last reported state until the device reports it as a direct run or
   //   reports it gone, so deleting the app never removes it from that device
-  //   through DesiredStateResponse.
+  //   through DesiredStateResponse. A new deployment of an app with the same
+  //   id replaces that kept row for the device; on a device whose detach is
+  //   still WAITING_FOR_AGENT, REFUSED or EXPIRED (AssetApp.detach_state), the
+  //   device then refuses the Assign (one instance per app), and that refusal
+  //   is what the operator sees.
+  // - Named limits (compromised cloud): it can mark a device the caller can
+  //   reach as KIND_DETACH, so the operator signs a detach for that named
+  //   device, a statement the operator chose to make; and when a removal and
+  //   a detach were both signed for one device (from stale reads), it picks
+  //   which arrives first. Both were authorized; the first applied wins.
   repeated SignedRequest device_removals = 3;
   // Signed DetachDeviceRequests, one per device the operator chose to detach.
   repeated SignedRequest device_detachments = 4;

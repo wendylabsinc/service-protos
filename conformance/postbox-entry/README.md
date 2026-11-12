@@ -62,14 +62,26 @@ re-pin, the new RPCs, the old ones kept. (3) Then the clients.
 
 Detach (`DetachDeviceRequest`, registry.proto) is a third terminal statement
 alongside the removals below. It ends the deployment on the device at the
-maximum mark, but keeps the app there as a direct run. An agent that does not
-know `DetachDevice` refuses it (REJECTED_TARGET) and keeps the app as a
-deployment. Cloud keeps the accepted detach and sends it again whenever the
-device reports an agent that knows it, until the device applies it or its
-validity ends (`AssetApp.detach_state`). A detach whose validity ends first
-leaves the device holding the deleted deployment, which blocks a new app with
-the same id there. That is a named limit: the device owner removes the app
-locally or resets the device.
+maximum removal mark, but keeps the app there as a direct run. Whichever of a
+detach and a terminal removal the device applies first wins; the later one is
+a duplicate that deletes nothing.
+
+An agent lists the relayed operations it accepts in
+`PullChangesRequest.accepted_operations`. An agent that does not know
+`DetachDevice` refuses it (REJECTED_TARGET) and keeps the app as a deployment
+(`DETACH_STATE_WAITING_FOR_AGENT`). Cloud keeps the accepted detach and sends
+it again once each time that list changes to include `DetachDevice`, until
+the device applies it or its validity ends. A refusal from an agent that lists
+`DetachDevice` is final (`DETACH_STATE_REFUSED`).
+
+Named limits:
+- A detach that expires or is refused before the device applies it leaves the
+  device holding the deleted deployment, which blocks a new app with the same
+  id there. The device owner removes the app locally or resets the device.
+- A compromised cloud can mark a device the caller can reach as `KIND_DETACH`,
+  so the operator signs a detach for that named device.
+- When a removal and a detach were both signed for one device, a compromised
+  cloud picks which arrives first.
 
 Removals come in two kinds (`UnassignDeviceRequest.revision`):
 
