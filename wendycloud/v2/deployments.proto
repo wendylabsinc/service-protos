@@ -9,6 +9,8 @@ import "wendycloud/v2/signed_request.proto";
 
 service DeploymentService {
   // ==================== App Releases ====================
+  // Refused with FAILED_PRECONDITION while the app is being deleted
+  // (App.deletion_started_at).
   // Signed; payload_type "wendycloud.v2.CreateAppReleaseRequest".
   rpc CreateAppRelease(SignedRequest) returns (AppRelease) {
     option (wendy.signed_request) = true;
@@ -30,7 +32,8 @@ service DeploymentService {
   // Creates a named, lasting deployment at revision 1. Not relayed to
   // devices: each device gets its own AssignDevice statement, which the client
   // signs from DeploymentChangeResponse.to_sign. Resource binding:
-  // org/<org>/release/<app_release_id>, as for CreateDeployment.
+  // org/<org>/release/<app_release_id>, as for CreateDeployment. Refused with
+  // FAILED_PRECONDITION while the app is being deleted.
   // Signed; payload_type "wendycloud.v2.CreateDeploymentRequest".
   rpc CreateDeploymentV2(SignedRequest) returns (DeploymentChangeResponse) {
     option (wendy.signed_request) = true;
@@ -39,6 +42,9 @@ service DeploymentService {
   rpc ListDeployments(ListDeploymentsRequest) returns (stream ListDeploymentsResponse);
   // Update, roll back and remove each create exactly one revision, and are
   // refused with ABORTED unless expected_revision is the current revision.
+  // They are refused with FAILED_PRECONDITION on a removed deployment, and
+  // (like CreateDeployment/V2) while the app is being deleted
+  // (App.deletion_started_at).
   // None of them is relayed to devices; the per-device statements in the
   // response are. Resource binding: org/<org>/deployment/<deployment_id>.
   // Signed; payload_type "wendycloud.v2.UpdateDeploymentRequest".
@@ -63,9 +69,21 @@ service DeploymentService {
   rpc ListDeploymentRevisions(ListDeploymentRevisionsRequest) returns (ListDeploymentRevisionsResponse);
   // The resolved device set of one revision, paginated.
   rpc ListDeploymentRevisionDevices(ListDeploymentRevisionDevicesRequest) returns (ListDeploymentRevisionDevicesResponse);
-  // The per-device statements of the current revision that cloud has not
-  // received yet: the continuation of DeploymentChangeResponse.to_sign, and
-  // how a client resumes after an interruption.
+  // The devices one revision moved in or out, paginated.
+  rpc ListDeploymentRevisionMoves(ListDeploymentRevisionMovesRequest) returns (ListDeploymentRevisionMovesResponse);
+  // The statements cloud still needs: the continuation of
+  // DeploymentChangeResponse.to_sign, and how any operator who may make the
+  // change resumes after an interruption, from any of their keys. Pending is
+  // every device whose last statement cloud has received differs from the
+  // current revision:
+  // - a device in the current set: an Assign at the current revision;
+  // - a device outside the current set that still holds an older revision,
+  //   also one a superseded revision dropped before its removal was sent: an
+  //   Unassign at the current revision;
+  // - a removed deployment: its outstanding terminal removals (maximum
+  //   revision);
+  // - by app_id while the app is being deleted: every device that still
+  //   lacks its terminal removal, across the app's deployments.
   rpc ListPendingDeviceStatements(ListPendingDeviceStatementsRequest) returns (ListPendingDeviceStatementsResponse);
 
   // ==================== Per-device statements ====================
@@ -89,6 +107,9 @@ service DeploymentService {
   // Postbox-relayed to the device; cloud drops the assignment, so pulls stop.
   // Used when a revision takes a device out of a deployment, when a
   // deployment is removed, and inside DeleteAppRequest.device_removals.
+  // Cloud refuses one at the maximum revision outside RemoveDeployment and
+  // DeleteApp, and a non-terminal one whose revision is not the deployment's
+  // current revision.
   // Signed; payload_type "wendycloud.v2.UnassignDeviceRequest".
   rpc UnassignDevice(SignedRequest) returns (DeviceStatementResponse) {
     option (wendy.signed_request) = true;
@@ -229,9 +250,9 @@ message DeploymentRevision {
   google.protobuf.Timestamp created_at = 10;
   // 0 = not a rollback; otherwise the revision it restored.
   int32 rollback_of = 11;
-  // Devices this revision moved in from, or out to, another deployment of the
-  // same app.
-  repeated DeviceMove moves = 12;
+  // How many devices this revision moved in from, or out to, another
+  // deployment of the same app. The moves: ListDeploymentRevisionMoves.
+  int32 move_count = 12;
   // This revision removed the deployment (RemoveDeployment). It is numbered
   // current + 1 here; its device statements carry the maximum revision
   // (terminal removal, UnassignDeviceRequest.revision).
@@ -349,9 +370,12 @@ message DeploymentChangeResponse {
 // configuration and desired state of that revision, and a device the operator
 // saw in the device set) and refuses an entry that does not match it. It also
 // refuses a revision other than its own expected_revision + 1 (1 on create),
-// except the maximum revision on a KIND_UNASSIGN of a RemoveDeployment or
-// DeleteApp (terminal removal), which it requires there and refuses anywhere
-// else.
+// or, when resuming, the current revision whose content it showed the
+// operator; except the maximum revision on a KIND_UNASSIGN of a
+// RemoveDeployment or DeleteApp (terminal removal), which it requires there
+// and refuses anywhere else. It accepts replaces_* only when the operator set
+// move_devices and confirmed that device as being in that deployment of the
+// same app.
 message PendingDeviceStatement {
   enum Kind {
     KIND_UNSPECIFIED = 0;
@@ -366,9 +390,10 @@ message PendingDeviceStatement {
   string device = 3;
   // The revision the statement must carry.
   int32 revision = 4;
-  // KIND_ASSIGN for a move only: the other deployment of the app the device
-  // leaves, and that deployment's new revision, which records the move.
-  // Copied into DeviceAssignment.replaces_deployment_id / replaces_revision.
+  // KIND_ASSIGN for a move only: the other deployment of the same app the
+  // device leaves, and that deployment's current revision once the move is
+  // recorded (DeviceAssignment.replaces_revision). Copied into
+  // DeviceAssignment.replaces_deployment_id / replaces_revision.
   string replaces_deployment_id = 5;
   int32 replaces_revision = 6;
 }
@@ -405,12 +430,30 @@ message ListDeploymentRevisionDevicesResponse {
 }
 
 message ListPendingDeviceStatementsRequest {
+  // Exactly one of deployment_id and app_id. app_id only while the app is
+  // being deleted: the terminal removals still lacking across its deployments.
   string deployment_id = 1;
   // 0 = 500. The server caps it at 500.
   int32 page_size = 2;
   // next_page_token of the previous page (or of DeploymentChangeResponse);
   // empty = the first page.
   string page_token = 3;
+  string app_id = 4;
+}
+
+message ListDeploymentRevisionMovesRequest {
+  string deployment_id = 1;
+  int32 revision = 2;
+  // 0 = 100. The server caps it at 500.
+  int32 page_size = 3;
+  // next_page_token of the previous page; empty = the first page.
+  string page_token = 4;
+}
+
+message ListDeploymentRevisionMovesResponse {
+  repeated DeviceMove moves = 1;
+  // Empty = the last page.
+  string next_page_token = 2;
 }
 
 message ListPendingDeviceStatementsResponse {

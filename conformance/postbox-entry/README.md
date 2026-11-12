@@ -68,8 +68,11 @@ Removals come in two kinds (`UnassignDeviceRequest.revision`):
   equal-revision rule cannot revive the deployment.
 - **Non-terminal** (an update that takes the device out, the old side of a
   move): the deployment lives on and may take the device back later, so the
-  statement carries the deployment's current revision + 1. Here the revision
-  comes from cloud: a cloud that lies about the current revision can set the
+  statement carries the deployment's current revision when it is signed (a
+  superseded removal that was never sent is re-signed at the current revision;
+  for a move it travels as `DeviceAssignment.replaces_revision`). Cloud keeps
+  such a device in the deployment until the removal is received. Here the
+  revision comes from cloud: a cloud that lies about the current revision can set the
   mark too low to block a withheld older assignment. This is a named limit.
 
 **Why the payload and not a JWS claim:** the JWS claims are the call to cloud.
