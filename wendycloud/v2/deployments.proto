@@ -640,10 +640,12 @@ message AssetApp {
   // The release the device reported running, when it named a release of this
   // app; app_release_id (3) stays the desired release.
   optional string reported_release_id = 18;
-  // True exactly when this device is in the pending list for deployment_id
-  // (9): cloud still needs a statement for it under the same content rule
-  // as ListPendingDeviceStatements, including a removal it is owed. Computed
-  // from the same record, so this list and the pending read never disagree.
+  // True exactly when cloud still needs any statement for this device for
+  // deployment_id (9): it is in that deployment's pending list (same content
+  // rule as ListPendingDeviceStatements, including a removal it is owed), or
+  // it still lacks the terminal removal an app delete owes it (the by-app
+  // list). Computed from the same record, so this list and both pending
+  // reads never disagree.
   // Shown as "waiting for its instruction". Cloud-asserted display
   // information: nothing a device or client acts on, no authority, and never
   // a to-do list (what to sign comes only from ListPendingDeviceStatements and
