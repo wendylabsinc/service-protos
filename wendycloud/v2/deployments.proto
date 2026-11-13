@@ -268,6 +268,9 @@ message Deployment {
   // Default 60 days (the tenant cap default), never above the tenant cap or
   // the platform cap of 1 year (conformance/postbox-entry/README.md).
   google.protobuf.Duration validity = 19;
+  // The sites the current revision selects devices by, beside target_tags
+  // (10) and target_device_ids (11); the rules are on DeviceSelection.
+  repeated string target_site_ids = 20;
 }
 
 // One recorded change to a deployment. Revisions are numbered from 1 and never
@@ -342,14 +345,32 @@ message CreateDeploymentRequest {
   bool move_devices = 12;
   // Deployment.validity. Unset = 60 days.
   google.protobuf.Duration validity = 13;
+  // Read by CreateDeploymentV2: sites to select devices by, beside
+  // target_tags (6) and target_device_ids (7). The rules are on
+  // DeviceSelection.
+  repeated string target_site_ids = 14;
 }
 
 // The full new device set of a deployment.
 message DeviceSelection {
   repeated string target_tags = 1;
-  // Asset UUIDs, at most 1000. A selection with both lists empty is refused;
-  // it never means "every device".
+  // Asset UUIDs, at most 1000. A selection with all of its lists empty is
+  // refused; it never means "every device".
   repeated string target_device_ids = 2;
+  // Sites (sem 2026-11-13: target "anything you can scope towards"): Site.id
+  // values (SiteService; a device's site is Asset.site_id, and every device
+  // is in exactly one site). Each site must belong to the organization
+  // (NOT_FOUND otherwise). The selection is the union of devices named, the
+  // devices carrying any selected tag, and the devices in any selected site.
+  // Cloud resolves it to devices when the revision is made; the operator is
+  // shown the resolved device names and signs one statement per device, so a
+  // selection is never itself an instruction to a device. As for tags (the
+  // set is resolved once; a device tagged later does not get the
+  // deployment), a device that joins a selected site later does not get the
+  // deployment. A site authorizes nothing: choosing sites is SiteService
+  // .ListSites (gate `site:list`), and a site selection reaches no device a
+  // selection by its devices would not.
+  repeated string target_site_ids = 3;
 }
 
 message UpdateDeploymentRequest {
@@ -709,14 +730,13 @@ enum DetachState {
   DETACH_STATE_UNSPECIFIED = 0;
   // Cloud received the detach and queued it; the device has not applied it.
   DETACH_STATE_SENT = 1;
-  // The device refused the detach, and its agent does not list DetachDevice
-  // in PullChangesRequest.accepted_operations (an agent that predates
-  // detach). A refusal is judged by the accepted_operations sent with the
-  // pull that delivered that entry, so an old agent's refusal that arrives
-  // after an upgraded agent's first pull is not taken as REFUSED. Cloud sends the detach again once each time the device's
-  // accepted_operations changes to include DetachDevice, until the device
-  // applies it or its validity ends. Until then the device keeps running the
-  // app as a deployment.
+  // Cloud holds the accepted detach: the device's pulls do not list
+  // DetachDevice in PullChangesRequest.accepted_operations (an agent that
+  // predates detach). Cloud delivers it only once a pull lists DetachDevice,
+  // and never to an agent that does not; it does not re-send, because an old
+  // agent moves past an entry it refuses and never asks for it again. Held,
+  // not refused: until delivery, or the end of its validity, the device keeps
+  // running the app as a deployment.
   DETACH_STATE_WAITING_FOR_AGENT = 2;
   // The detach's validity ended before the device applied it. The device
   // keeps the deleted deployment, which blocks a new app with the same id
@@ -724,10 +744,11 @@ enum DetachState {
   // is gone, so no new detach can be signed. The device owner removes the app
   // locally, or resets the device.
   DETACH_STATE_EXPIRED = 3;
-  // An agent that listed DetachDevice, in the pull that delivered the entry,
-  // refused the detach (its outcome is in `outcome` (16)). Final: no re-send. As with EXPIRED, there is no way out
-  // through cloud; the device owner removes the app locally or resets the
-  // device. Cloud's checks at accept make this rare.
+  // The device refused the delivered detach (its outcome is in `outcome`
+  // (16)); it was delivered only to an agent that lists DetachDevice. Final.
+  // As with EXPIRED, there is no way out through cloud; the device owner
+  // removes the app locally or resets the device. Cloud's checks at accept
+  // make this rare.
   DETACH_STATE_REFUSED = 4;
 }
 
