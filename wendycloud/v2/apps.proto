@@ -37,6 +37,32 @@ message App {
   // call until the delete completes (DeleteAppRequest.device_removals). Unset
   // = not being deleted.
   google.protobuf.Timestamp deletion_started_at = 8;
+  // Lifecycle policy for this app's stored releases (spec 6.9, 6.10): the
+  // app's own override; an unset field inherits.
+  LifecyclePolicy lifecycle_policy = 9;
+  // Filled by cloud: the policy that applies, every field set. Per field: the
+  // app's override, else the organization's default, else the platform
+  // default; clamped to lifecycle_policy_limit.
+  LifecyclePolicy effective_lifecycle_policy = 10;
+  // Filled by cloud: the most an override may set, per field: the lower of
+  // the organization's per-app limit and the plan limit.
+  LifecyclePolicy lifecycle_policy_limit = 11;
+}
+
+// How many stored releases of an app are kept (spec 6.9). A release a live
+// deployment uses is never deleted by the policy. Tagged and untagged
+// releases are told apart by AppRelease.name. Every field unset means
+// "inherit from the next layer" (app override, organization default,
+// platform default). A set value is at least 1, and a write above its limit
+// is refused with INVALID_ARGUMENT naming the limit. Default and limit values
+// are configuration, not contract.
+message LifecyclePolicy {
+  // Keep the newest this many tagged releases.
+  optional int32 keep_tagged = 1;
+  // Keep at most the newest this many untagged releases...
+  optional int32 keep_untagged = 2;
+  // ...and none older than this many days.
+  optional int32 untagged_max_age_days = 3;
 }
 
 message UpsertAppRequest {
@@ -44,6 +70,9 @@ message UpsertAppRequest {
   string organization_id = 2;
   optional string name = 3;
   optional string details = 4;
+  // The app's lifecycle override (App.lifecycle_policy). Unset = none.
+  // Setting it needs `app:update` on the app.
+  LifecyclePolicy lifecycle_policy = 5;
 }
 
 message GetAppRequest {
@@ -59,6 +88,9 @@ message UpdateAppRequest {
   // Interim owner/admin-controlled grant allowing this app to send notifications.
   // WDY-2058 will replace this with capability-scoped app authorization.
   optional bool can_send_notifications = 5;
+  // Unset = unchanged. Set = the app's whole new override (a field unset in
+  // it inherits). Needs `app:update` on the app.
+  LifecyclePolicy lifecycle_policy = 6;
 }
 
 message DeleteAppRequest {
