@@ -49,8 +49,11 @@ message App {
   LifecyclePolicy lifecycle_policy_limit = 11;
 }
 
-// How many stored releases of an app are kept (spec 6.9). A release a live
-// deployment uses is never deleted by the policy. Tagged and untagged
+// How many stored releases of an app are kept (spec 6.9). In use: a release
+// is in use, and never deleted by the policy, while any live deployment's
+// current revision names it or any device still reports running or holding
+// it (for example a device that has not yet moved off an older revision).
+// Tagged and untagged
 // releases are told apart by AppRelease.name. Every field unset means
 // "inherit from the next layer" (app override, organization default,
 // platform default). A set value is at least 1, and a write above its limit
@@ -70,8 +73,9 @@ message UpsertAppRequest {
   string organization_id = 2;
   optional string name = 3;
   optional string details = 4;
-  // The app's lifecycle override (App.lifecycle_policy). Unset = none.
-  // Setting it needs `app:update` on the app.
+  // The app's lifecycle override (App.lifecycle_policy). Unset leaves an
+  // existing app's override unchanged, and means none when the app is
+  // created. Setting it needs `app:update` on the app.
   LifecyclePolicy lifecycle_policy = 5;
 }
 
