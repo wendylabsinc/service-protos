@@ -318,7 +318,8 @@ message CreateDeploymentRequest {
   // Targeting (WDY-3576). The deployment goes to the union of the devices that carry any of
   // target_tags (exact match) and the devices named in target_device_ids (UUIDs, each must
   // belong to the organization). Both empty: every device in the organization. The set is
-  // resolved once, at create time; a device tagged later does not get the deployment. A
+  // resolved once, at create time: a device tagged later does not get the deployment, and one
+  // untagged later keeps it, until a new revision is made (DeviceSelection). A
   // non-empty targeting that matches no device is refused with FAILED_PRECONDITION.
   repeated string target_tags = 6;
   repeated string target_device_ids = 7;
@@ -364,10 +365,11 @@ message DeviceSelection {
   // devices carrying any selected tag, and the devices in any selected site.
   // Cloud resolves it to devices when the revision is made; the operator is
   // shown the resolved device names and signs one statement per device, so a
-  // selection is never itself an instruction to a device. As for tags (the
-  // set is resolved once; a device tagged later does not get the
-  // deployment), a device that joins a selected site later does not get the
-  // deployment. A site authorizes nothing: choosing sites is SiteService
+  // selection is never itself an instruction to a device. A selection is
+  // resolved once, when a revision is made: a device that later joins a
+  // selected tag or site does not get the deployment, and one that later
+  // leaves it keeps the deployment, until a new revision is made. A site
+  // authorizes nothing: choosing sites is SiteService
   // .ListSites (gate `site:list`), and a site selection reaches no device a
   // selection by its devices would not.
   repeated string target_site_ids = 3;
