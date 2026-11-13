@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package wendy.agent.services.v2;
+
+option go_package = "github.com/wendylabsinc/wendy/go/proto/gen/agentpb/v2;agentpbv2";
+
+// One admission store governs both chunk RPCs and OCI registry writes.
+service WendyBuildDeliveryService {
+  rpc GetDeliveryCapabilities(GetDeliveryCapabilitiesRequest) returns (GetDeliveryCapabilitiesResponse);
+  rpc GetDeliveryReference(GetDeliveryReferenceRequest) returns (GetDeliveryReferenceResponse);
+  rpc AdmitDelivery(AdmitDeliveryRequest) returns (AdmitDeliveryResponse);
+  rpc GetDeliveryStatus(GetDeliveryStatusRequest) returns (GetDeliveryStatusResponse);
+}
+message GetDeliveryCapabilitiesRequest {}
+message GetDeliveryCapabilitiesResponse {
+  uint32 contract_version = 1;
+  // Public identity material. Clients independently verify it against their
+  // locally trusted PKI and previously selected exact device identity.
+  repeated bytes certificate_chain = 2;
+  string target_principal = 3;
+}
+message GetDeliveryReferenceRequest {
+  string reference = 1;
+}
+message GetDeliveryReferenceResponse {
+  // Empty means the exact reference does not exist. Operator-only: a device
+  // without a grant may not enumerate the target's image inventory.
+  string digest = 1;
+}
+message AdmitDeliveryRequest {
+  string authorization_jws = 1;
+}
+message AdmitDeliveryResponse {
+  string session = 1;
+}
+message GetDeliveryStatusRequest {
+  string session = 1;
+}
+message GetDeliveryStatusResponse {
+  string reference = 1;
+  string output_digest = 2;
+  bool completed = 3;
+}
