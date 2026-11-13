@@ -175,6 +175,16 @@ message AppRelease {
   // shows it as the starting point, and only the configuration the operator
   // then signs (DeviceAssignment.config_json) reaches a device.
   string default_config_json = 10;
+  // Required configuration names (sem 2026-11-13): an empty value is a valid
+  // value and never means "required"; required settings are declared here.
+  // Each name must be a key of the release's default configuration
+  // (default_config_json), and its default value may be empty. Information
+  // for clients: the CLI and the console refuse to create or update a
+  // deployment whose configuration leaves a required name empty. Cloud
+  // stores and returns it unchanged. The device does nothing with it, and
+  // nothing about it is signed per device. A release published without it
+  // has none required; old clients ignore it.
+  repeated string required_config_names = 11;
 }
 
 message CreateAppReleaseRequest {
@@ -186,6 +196,9 @@ message CreateAppReleaseRequest {
   // Set by the CLI from wendy.json at publish. One JSON object, UTF-8, at most
   // 64 KiB, stored verbatim. Empty means `{}`.
   string default_config_json = 6;
+  // Set by the CLI from wendy.json at publish. Same rules as
+  // AppRelease.required_config_names.
+  repeated string required_config_names = 7;
 }
 
 // Use this to assign a image_digest to an app_release after it has been pushed to the registry
