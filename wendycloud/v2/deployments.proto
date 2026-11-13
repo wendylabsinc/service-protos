@@ -25,7 +25,9 @@ service DeploymentService {
   // Signed; payload_type "wendycloud.v2.CreateDeploymentRequest".
   // Deprecated: use CreateDeploymentV2, which also returns the per-device
   // statements still to sign. Kept for clients that have not re-pinned; its
-  // response type cannot change (wire-incompatible for them).
+  // response type cannot change (wire-incompatible for them). It refuses a
+  // request carrying target_site_ids with INVALID_ARGUMENT ("site selection
+  // needs CreateDeploymentV2"); it never ignores them.
   rpc CreateDeployment(SignedRequest) returns (Deployment) {
     option (wendy.signed_request) = true;
   }
@@ -242,7 +244,8 @@ message Deployment {
   // app_release_id, reported after the deployment was created (the reported_at fence).
   int32 target_count = 8;
   int32 updated_count = 9;
-  // The targeting the deployment was created with (WDY-3576). Both empty: every device.
+  // The targeting the deployment was created with (WDY-3576). All three lists empty
+  // (target_tags, target_device_ids, target_site_ids (20)): every device.
   repeated string target_tags = 10;
   repeated string target_device_ids = 11;
   // Named, lasting deployments with revisions (apps and deployments spec
@@ -317,7 +320,8 @@ message CreateDeploymentRequest {
   Running running = 5;
   // Targeting (WDY-3576). The deployment goes to the union of the devices that carry any of
   // target_tags (exact match) and the devices named in target_device_ids (UUIDs, each must
-  // belong to the organization). Both empty: every device in the organization. The set is
+  // belong to the organization). All three lists empty (target_tags, target_device_ids,
+  // target_site_ids (14)): every device in the organization. The set is
   // resolved once, at create time: a device tagged later does not get the deployment, and one
   // untagged later keeps it, until a new revision is made (DeviceSelection). A
   // non-empty targeting that matches no device is refused with FAILED_PRECONDITION.
@@ -348,7 +352,9 @@ message CreateDeploymentRequest {
   google.protobuf.Duration validity = 13;
   // Read by CreateDeploymentV2: sites to select devices by, beside
   // target_tags (6) and target_device_ids (7). The rules are on
-  // DeviceSelection.
+  // DeviceSelection. The deprecated CreateDeployment refuses a request that
+  // carries any with INVALID_ARGUMENT ("site selection needs
+  // CreateDeploymentV2"); it never ignores them.
   repeated string target_site_ids = 14;
 }
 
