@@ -1,0 +1,28 @@
+syntax = "proto3";
+package wendy.agent.services.v2;
+option go_package = "github.com/wendylabsinc/wendy/proto/gen/agentpb/v2;agentpbv2";
+
+// Power control for the device the agent runs on. Jetson power modes
+// (nvpmodel) are a separate concern and stay on WendyAgentService.
+service WendyPowerService {
+    // Reboot the device. The agent answers first and asks the host to reboot
+    // shortly afterwards, so the caller's connection drops after the response
+    // arrives. The host stops running apps as part of its shutdown; apps that
+    // are set to restart come back after boot.
+    //
+    // This is the remote recovery for a device that is reachable but stuck,
+    // for example one whose reset cleanup cannot finish until the kernel state
+    // left by the previous boot is gone. An unenrolled device serves it on its
+    // setup port like the rest of setup; an enrolled device requires operator
+    // credentials, and device credentials are never accepted.
+    //
+    // Fails with UNAVAILABLE on a host the agent cannot reboot, such as the
+    // macOS agent, and with FAILED_PRECONDITION while an agent or OS update is
+    // being installed, because a reboot then would interrupt it. An agent
+    // that predates this service answers UNIMPLEMENTED.
+    rpc Reboot(RebootRequest) returns (RebootResponse);
+}
+
+message RebootRequest {}
+
+message RebootResponse {}
