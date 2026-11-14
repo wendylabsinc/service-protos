@@ -111,7 +111,7 @@ when the method carries one of the two options, and never both.
 | artifact | signer | key reference | carried in |
 |---|---|---|---|
 | `SignedRequest.signature` | operator leaf | `x5c` or `kid`; `kid` → `FAILED_PRECONDITION` "leaf not stored" means retry once with `x5c`, then fail loudly | request body |
-| `SignedRequest.signature` on `RegisterOperatorLeaf` and the postbox-relayed `DeploymentService.CreateDeployment` / `ControlContainer` | operator leaf | `x5c` only; `kid` is refused (the postbox JWS is forwarded verbatim to devices in `PostboxEntry.request_jws`) | request body, then the postbox |
+| `SignedRequest.signature` on `RegisterOperatorLeaf` and the postbox-relayed `DeploymentService.CreateDeployment` / `ControlContainer` / `AssignDevice` / `UnassignDevice` (and the deprecated `ArtifactRegistryService.AssignDevice` / `UnassignDevice`), including each one in `DeleteAppRequest.device_removals`, which passes the full gate as an `UnassignDevice` call (operation, resource, its own nonce claimed, iat/expiry at receipt) | operator leaf | `x5c` only; `kid` is refused (the postbox JWS is forwarded verbatim to devices in `PostboxEntry.request_jws`) | request body, then the postbox |
 | `SignedRequest.signature` on the `wendy.device_signed_request` methods (`KeyDirectoryService.RegisterDeviceEncryptionKey`, `DevicePostboxService.AckHead`) | device leaf | `x5c` only, and it must be the mTLS peer | request body |
 | `SignedRequest.pki_management_request` (tier-3) | the same operator leaf | `x5c`, byte-equal to the resolved signature leaf | request body |
 | enrollment, over-duration request/approval/pickup JWS | operator leaf | its own format, verified by pki-core | a field of the signed payload |

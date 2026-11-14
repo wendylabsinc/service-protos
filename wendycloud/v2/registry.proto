@@ -18,7 +18,8 @@ import "wendycloud/v2/signed_request.proto";
 //   wrap: wraps are made by an operator client and arrive inside a request that
 //   operator signed. A compromised registry can withhold or delete, never grant.
 // - Authority is the operator signature. A device acts on its own signed
-//   assignment (ArtifactRegistryService.AssignDevice) and checks every byte it
+//   assignment (DeploymentService.AssignDevice, formerly
+//   ArtifactRegistryService.AssignDevice) and checks every byte it
 //   fetches here against digests that assignment signs. A wrong blob or a wrong
 //   wrap fails closed on the device.
 // - Device pull authorization is the live assignment: device from the mTLS
@@ -159,11 +160,18 @@ service ArtifactRegistryService {
   // Cloud refuses it unless the deployment has a SealedContentKey and a
   // CUSTODIAN wrap at deployment_key_id. For a registry-backed release,
   // CreateDeployment records the deployment only; devices receive it here.
+  // Deprecated: moved to DeploymentService.AssignDevice (ruling D2); removed
+  // when the registry service splits out. Kept until every client and device
+  // has moved. Refused with FAILED_PRECONDITION while the app is being
+  // deleted, as under the new name.
   // Signed; payload_type "wendycloud.v2.DeviceAssignment".
   rpc AssignDevice(SignedRequest) returns (AssignDeviceResponse) {
     option (wendy.signed_request) = true;
   }
   // Postbox-relayed to the device; cloud drops the assignment, so pulls stop.
+  // Deprecated: moved to DeploymentService.UnassignDevice (ruling D2); removed
+  // when the registry service splits out. Kept until every client and device
+  // has moved.
   // Signed; payload_type "wendycloud.v2.UnassignDeviceRequest".
   rpc UnassignDevice(SignedRequest) returns (UnassignDeviceResponse) {
     option (wendy.signed_request) = true;
@@ -173,7 +181,28 @@ service ArtifactRegistryService {
 // Everything the device checks comes from here, under the operator signature:
 // it targets this one device, pins the release digest and the deployment key,
 // and carries the device's own wrap of that key. Rotation = a new assignment
-// per device at the new key id (Q6).
+// per device at the new key id (Q6), at the same revision.
+//
+// The device's ordering rules (revisions; with UnassignDeviceRequest):
+// - It keeps, per deployment_id, the highest revision it has accepted and
+//   whether that was a removal. It keeps that mark after a removal for at
+//   least the platform cap (1 year), persistently across restarts.
+// - It refuses revision 0, and an assignment at the maximum revision
+//   (2147483647), which only a terminal removal carries.
+// - It refuses an assignment whose revision is lower than the mark, or equal
+//   to a removal's mark. So once the mark is the maximum (a terminal removal),
+//   every assignment for that deployment_id is refused: none can be above it,
+//   and the equal-revision rule below applies only to an assignment's mark.
+// - At a revision equal to an assignment's mark, it accepts only identical
+//   app_release_id, manifest_digest, config_json, desired_state and replaces_*
+//   (deployment_key_id, device_wrap and expires_at may differ: key rotation),
+//   and does not apply replaces_* again: the move was applied with the first
+//   copy. The replaces_* checks below apply only above the mark.
+// - One instance per app: it refuses an assignment for app_id while it holds
+//   another live deployment of that app, unless that deployment is
+//   replaces_deployment_id.
+// - Never across apps: it refuses replaces_deployment_id naming a deployment
+//   it holds for a different app_id.
 message DeviceAssignment {
   string organization_id = 1;
   string deployment_id = 2;
@@ -187,6 +216,44 @@ message DeviceAssignment {
   // The assignment's instruction validity (WDY-4015 item 3): this message's
   // valid_until, under the same rules (conformance/postbox-entry/README.md).
   google.protobuf.Timestamp expires_at = 10;
+  // The configuration the device applies: the deployment revision's
+  // resolved text, verbatim, so the signed bytes are what the device applies.
+  // Never empty (no configuration is `{}`). The device refuses an assignment
+  // whose config_json is empty, is not one JSON object, or is over 64 KiB.
+  string config_json = 11;
+  // The deployment revision this statement implements. Statements for one
+  // deployment are ordered by revision, never by a timestamp (rules above).
+  // Cloud refuses revision 0 (a client that predates revisions), the maximum
+  // revision, and any statement whose release, config_json, desired_state,
+  // replaces_* or device does not match the deployment's current revision.
+  // Cloud treats a device as still in its previous deployment of the app
+  // until that deployment's removal statement for it has been received:
+  // until then an Assign must be a move replacing it, or cloud refuses with
+  // FAILED_PRECONDITION.
+  int32 revision = 12;
+  // A move (one atomic statement, never an Unassign plus an Assign): the other
+  // deployment of the SAME app_id this device leaves, and that deployment's
+  // current revision once the move is recorded. That is the revision the move
+  // creates in it, or, when its current set already excludes the device (a
+  // removal not yet received), its current revision. Both empty/0 = not a
+  // move. Applying it removes the replaced deployment's instance and installs
+  // this one as one step. The old side of a move is a NON-terminal removal:
+  // the replaced deployment lives on and may take this device back later, so
+  // replaces_revision is never 0 and never the maximum.
+  // Above the mark for deployment_id, the device refuses it when
+  // replaces_revision is below its mark for replaces_deployment_id or equal to
+  // an assignment's mark there, is 0 or the maximum, when
+  // replaces_deployment_id equals deployment_id, or when it holds
+  // replaces_deployment_id for a different app_id. A replaces_revision equal
+  // to an existing REMOVAL mark for replaces_deployment_id means the old side
+  // is already done (its removal arrived first): it installs this deployment.
+  // On apply, it records replaces_revision as a removal mark for
+  // replaces_deployment_id.
+  // Cloud refuses replaces_* naming a deployment of another app, or not
+  // matching the move it recorded. Once received, the statement counts as the
+  // replaced deployment's removal for this device.
+  string replaces_deployment_id = 13;
+  int32 replaces_revision = 14;
 }
 
 message AssignDeviceResponse {
@@ -201,6 +268,30 @@ message UnassignDeviceRequest {
   // operator's signature: required when cloud relays the request to a device
   // postbox. Rules: conformance/postbox-entry/README.md.
   google.protobuf.Timestamp valid_until = 4;
+  // Never 0. Two cases:
+  // - TERMINAL removal: the deployment itself ends (RemoveDeployment, or
+  //   DeleteApp's device_removals). Carries the maximum revision, 2147483647,
+  //   whatever revision cloud records the removal as. The deployment is then
+  //   permanently dead on the device, whatever cloud later claims about
+  //   revisions. Deployment ids are never reused, so nothing is lost.
+  // - NON-terminal removal: a revision takes this device out of a deployment
+  //   that lives on (an update that shrinks the device set). Carries the
+  //   deployment's current revision when it is signed: the revision that
+  //   dropped the device, or a later one if that removal was not sent before
+  //   another revision followed. The device may legitimately be put back into
+  //   the same deployment by a later revision. Cloud refuses any other
+  //   revision, and the maximum outside RemoveDeployment and DeleteApp.
+  //   (The old side of a move is also non-terminal; it travels as
+  //   DeviceAssignment.replaces_revision, not as an Unassign.)
+  // The device applies it when it is above its mark for deployment_id and
+  // records it as a removal mark (DeviceAssignment rules); one equal to a
+  // removal mark is a duplicate, consumed without effect; anything else is
+  // refused. A terminal removal therefore always applies unless the
+  // deployment is already terminally removed.
+  // valid_until: the client defaults it to iat + the platform cap (1 year),
+  // and the tenant cap does not apply to removals
+  // (conformance/postbox-entry/README.md).
+  int32 revision = 5;
 }
 
 message UnassignDeviceResponse {

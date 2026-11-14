@@ -127,6 +127,9 @@ message PullChangesRequest {
 }
 
 message PullChangesResponse {
+  // Byte cap: the server stops adding entries before the serialized response
+  // exceeds 2 MiB, and always returns at least one entry when one exists
+  // above after_entry_id (one entry is far below the cap), setting has_more.
   repeated PostboxEntry entries = 1;
   // pki-core's notarized checkpoint for this chain, byte-for-byte as pki-core
   // signed it. Empty when the chain has not been notarized yet (notarization is
