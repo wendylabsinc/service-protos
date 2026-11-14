@@ -353,7 +353,11 @@ message ListContainerStatsResponse {
 
 // --- Resource stats (host + per-container, for `wendy device top`) ---
 
-message GetResourceStatsRequest {}
+message GetResourceStatsRequest {
+    // Opt-in bounded NVIDIA process inventory for this managed app. Empty skips
+    // the additional query. Unknown/older agents leave gpu_admission absent.
+    string gpu_admission_app_id = 1;
+}
 
 message GetResourceStatsResponse {
     HostStats host = 1;
@@ -377,6 +381,8 @@ message HostStats {
     optional BatteryStats battery = 8;
     // Absent on older agents. Missing counters mean unavailable, never zero.
     NetworkStats network = 9;
+    // Present only for opt-in admission queries. Missing is never evidence of idle.
+    GpuAdmissionStats gpu_admission = 10;
 }
 
 message GetNetworkStatsRequest {}
@@ -458,3 +464,26 @@ message MCPChunk {
 }
 
 message PrepareImageResponse {}
+
+// Admission observations are separate from best-effort display statistics.
+message GpuAdmissionStats {
+    // False when any inventory or app-ownership observation is incomplete.
+    bool valid = 1;
+    string unavailable_reason = 2;
+    repeated GpuAdmissionDevice devices = 3;
+}
+
+message GpuAdmissionDevice {
+    uint32 index = 1;
+    string uuid = 2;
+    // Includes compute, graphics and other contexts outside the requested app.
+    // A context counts as foreign even when utilization is zero.
+    bool foreign_process = 3;
+    // False for display-active, MIG or otherwise unsupported configurations.
+    bool supported = 4;
+    // True only for positively identified Jetson shared-system-memory hardware.
+    bool unified_memory = 5;
+    // Optional: missing utilization/memory must never be read as numeric zero.
+    optional double utilization_percent = 6;
+    optional uint64 memory_free_bytes = 7;
+}
