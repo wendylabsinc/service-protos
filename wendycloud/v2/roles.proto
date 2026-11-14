@@ -108,6 +108,11 @@ enum RoleKind {
   // organization, site, tag or device scope. Built-ins: Device viewer, Device
   // operator, Device manager.
   ROLE_KIND_DEVICE = 2;
+  // App permissions only (app:*, release:*, artifact:*, except app:create and
+  // app:list). Binds at organization scope (every app) or on one app.
+  // Built-ins: App owner, App developer, App operator, App viewer. An
+  // organization role may hold app permissions too; they apply to every app.
+  ROLE_KIND_APP = 3;
 }
 
 enum PermissionSource {
