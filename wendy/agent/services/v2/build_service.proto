@@ -123,14 +123,16 @@ message GetBuildCapabilitiesResponse {
   // Empty when reachable. Otherwise a short reason phrased for a developer,
   // e.g. "cannot resolve registry-1.docker.io", which the CLI prints as-is.
   string internet_detail = 16;
+  // Understands and forwards target-admitted, key-bound delivery contracts.
+  bool authorized_delivery = 17;
 }
 
 // ChunkManifest reconstructs a byte stream from chunks already written through
 // WendyContainerService.WriteChunks, which is a generic sha256-addressed store.
 // Order is significant.
 message ChunkManifest {
-  repeated bytes chunk_hashes = 1;  // raw 32-byte sha256 digests, in order
-  int64 total_size = 2;             // expected reassembled size, for validation
+  repeated bytes chunk_hashes = 1; // raw 32-byte sha256 digests, in order
+  int64 total_size = 2; // expected reassembled size, for validation
 }
 
 // DockerfileBuild builds through BuildKit's dockerfile.v0 frontend.
@@ -165,6 +167,10 @@ message PushTarget {
   // connection that actually reached this device; zero makes the build host
   // use its configured/default target-agent port.
   uint32 agent_port = 4;
+  // Operator-signed contract and its durable target admission. Required for
+  // device-authenticated delivery, including registry fallback.
+  string delivery_authorization_jws = 6;
+  string delivery_session = 7;
 }
 
 // ChunkingMode is how the finished image reaches each device. It carries the
