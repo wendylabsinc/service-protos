@@ -1,0 +1,47 @@
+syntax = "proto3";
+package wendy.agent.services.v2;
+option go_package = "github.com/wendylabsinc/wendy/proto/gen/agentpb/v2;agentpbv2";
+
+// Flashes the microcontroller of an Arduino board (the UNO Q's STM32) the way
+// Arduino's own upload does: a loader and a sketch image, written through the
+// board's flash helper. Other microcontroller families get their own service.
+service WendyArduinoMcuService {
+    // Spec first, then the loader bytes followed by the sketch bytes as chunks.
+    rpc FlashSketch(stream FlashSketchRequest) returns (stream FlashSketchResponse);
+}
+
+message FlashSketchRequest {
+    oneof request_type {
+        ArduinoSketchSpec spec = 1;
+        Chunk chunk = 2;
+    }
+    message Chunk { bytes data = 1; }
+}
+
+message ArduinoSketchSpec {
+    string layout = 1;          // a layout the agent advertises as mcu-flash:<layout>
+    ArduinoImage loader = 2;
+    ArduinoImage sketch = 3;
+    string app_id = 4;
+}
+
+message ArduinoImage {
+    uint64 size = 1;
+    string sha256 = 2;          // lowercase hex
+}
+
+message FlashSketchResponse {
+    oneof response_type {
+        Progress progress = 1;
+        Completed completed = 2;
+        Failed failed = 3;
+    }
+    message Progress { string phase = 1; string log_line = 2; }
+    message Completed {
+        bool loader_written = 1;
+        bool sketch_written = 2;
+        bool router_active = 3;
+        string previous_app_id = 4;
+    }
+    message Failed { string error_message = 1; }
+}
