@@ -84,7 +84,11 @@ def load(path):
         except ImportError:
             raise Error('install runner dependencies: python3 -m pip install -r ' +
                         str(Path(__file__).with_name('contracts-requirements.txt'))) from None
-        required = Path(__file__).with_name('contracts-requirements.txt').read_text().strip().split('==')[1]
+        requirements = Path(__file__).with_name('contracts-requirements.txt').read_text()
+        pins = re.findall(r'^PyYAML==([^\s\\]+)[ \t]*(?:\\)?[ \t]*$', requirements, re.MULTILINE)
+        if len(pins) != 1:
+            raise Error('canonical requirements must contain one PyYAML==version line')
+        required = pins[0]
         if importlib.metadata.version('PyYAML') != required:
             raise Error(f'runner requires PyYAML {required}')
         class UniqueLoader(yaml.SafeLoader):

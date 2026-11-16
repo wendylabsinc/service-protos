@@ -521,6 +521,37 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     spec = importlib.util.spec_from_file_location('contracts', HERE / 'contracts.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # Exercise startup against the actual continued hash lock, without a
+    # second version constant or a generalized requirements parser.
+    lock_probe = scratch / 'lock-probe'
+    lock_probe.mkdir()
+    probe_yaml = lock_probe / 'probe.yaml'
+    probe_yaml.write_text('value: valid\n')
+    probe_lock = lock_probe / 'contracts-requirements.txt'
+    canonical_lock = (HERE / 'contracts-requirements.txt').read_text()
+    with patch.object(module, '__file__', str(lock_probe / 'contracts.py')):
+        probe_lock.write_text(canonical_lock)
+        assert module.load(probe_yaml) == {'value': 'valid'}
+        cases += 1
+        print(f'ok {cases}: startup reads the exact version from the canonical continued hash lock', flush=True)
+        for content, diagnostic in (
+                ('--require-hashes\n', 'one PyYAML==version line'),
+                ('PyYAML>=6.0.3\n', 'one PyYAML==version line'),
+                (canonical_lock + '\nPyYAML==6.0.3\n', 'one PyYAML==version line'),
+                ('PyYAML==0.0\n', 'runner requires PyYAML 0.0'),
+                (None, 'contracts-requirements.txt')):
+            if content is None:
+                probe_lock.unlink()
+            else:
+                probe_lock.write_text(content)
+            try:
+                module.load(probe_yaml)
+            except module.Error as error:
+                assert diagnostic in str(error), str(error)
+            else:
+                raise AssertionError('invalid dependency lock accepted')
+            cases += 1
+            print(f'ok {cases}: invalid dependency lock fails with {diagnostic}', flush=True)
     platform_tool = {'expect_by_platform': {'darwin': 'libprotoc 36.2', 'linux': 'libprotoc 3.12.4'}}
     for platform, version in platform_tool['expect_by_platform'].items():
         with patch.object(module.sys, 'platform', platform):
