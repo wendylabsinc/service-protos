@@ -49,6 +49,7 @@ lint:
       - wendy/agent/services/v2/agent_update_service.proto
       - wendy/agent/services/v2/audio_service.proto
       - wendy/agent/services/v2/bluetooth_service.proto
+      - wendy/agent/services/v2/build_delivery_service.proto
       - wendy/agent/services/v2/build_service.proto
       - wendy/agent/services/v2/calibrated_frame_service.proto
       - wendy/agent/services/v2/container_service.proto
