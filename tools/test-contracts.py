@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -215,6 +216,18 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
         invoke(['generate'], 'version mismatch')
         write_config(cfg)
         lock.unlink()
+        platform_cfg = json.loads(json.dumps(cfg))
+        expected_buf = platform_cfg['tools'][0].pop('expect')
+        platform_cfg['tools'][0]['expect_by_platform'] = {'darwin': expected_buf, 'linux': expected_buf}
+        write_config(platform_cfg)
+        invoke(['check'])
+        platform_cfg['tools'][0]['expect_by_platform'][sys.platform] = '0.0'
+        write_config(platform_cfg)
+        invoke(['generate'], 'version mismatch')
+        platform_cfg['tools'][0]['expect'] = expected_buf
+        write_config(platform_cfg)
+        invoke(['generate'], 'exactly one version source')
+        write_config(cfg)
         # A local generated input is explicit twice: an import declaration and
         # a literal exception. Reuse a real schema instead of a mock generator.
         local_input = consumer / 'local/authorization.proto'
@@ -318,6 +331,19 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
         exception_file.unlink()
     else:
         exception_file.write_bytes(original_exceptions)
+    # The actual parser must reject duplicate entries rather than silently
+    # replacing a reviewed exception reason. YAML options are unique too.
+    local.write_bytes((source / 'authorization.proto').read_bytes())
+    exception_file.write_text('local/authorization.proto: first reason\nlocal/authorization.proto: duplicate reason\n')
+    invoke(['check', '--sources-only'], 'duplicate key')
+    local.unlink()
+    if original_exceptions is None:
+        exception_file.unlink()
+    else:
+        exception_file.write_bytes(original_exceptions)
+    (consumer / 'buf.gen.yaml').write_bytes(original_template + b'\nversion: v2\n')
+    invoke(['generate'], 'duplicate key')
+    (consumer / 'buf.gen.yaml').write_bytes(original_template)
     write_config(dict(cfg, fixtures={'conformance/set/set-vectors-v1.json': 'contracts-exceptions.yaml'}))
     invoke(['generate'], 'overlap configuration')
     write_config(cfg)
@@ -331,17 +357,69 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     fixture.write_bytes(b'{}\n')
     invoke(['check'], 'changed: test-fixtures/set.json')
     invoke(['generate'])
+    # The fixture path needs only Git and the runner, never Buf/protoc/plugins.
+    minimal_bin = scratch / 'git-only-bin'
+    minimal_bin.mkdir()
+    for name in ('bash', 'git', 'mktemp', 'rm', 'dirname'):
+        (minimal_bin / name).symlink_to(shutil.which(name))
+    # Preserve the real interpreter's venv instead of relocating its symlink.
+    (minimal_bin / 'python3').write_text('#!/bin/bash\nexec ' + shlex.quote(sys.executable) + ' "$@"\n')
+    (minimal_bin / 'python3').chmod(0o755)
+    full_path = env['PATH']
+    expected_fixture = fixture.read_bytes()
+    fixture.write_bytes(b'stale fixture')
+    generated.write_bytes(saved + b'\n// preserve stale generated output\n')
+    try:
+        env['PATH'] = str(minimal_bin)
+        assert shutil.which('buf', path=env['PATH']) is None
+        assert shutil.which('protoc', path=env['PATH']) is None
+        invoke(['generate', '--fixtures-only'])
+        assert fixture.read_bytes() == expected_fixture
+        assert generated.read_bytes() == saved + b'\n// preserve stale generated output\n'
+        assert (consumer / 'contracts.json').read_bytes() == (json.dumps(fixture_cfg, indent=2) + '\n').encode()
+        invoke(['check', '--sources-only'])
+        (consumer / 'buf.gen.yaml').unlink()
+        invoke(['check', '--pin-only'])
+        (consumer / 'buf.gen.yaml').write_bytes(original_template)
+    finally:
+        env['PATH'] = full_path
+        (consumer / 'buf.gen.yaml').write_bytes(original_template)
+        generated.write_bytes(saved)
     write_config(cfg)
     fixture.unlink()
     bad_fixture = dict(cfg, fixtures={'conformance/absent.json': 'test-fixtures/set.json'})
     write_config(bad_fixture)
     invoke(['generate'], 'git failed')
     invoke(['bump', cfg['commit']], 'git failed')
+    fixture.write_bytes(b'current fixture must survive')
+    invoke(['generate', '--fixtures-only'], 'git failed')
+    assert fixture.read_bytes() == b'current fixture must survive'
+    fixture.unlink()
     write_config(cfg)
     invoke(['bump', branch_only], 'not an ancestor')
     changed_pin = dict(cfg, commit=branch_only)
     write_config(changed_pin)
     invoke(['check'], 'not an ancestor')
+    copy = consumer / 'copied/renamed.proto'
+    copy.parent.mkdir()
+    copy.write_bytes((source / 'authorization.proto').read_bytes())
+    generated.unlink()
+    output = invoke(['check'], 'not an ancestor')
+    assert 'sources: local shared schema copy or alias: copied/renamed.proto' in output
+    assert 'missing: ' + generated.relative_to(consumer).as_posix() in output
+    assert 'drift: shared generated output or fixtures drifted' in output
+    invoke(['generate'], 'not an ancestor')
+    invoke(['bump', branch_only], 'not an ancestor')
+    try:
+        env['PATH'] = str(minimal_bin)
+        invoke(['check', '--sources-only'], 'local shared schema copy or alias')
+        copy.unlink()
+        invoke(['check', '--sources-only'])
+        invoke(['check', '--pin-only'], 'not an ancestor')
+    finally:
+        env['PATH'] = full_path
+        copy.unlink(missing_ok=True)
+        generated.write_bytes(saved)
     write_config(cfg)
     bad = dict(cfg, paths=[*cfg['paths'], 'missing.proto'])
     write_config(bad)
@@ -389,18 +467,19 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     invoke(['generate'], 'unsafe relative path')
     write_config(cfg)
     if not args.consumer:
-        # Only current-master export fails; the older pin remains fetchable and
-        # valid. Policy acquisition must never fall back to the pinned catalogue.
-        config_path = source / 'buf.yaml'
-        old_config = config_path.read_bytes()
-        config_path.write_text('version: invalid\n')
-        git('add', 'buf.yaml', cwd=source)
+        # Only the current-master catalogue is unsafe; the older pin remains
+        # valid. Policy acquisition must never fall back to the pinned catalogue,
+        # while the independent pinned drift check still produces its signal.
+        unsafe_schema = source / 'unsafe-policy.proto'
+        unsafe_schema.symlink_to('authorization.proto')
+        git('add', unsafe_schema.name, cwd=source)
         git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
-            'commit', '-q', '-m', 'Fail current policy export control', cwd=source)
-        invoke(['check'], 'buf failed')
-        invoke(['generate'], 'buf failed')
-        config_path.write_bytes(old_config)
-        git('add', 'buf.yaml', cwd=source)
+            'commit', '-q', '-m', 'Unsafe current policy catalogue control', cwd=source)
+        output = invoke(['check'], 'unsafe shared schema archive entry')
+        assert 'generated output and fixtures check succeeded' in output
+        invoke(['generate'], 'unsafe shared schema archive entry')
+        unsafe_schema.unlink()
+        git('add', '-u', cwd=source)
         git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
             'commit', '-q', '-m', 'Restore valid policy export', cwd=source)
     # All fetches fail through real Git, without a mock returning success.
@@ -408,6 +487,14 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     env[key] = f'url.file://{scratch / "unavailable"}.insteadOf'
     invoke(['generate'], 'git failed')
     invoke(['bump', cfg['commit']], 'git failed')
+    write_config(fixture_cfg)
+    fixture.write_bytes(b'fixture before network failure')
+    invoke(['generate', '--fixtures-only'], 'git failed')
+    assert fixture.read_bytes() == b'fixture before network failure'
+    fixture.unlink()
+    write_config(cfg)
+    invoke(['check', '--sources-only'], 'git failed')
+    invoke(['check', '--pin-only'], 'git failed')
     env[key] = f'url.file://{source}.insteadOf'
     invoke(['bump', cfg['commit']])
     invoke(['check'])
@@ -434,6 +521,19 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     spec = importlib.util.spec_from_file_location('contracts', HERE / 'contracts.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    platform_tool = {'expect_by_platform': {'darwin': 'libprotoc 36.2', 'linux': 'libprotoc 3.12.4'}}
+    for platform, version in platform_tool['expect_by_platform'].items():
+        with patch.object(module.sys, 'platform', platform):
+            assert module.tool_version(consumer, platform_tool) == version
+    with patch.object(module.sys, 'platform', 'unknown-os'):
+        try:
+            module.tool_version(consumer, platform_tool)
+        except module.Error as error:
+            assert 'no exact tool version declared for platform' in str(error)
+        else:
+            raise AssertionError('unknown platform version was accepted')
+    cases += 1
+    print(f'ok {cases}: exact platform versions preserve macOS/Linux assertions and reject unknown platforms', flush=True)
     identity_source = b'syntax="proto3"; package example.api; message Value {string x=1;} option java_package="https://host/a/*literal*///path";'
     identity_formatted = b"/* comment */ syntax = 'proto3' ; package example . api ; // comment\nmessage /* gap */ Value { string x = 1 ; } option java_package = \"https://host/a/*literal*///path\" ;"
     assert module.schema_identity(identity_source) == module.schema_identity(identity_formatted)

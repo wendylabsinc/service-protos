@@ -2,6 +2,7 @@
 """Pinned shared generation. Config: contracts.json, buf.gen.yaml, optional contracts-exceptions.yaml.
 
 Run from the consumer root: contracts.sh check | generate | bump <fullsha>.
+check accepts --pin-only or --sources-only; generate accepts --fixtures-only.
 plugin_paths optionally selects declared source paths per plugin, in Buf order.
 Local generated inputs must also be declared imports and literal exceptions.
 contracts-exceptions.yaml maps exact local file paths to reasons (no wildcards).
@@ -14,6 +15,7 @@ There are deliberately no install commands, arbitrary hooks, or implicit cleanin
 from contextlib import contextmanager
 import fnmatch
 import hashlib
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -24,6 +26,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import tarfile
 
 SOURCE = 'https://github.com/wendylabsinc/service-protos.git'
 # Keep credential configuration (including scoped HTTP headers) in the environment.
@@ -84,8 +87,20 @@ def load(path):
         required = Path(__file__).with_name('contracts-requirements.txt').read_text().strip().split('==')[1]
         if importlib.metadata.version('PyYAML') != required:
             raise Error(f'runner requires PyYAML {required}')
+        class UniqueLoader(yaml.SafeLoader):
+            def construct_mapping(self, node, deep=False):
+                mapping = super().construct_mapping(node, deep=deep)
+                seen = set()
+                for key_node, _ in node.value:
+                    key = self.construct_object(key_node, deep=deep)
+                    if key in seen:
+                        raise yaml.constructor.ConstructorError(
+                            'while constructing a mapping', node.start_mark,
+                            f'duplicate key {key!r}', key_node.start_mark)
+                    seen.add(key)
+                return mapping
         try:
-            return yaml.safe_load(path.read_text())
+            return yaml.load(path.read_text(), Loader=UniqueLoader)
         except yaml.YAMLError as e:
             raise Error(f'invalid YAML in {path.name}: {e}') from None
     except (ValueError, OSError) as e:
@@ -95,6 +110,14 @@ def load(path):
 def tool_version(root, tool):
     if 'expect' in tool:
         return tool['expect']
+    if 'expect_by_platform' in tool:
+        versions = tool['expect_by_platform']
+        if not isinstance(versions, dict) or not versions or set(versions) - {'darwin', 'linux'} or any(
+                not isinstance(v, str) or not v for v in versions.values()):
+            raise Error('expect_by_platform must map darwin/linux to exact version strings')
+        if sys.platform not in versions:
+            raise Error(f'no exact tool version declared for platform: {sys.platform}')
+        return versions[sys.platform]
     path = safe(root, tool['lockfile'])
     if path.name == 'uv.lock':
         import tomllib
@@ -159,12 +182,12 @@ def validate(root, cfg, template, exceptions):
         raise Error('tools must enforce the existing exact tool versions')
     checked = []
     for tool in cfg['tools']:
-        fields(tool, ('command', 'expect', 'lockfile', 'package', 'prefix', 'executable'), ('command',))
-        if ('expect' in tool) == ('lockfile' in tool):
-            raise Error('tool needs exactly one version source: expect or lockfile')
+        fields(tool, ('command', 'expect', 'expect_by_platform', 'lockfile', 'package', 'prefix', 'executable'), ('command',))
+        if sum(key in tool for key in ('expect', 'lockfile', 'expect_by_platform')) != 1:
+            raise Error('tool needs exactly one version source: expect, lockfile or expect_by_platform')
         if 'lockfile' in tool and 'package' not in tool:
             raise Error('lockfile version check needs a package name')
-        if not isinstance(tool['command'], list) or not tool['command'] or not tool_version(root, tool):
+        if not isinstance(tool['command'], list) or not tool['command']:
             raise Error('tool requires a version command and exact expected stdout')
         checked.append(tool.get('executable', tool['command'][0]))
     if cfg.get('compiler') and cfg['compiler'] not in checked:
@@ -378,7 +401,7 @@ def collect_output(source, destination, written):
             shutil.copyfile(path, dst)
 
 
-def prepare(root, cfg, template, scratch, revision, exceptions):
+def fetch_policy(scratch):
     # Fetch checker policy independently of the immutable schema pin. Reuse its
     # ancestry policy verbatim; do not reimplement merge-base checks here.
     policy = scratch / 'policy'
@@ -389,19 +412,43 @@ def prepare(root, cfg, template, scratch, revision, exceptions):
     if not checker.strip():
         raise Error('canonical pin checker is empty')
     (scratch / 'check-pin.sh').write_bytes(checker)
-    run(['bash', str(scratch / 'check-pin.sh'), revision])
+    return policy, policy_revision
+
+
+def check_sources(root, cfg, scratch, revision, exceptions, policy, policy_revision):
+    # A cheap guard needs Git and the runner, not Buf or language generators.
+    # Both identities come from actual Git objects, with no pinned-policy fallback.
+    run(['git', '-C', str(policy), 'fetch', '--quiet', '--no-tags', SOURCE,
+         '+refs/heads/*:refs/remotes/source/*', revision])
+    catalogues = []
+    for index, commit in enumerate((policy_revision, revision)):
+        catalogue = scratch / f'git-catalogue-{index}'
+        data = run(['git', '-C', str(policy), 'archive', '--format=tar', commit, '*.proto'], capture=True)
+        with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+            for member in archive:
+                if member.isdir():
+                    continue
+                if not member.isfile():
+                    raise Error(f'unsafe shared schema archive entry: {member.name}')
+                path = safe(catalogue, member.name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.extractfile(member) as stream:
+                    path.write_bytes(stream.read())
+        catalogues.append(catalogue)
+    source_guard(root, cfg, catalogues, exceptions)
+
+
+def prepare(root, cfg, template, scratch, revision):
     for tool in cfg['tools']:
-        actual = run(tool['command'], cwd=root, capture=True).decode().strip()
         expected_version = tool_version(root, tool)
+        if not isinstance(expected_version, str) or not expected_version:
+            raise Error('tool requires an exact expected version stdout')
+        actual = run(tool['command'], cwd=root, capture=True).decode().strip()
         if actual != expected_version:
             raise Error(f'{Path(tool["command"][0]).name} version mismatch: expected {expected_version!r}, found {actual!r}')
     catalogue = scratch / 'catalogue'
     run(['buf', 'export', f'{SOURCE}#ref={revision}', '--output', str(catalogue)])
-    # Copy policy follows the same current master snapshot as the checker.
-    # Generation, local staging and fixtures still use only the immutable pin.
-    policy_catalogue = scratch / 'policy-catalogue'
-    run(['buf', 'export', f'{SOURCE}#ref={policy_revision}', '--output', str(policy_catalogue)])
-    source_guard(root, cfg, (policy_catalogue, catalogue), exceptions)
+    # Generation, local staging and fixtures use only the immutable pin.
     selected = scratch / 'selected'
     run(['buf', 'export', f'{SOURCE}#ref={revision}', '--output', str(selected),
          '--exclude-imports', *[a for p in cfg['paths'] for a in ('--path', p)]])
@@ -540,26 +587,39 @@ def prepare(root, cfg, template, scratch, revision, exceptions):
         if destination in expected:
             raise Error('Cloud signed methods overlaps plugin output')
         expected[destination] = safe(mirror, destination).read_bytes()
+    for dst, data in read_fixtures(cfg, scratch, revision).items():
+        if dst in expected:
+            raise Error(f'fixture overlaps generated output: {dst}')
+        expected[dst] = data
+    return expected
+
+
+def read_fixtures(cfg, scratch, revision):
+    expected = {}
     if cfg.get('fixtures'):
         repo = scratch / 'fixtures.git'
         run(['git', 'init', '--bare', '--quiet', str(repo)])
         run(['git', '-C', str(repo), 'fetch', '--quiet', '--no-tags', SOURCE,
              '+refs/heads/*:refs/remotes/source/*', revision])
         for src, dst in cfg['fixtures'].items():
-            if dst in expected:
-                raise Error(f'fixture overlaps generated output: {dst}')
             expected[dst] = run(['git', '-C', str(repo), 'show', f'{revision}:{src}'], capture=True)
     return expected
+
+
+def current_fixtures(root, cfg):
+    actual = {}
+    for dst in cfg.get('fixtures', {}).values():
+        path = safe(root, dst)
+        if path.exists():
+            actual[dst] = path.read_bytes()
+    return actual
 
 
 def current(root, cfg):
     actual = {}
     for out in cfg['outputs']:
         actual.update(owned(root, out))
-    for dst in cfg.get('fixtures', {}).values():
-        path = safe(root, dst)
-        if path.exists():
-            actual[dst] = path.read_bytes()
+    actual.update(current_fixtures(root, cfg))
     if cfg.get('cloud_signed_methods'):
         destination = 'swift/Sources/Proto/SignedRequestMethods.swift'
         path = safe(root, destination)
@@ -654,41 +714,92 @@ def install(root, expected, actual):
             raise
 
 
+def compare(expected, actual):
+    changes = sorted(p for p in actual.keys() | expected.keys() if actual.get(p) != expected.get(p))
+    if changes:
+        for p in changes:
+            kind = 'missing' if p not in actual else 'extra' if p not in expected else 'changed'
+            print(f'{kind}: {p}', file=sys.stderr)
+        raise Error('shared generated output or fixtures drifted')
+
+
+def check_all(root, cfg, template, scratch, revision, exceptions):
+    # These are independent diagnostics. Nothing is installed by check, even
+    # when a rejected pin or local copy still permits scratch regeneration.
+    errors = []
+    policy_revision = None
+    try:
+        policy, policy_revision = fetch_policy(scratch)
+    except (Error, OSError) as error:
+        errors.extend((f'pin: {error}', f'sources: authoritative policy unavailable: {error}'))
+    else:
+        try:
+            run(['bash', str(scratch / 'check-pin.sh'), revision])
+        except (Error, OSError) as error:
+            errors.append(f'pin: {error}')
+        try:
+            check_sources(root, cfg, scratch, revision, exceptions, policy, policy_revision)
+            print('shared sources check succeeded')
+        except (Error, OSError) as error:
+            errors.append(f'sources: {error}')
+    try:
+        expected = prepare(root, cfg, template, scratch, revision)
+        compare(expected, current(root, cfg))
+        print('generated output and fixtures check succeeded')
+    except (Error, OSError) as error:
+        errors.append(f'drift: {error}')
+    if errors:
+        raise Error('\n'.join(errors))
+
+
 def main():
-    if len(sys.argv) not in (2, 3) or sys.argv[1] not in ('check', 'generate', 'bump') or (
-            (sys.argv[1] == 'bump') != (len(sys.argv) == 3)):
-        raise Error('usage: contracts.sh check | generate | bump <full-40-hex-sha>')
+    command = sys.argv[1] if len(sys.argv) > 1 else ''
+    option = sys.argv[2] if len(sys.argv) == 3 else ''
+    if len(sys.argv) not in (2, 3) or command not in ('check', 'generate', 'bump') or (
+            command == 'check' and option not in ('', '--pin-only', '--sources-only')) or (
+            command == 'generate' and option not in ('', '--fixtures-only')) or (
+            command == 'bump' and not option):
+        raise Error('usage: contracts.sh check [--pin-only|--sources-only] | generate [--fixtures-only] | bump <full-40-hex-sha>')
     root = Path.cwd().resolve()
     pin = safe(root, 'contracts.json')
     cfg = load(pin)
     try:
-        template = load(safe(root, 'buf.gen.yaml'))
-        exception_file = safe(root, 'contracts-exceptions.yaml')
-        exceptions = (load(exception_file) or {}) if exception_file.exists() else {}
-        if not isinstance(exceptions, dict):
-            raise Error('contracts-exceptions.yaml must map literal paths to reasons')
-        validate(root, cfg, template, exceptions)
-        revision = sys.argv[2] if sys.argv[1] == 'bump' else cfg['commit']
+        revision = option if command == 'bump' else cfg['commit']
         if not re.fullmatch('[0-9a-f]{40}', revision):
-            raise Error('bump requires a full lowercase 40-hex SHA')
+            raise Error('commit must be a full lowercase 40-hex SHA')
+        if option != '--pin-only':
+            template = load(safe(root, 'buf.gen.yaml'))
+            exception_file = safe(root, 'contracts-exceptions.yaml')
+            exceptions = (load(exception_file) or {}) if exception_file.exists() else {}
+            if not isinstance(exceptions, dict):
+                raise Error('contracts-exceptions.yaml must map literal paths to reasons')
+            validate(root, cfg, template, exceptions)
         with tempfile.TemporaryDirectory(prefix='contracts-') as tmp:
-            expected = prepare(root, cfg, template, Path(tmp), revision, exceptions)
-            actual = current(root, cfg)
-            if sys.argv[1] == 'check':
-                changes = sorted(p for p in actual.keys() | expected.keys() if actual.get(p) != expected.get(p))
-                if changes:
-                    for p in changes:
-                        kind = 'missing' if p not in actual else 'extra' if p not in expected else 'changed'
-                        print(f'{kind}: {p}', file=sys.stderr)
-                    raise Error('shared generated output or fixtures drifted')
+            scratch = Path(tmp)
+            if command == 'check' and not option:
+                check_all(root, cfg, template, scratch, revision, exceptions)
             else:
-                if sys.argv[1] == 'bump':
-                    cfg['commit'] = revision
-                    expected['contracts.json'] = (json.dumps(cfg, indent=2) + '\n').encode()
-                install(root, expected, actual)
+                policy, policy_revision = fetch_policy(scratch)
+                if option != '--sources-only':
+                    run(['bash', str(scratch / 'check-pin.sh'), revision])
+                if option != '--pin-only':
+                    check_sources(root, cfg, scratch, revision, exceptions, policy, policy_revision)
+                if command != 'check':
+                    if option == '--fixtures-only':
+                        if not cfg.get('fixtures'):
+                            raise Error('no fixtures declared in contracts.json')
+                        expected = read_fixtures(cfg, scratch, revision)
+                        actual = current_fixtures(root, cfg)
+                    else:
+                        expected = prepare(root, cfg, template, scratch, revision)
+                        actual = current(root, cfg)
+                    if command == 'bump':
+                        cfg['commit'] = revision
+                        expected['contracts.json'] = (json.dumps(cfg, indent=2) + '\n').encode()
+                    install(root, expected, actual)
     except (Error, OSError) as e:
         raise Error(f'{e}\nRepair from the consumer root: {cfg.get("repair", "bash Scripts/contracts.sh generate")}') from None
-    print(f'contracts {sys.argv[1]} succeeded at {revision}')
+    print(f'contracts {command}{" " + option if option.startswith("--") else ""} succeeded at {revision}')
 
 
 if __name__ == '__main__':
