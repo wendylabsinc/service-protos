@@ -2,7 +2,7 @@ name: buf
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [main]
 jobs:
   buf:
     runs-on: ubuntu-latest
@@ -47,7 +47,7 @@ jobs:
           done
           buf lint "${lint_args[@]}"
       # Breaking-change guard for ALL cross-service protos — the drift guard,
-      # caught in one place. Runs on PRs against master.
-      - name: Breaking change check (vs master)
+      # caught in one place. Runs on PRs against main.
+      - name: Breaking change check (vs main)
         if: github.event_name == 'pull_request'
-        run: buf breaking --against "https://github.com/wendylabsinc/service-protos.git#branch=master"
+        run: buf breaking --against "https://github.com/wendylabsinc/service-protos.git#branch=main"

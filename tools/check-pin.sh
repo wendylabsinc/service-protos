@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify a schema pin against authoritative master, independent of caller refs.
+# Verify a schema pin against authoritative main, independent of caller refs.
 set -euo pipefail
 
 if [[ $# -ne 1 || ! "${1:-}" =~ ^[0-9a-f]{40}$ ]]; then
@@ -19,16 +19,16 @@ git init --bare --quiet "$scratch" || {
     echo "error: could not initialize temporary repository for pin verification" >&2
     exit 1
 }
-# Fetch complete master history. Fetch the pin too so an existing branch-only
+# Fetch complete main history. Fetch the pin too so an existing branch-only
 # commit fails the ancestry check rather than merely appearing to be unknown.
 git -C "$scratch" fetch --quiet --no-tags --no-auto-maintenance --filter=blob:none \
     https://github.com/wendylabsinc/service-protos.git \
-    '+refs/heads/master:refs/heads/master' "$pin:refs/heads/contract-pin" || {
-    echo "error: could not fetch service-protos master and pinned commit $pin" >&2
+    '+refs/heads/main:refs/heads/main' "$pin:refs/heads/contract-pin" || {
+    echo "error: could not fetch service-protos main and pinned commit $pin" >&2
     exit 1
 }
-git -C "$scratch" merge-base --is-ancestor "$pin" refs/heads/master || {
-    echo "error: shared contract pin $pin is not an ancestor of service-protos master, or ancestry could not be verified" >&2
+git -C "$scratch" merge-base --is-ancestor "$pin" refs/heads/main || {
+    echo "error: shared contract pin $pin is not an ancestor of service-protos main, or ancestry could not be verified" >&2
     exit 1
 }
-echo "Verified shared contract pin $pin on service-protos master"
+echo "Verified shared contract pin $pin on service-protos main"
