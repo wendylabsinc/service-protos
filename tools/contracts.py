@@ -406,7 +406,7 @@ def fetch_policy(scratch):
     # ancestry policy verbatim; do not reimplement merge-base checks here.
     policy = scratch / 'policy'
     run(['git', 'init', '--bare', '--quiet', str(policy)])
-    run(['git', '-C', str(policy), 'fetch', '--quiet', '--depth=1', '--no-tags', SOURCE, 'master'])
+    run(['git', '-C', str(policy), 'fetch', '--quiet', '--depth=1', '--no-tags', SOURCE, 'main'])
     policy_revision = run(['git', '-C', str(policy), 'rev-parse', 'FETCH_HEAD'], capture=True).decode().strip()
     checker = run(['git', '-C', str(policy), 'show', f'{policy_revision}:tools/check-pin.sh'], capture=True)
     if not checker.strip():

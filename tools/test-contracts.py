@@ -58,12 +58,12 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
         shutil.copytree(args.consumer, consumer, ignore=shutil.ignore_patterns('.git', '.build', 'Build'))
         cfg = json.loads((consumer / 'contracts.json').read_text())
         git('init', '-q', '--initial-branch=initial', str(source))
-        git('fetch', '-q', str(args.source.resolve()), 'refs/remotes/origin/master:refs/heads/master', cfg['commit'], cwd=source)
-        git('checkout', '-q', 'master', cwd=source)
+        git('fetch', '-q', str(args.source.resolve()), 'refs/remotes/origin/main:refs/heads/main', cfg['commit'], cwd=source)
+        git('checkout', '-q', 'main', cwd=source)
     else:
         # Real schemas and vectors from this PR, real Git graph, real Buf and
         # protoc. No network, external consumer checkout or machine paths.
-        git('init', '-q', '--initial-branch=master', str(source))
+        git('init', '-q', '--initial-branch=main', str(source))
         entries = git('ls-files', cwd=args.source).splitlines()
         for rel in entries:
             if rel.endswith('.proto') or rel in ('buf.yaml', 'tools/check-pin.sh', 'conformance/set/set-vectors-v1.json'):
@@ -104,19 +104,19 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     env['GIT_CONFIG_COUNT'] = str(count + 2)
     if not args.consumer:
         # Master gains a real-schema-derived identity after the consumer pin.
-        # Keep generation pinned while testing policy against current master.
+        # Keep generation pinned while testing policy against current main.
         policy_schema = source / 'policy_new.proto'
         policy_schema.write_bytes(b'// Master-only policy fixture.\n' +
             (source / 'authorization.proto').read_bytes().replace(
                 b'package wendycloud.v1;', b'package contracts.runner.policy;', 1))
         git('add', policy_schema.name, cwd=source)
         git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
-            'commit', '-q', '-m', 'Add master-only policy identity', cwd=source)
+            'commit', '-q', '-m', 'Add main-only policy identity', cwd=source)
     git('checkout', '-q', '-b', 'branch-only', cfg['commit'], cwd=source)
     git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
         'commit', '-q', '--allow-empty', '-m', 'Unmerged control', cwd=source)
     branch_only = git('rev-parse', 'HEAD', cwd=source)
-    git('checkout', '-q', 'master', cwd=source)
+    git('checkout', '-q', 'main', cwd=source)
     cases = 0
 
     def write_config(value):
@@ -467,7 +467,7 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     invoke(['generate'], 'unsafe relative path')
     write_config(cfg)
     if not args.consumer:
-        # Only the current-master catalogue is unsafe; the older pin remains
+        # Only the current-main catalogue is unsafe; the older pin remains
         # valid. Policy acquisition must never fall back to the pinned catalogue,
         # while the independent pinned drift check still produces its signal.
         unsafe_schema = source / 'unsafe-policy.proto'
@@ -508,7 +508,7 @@ with tempfile.TemporaryDirectory(prefix='test-contracts-') as tmp:
     git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
         'commit', '-q', '-m', 'Generated drift control in disposable source', cwd=source)
     candidate = git('rev-parse', 'HEAD', cwd=source)
-    git('checkout', '-q', 'master', cwd=source)
+    git('checkout', '-q', 'main', cwd=source)
     git('-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
         'merge', '-q', '--no-ff', '-s', 'ours', 'generation-change', '-m', 'Merge control', cwd=source)
     write_config(dict(cfg, commit=candidate))
