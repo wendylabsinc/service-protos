@@ -17,21 +17,21 @@ commit() {
     git -C "$source_repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
         -c commit.gpgsign=false -c core.hooksPath=/dev/null commit --quiet --allow-empty -m "$1"
 }
-git init --quiet --initial-branch=master "$source_repo"
+git init --quiet --initial-branch=main "$source_repo"
 commit root
 root="$(git -C "$source_repo" rev-parse HEAD)"
 git -C "$source_repo" checkout --quiet -b merged
 commit merged
 merged="$(git -C "$source_repo" rev-parse HEAD)"
-git -C "$source_repo" checkout --quiet master
-commit master
+git -C "$source_repo" checkout --quiet main
+commit main
 git -C "$source_repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
     -c commit.gpgsign=false -c core.hooksPath=/dev/null merge --quiet --no-ff merged -m merge
-master="$(git -C "$source_repo" rev-parse HEAD)"
+main="$(git -C "$source_repo" rev-parse HEAD)"
 git -C "$source_repo" checkout --quiet -b branch-only "$root"
 commit unmerged
 branch_only="$(git -C "$source_repo" rev-parse HEAD)"
-git -C "$source_repo" checkout --quiet master
+git -C "$source_repo" checkout --quiet main
 git config --global "url.file://$source_repo.insteadOf" "$url"
 
 count=0
@@ -56,45 +56,45 @@ run_check() {
         exit 1
     fi
     count=$((count + 1))
-    echo "ok $count: $expected ${diagnostic:-pin on master}"
+    echo "ok $count: $expected ${diagnostic:-pin on main}"
 }
 
 # Independent acceptance and rejection assertions over the real merged graph.
 run_check pass '' "$merged"
 git -C "$source_repo" cat-file -e "$branch_only^{commit}"
-run_check fail 'is not an ancestor of service-protos master' "$branch_only"
+run_check fail 'is not an ancestor of service-protos main' "$branch_only"
 echo "Negative control: existing branch-only commit $branch_only rejected; merged ancestor $merged accepted"
-run_check pass '' "$master"
+run_check pass '' "$main"
 
-# A shallow caller with misleading local master cannot influence verification.
+# A shallow caller with misleading local main cannot influence verification.
 git clone --quiet --depth=1 --branch branch-only "file://$source_repo" "$scratch/caller"
-git -C "$scratch/caller" branch master
+git -C "$scratch/caller" branch main
 cd "$scratch/caller"
 run_check pass '' "$root"
-run_check fail 'is not an ancestor of service-protos master' "$branch_only"
+run_check fail 'is not an ancestor of service-protos main' "$branch_only"
 caller_refs="$(git show-ref)"
 GIT_DIR="$scratch/caller/.git" GIT_WORK_TREE="$scratch/caller" run_check pass '' "$root"
 GIT_DIR="$scratch/caller/.git" GIT_WORK_TREE="$scratch/caller" \
-    run_check fail 'is not an ancestor of service-protos master' "$branch_only"
+    run_check fail 'is not an ancestor of service-protos main' "$branch_only"
 if [[ "$(git show-ref)" != "$caller_refs" ]]; then
     echo 'FAIL: checker changed caller refs' >&2
     exit 1
 fi
 
 run_check fail 'usage:'
-run_check fail 'usage:' "$master" extra
-run_check fail 'usage:' master
-run_check fail 'usage:' "${master:0:12}"
+run_check fail 'usage:' "$main" extra
+run_check fail 'usage:' main
+run_check fail 'usage:' "${main:0:12}"
 run_check fail 'usage:' 000000000000000000000000000000000000000g
 run_check fail 'usage:' ABCDEF0123456789ABCDEF0123456789ABCDEF01
-run_check fail 'could not fetch service-protos master and pinned commit' 0000000000000000000000000000000000000000
+run_check fail 'could not fetch service-protos main and pinned commit' 0000000000000000000000000000000000000000
 
-git -C "$source_repo" branch -m master other
-run_check fail 'could not fetch service-protos master and pinned commit' "$root"
-git -C "$source_repo" branch -m other master
+git -C "$source_repo" branch -m main other
+run_check fail 'could not fetch service-protos main and pinned commit' "$root"
+git -C "$source_repo" branch -m other main
 git config --global --unset "url.file://$source_repo.insteadOf"
 git config --global "url.file://$scratch/unavailable.insteadOf" "$url"
-run_check fail 'could not fetch service-protos master and pinned commit' "$root"
+run_check fail 'could not fetch service-protos main and pinned commit' "$root"
 git config --global --unset "url.file://$scratch/unavailable.insteadOf"
 git config --global "url.file://$source_repo.insteadOf" "$url"
 
@@ -114,7 +114,7 @@ export PATH="$scratch/bin:$PATH"
 export FAIL_GIT_OPERATION=init
 run_check fail 'could not initialize temporary repository' "$root"
 export FAIL_GIT_OPERATION=fetch
-run_check fail 'could not fetch service-protos master and pinned commit' "$root"
+run_check fail 'could not fetch service-protos main and pinned commit' "$root"
 export FAIL_GIT_OPERATION=merge-base
 run_check fail 'ancestry could not be verified' "$root"
 unset FAIL_GIT_OPERATION
