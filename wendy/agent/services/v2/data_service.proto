@@ -158,11 +158,6 @@ message DataEpisode {
   // How long it has captured, measured on the device's CLOCK_BOOTTIME so a
   // wrong wall clock cannot distort it. It stops growing when capture stops.
   int64 duration_nanos = 10;
-  // Finalized payload categories derived from manifest files, not requested sources.
-  // Stable values: video, image, audio, device_stats, events, robot_data.
-  repeated string content_types = 11;
-  // Distinguishes an empty summary from an older agent or an unfinished episode.
-  bool content_types_known = 12;
 }
 message DataStatusResponse {
   // One open episode: the ad-hoc one, else the earliest-started campaign
