@@ -23,10 +23,10 @@ message SensorFormat {
 // Absent on directly advertised channels and manifests from older agents.
 // This describes the authenticated immediate upstream pairing, not an identity
 // assertion supplied by the sensor itself. Receivers must not use it as a grant.
-message SensorOrigin {
+message SensorSource {
   // Stable pairing key: device SPIFFE principal, or "asset:<id>" for legacy
   // numeric pairings. Display names and forwarded routing IDs are not identities.
-  string source = 1;
+  string pairing_key = 1;
   uint32 channel_id = 2; // channel_id in the paired source's manifest; zero is valid
   uint32 input_id = 3;   // input_id in the paired source's manifest; zero is valid
 }
@@ -40,9 +40,9 @@ message SensorDescriptor {
     SensorFormat sensor = 6;
   }
   // The forwarding agent remaps channel_id/input_id for local routing, preserves
-  // the display name and format, and sets origin from the authenticated pairing.
-  // It must replace any upstream-provided origin rather than trusting it.
-  SensorOrigin origin = 7;
+  // the display name and format, and sets source from the authenticated pairing.
+  // It must replace any upstream-provided source rather than trusting it.
+  SensorSource source = 7;
 }
 message SensorManifest {
   repeated SensorDescriptor sensors = 1;
