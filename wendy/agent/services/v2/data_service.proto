@@ -158,6 +158,27 @@ message DataEpisode {
   // How long it has captured, measured on the device's CLOCK_BOOTTIME so a
   // wrong wall clock cannot distort it. It stops growing when capture stops.
   int64 duration_nanos = 10;
+  // Previously published category fields were reverted. Never reuse their tags.
+  reserved 11, 12;
+  reserved "content_types", "content_types_known";
+  // Saved-file metadata for finalized episodes. Absent on older agents and
+  // unfinished episodes; a present message with no files means known empty.
+  // This describes recorded files, not requested sources or successful playback.
+  DataEpisodeMedia media = 13;
+}
+
+// Projection of the existing manifest files; no new classification vocabulary.
+message DataEpisodeMedia {
+  repeated DataEpisodeFileMedia files = 1;
+}
+
+message DataEpisodeFileMedia {
+  // Relative path from the manifest, e.g. telemetry.jsonl. Metadata only:
+  // clients must use the authenticated file API and its path validation to read it.
+  string path = 1;
+  // MIME type copied from files[].media_type, e.g. video/mp4 or audio/wav.
+  // Empty means unspecified; clients may use a legacy inspection fallback.
+  string media_type = 2;
 }
 message DataStatusResponse {
   // One open episode: the ad-hoc one, else the earliest-started campaign
