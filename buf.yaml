@@ -60,6 +60,7 @@ lint:
       - wendy/agent/services/v2/local_mesh_admin_service.proto
       - wendy/agent/services/v2/mesh_service.proto
       - wendy/agent/services/v2/os_update_service.proto
+      - wendy/agent/services/v2/power_service.proto
       - wendy/agent/services/v2/provisioning_service.proto
       - wendy/agent/services/v2/robot_arm_service.proto
       - wendy/agent/services/v2/ros2_service.proto
