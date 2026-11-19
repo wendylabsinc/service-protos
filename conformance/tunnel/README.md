@@ -322,3 +322,28 @@ v1's always were.
 All private test material represented by the JSON is public fixture data. It
 MUST NOT be used for production, development credentials, examples that might be
 copied into a deployment, or any purpose beyond conformance testing.
+
+## Offer refusal (tunnel v2)
+
+`wendycloud.tunnel.v2` lets an agent refuse a session offer with a reason
+(`PresenceOfferRefusal`, `SessionRefused`); `wendycloud.tunnel.v1` has no such
+message. No vector covers it, because no signed or hashed input changes.
+Implementations must test these invariants before sending or serving it:
+
+- An agent sends a refusal only on a presence stream whose `PresenceAccepted`
+  set `offer_refusal_supported`. A broker without the message closes the stream
+  on it, so a missing flag means "do not send", never "try".
+- The broker accepts a refusal only from the proven owner of the session's
+  route, with the offer's exact `offer_id` and `session_id`, while the session
+  is `WAITING_FOR_ENDPOINTS`. Every other refusal is ignored and leaves the
+  stream open.
+- A refused session is `TERMINAL`: it is not redelivered, never becomes
+  `ACTIVE`, and its grant `jti` stays unconsumed.
+- The broker sends `SessionRefused` only to a caller whose `JoinProof` it has
+  verified, as the last message, and then ends the stream with
+  `FAILED_PRECONDITION`. It never sends it to the agent role.
+- The reason is one `SessionRefusalReason` value. Nothing else about the agent,
+  the target or the service crosses the broker, and an unknown value reads as
+  `SESSION_REFUSAL_REASON_UNSPECIFIED`.
+- A refusal grants nothing. A caller treats a refused session as one that was
+  never admitted.
