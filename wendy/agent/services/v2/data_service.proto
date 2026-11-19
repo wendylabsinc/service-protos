@@ -141,7 +141,7 @@ message DataEpisode {
   int64 started_unix_nanos = 4;
   int64 size_bytes = 5;
   string boot_id = 6;
-  // The fields below are set only on an episode listed in in_progress (see
+  // Fields 7–10 are set only on an episode listed in in_progress (see
   // DataStatusResponse). There, state is "recording", "draining" (capture has
   // stopped and the episode still accepts late application records) or
   // "sealing" (its files are being remuxed and checksummed), and size_bytes is
