@@ -130,7 +130,12 @@ message DataStartRequest {
 }
 message DataStopRequest {}
 message DataStatusRequest {}
-message DataEpisodesRequest {}
+message DataEpisodesRequest {
+  // Opt in to saved-file paths and MIME types for finalized episodes. Defaults
+  // to false so existing clients retain the compact list response. Older agents
+  // ignore this field; clients must handle absent media as unknown.
+  bool include_media = 1;
+}
 message DataInspectRequest { string episode = 1; bool verify = 2; }
 message DataDownloadRequest { string episode = 1; string path = 2; int64 offset = 3; }
 
@@ -161,8 +166,9 @@ message DataEpisode {
   // Previously published category fields were reverted. Never reuse their tags.
   reserved 11, 12;
   reserved "content_types", "content_types_known";
-  // Saved-file metadata for finalized episodes. Absent on older agents and
-  // unfinished episodes; a present message with no files means known empty.
+  // Saved-file metadata for finalized episodes when include_media is requested.
+  // Absent when not requested, on older agents, and on unfinished episodes;
+  // a present message with no files means known empty.
   // This describes recorded files, not requested sources or successful playback.
   DataEpisodeMedia media = 13;
 }
