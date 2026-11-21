@@ -194,7 +194,8 @@ service ArtifactRegistryService {
 // and carries the device's own wrap of that key. Rotation = a new assignment
 // per device at the new key id (Q6), at the same revision.
 //
-// The device's ordering rules (revisions; with UnassignDeviceRequest):
+// The device's ordering rules (revisions; with UnassignDeviceRequest and
+// DetachDeviceRequest):
 // - It keeps, per deployment_id, the highest revision it has accepted and
 //   whether that was a removal. It keeps that mark after a removal for at
 //   least the platform cap (1 year), persistently across restarts.
@@ -211,7 +212,9 @@ service ArtifactRegistryService {
 //   copy. The replaces_* checks below apply only above the mark.
 // - One instance per app: it refuses an assignment for app_id while it holds
 //   another live deployment of that app, unless that deployment is
-//   replaces_deployment_id.
+//   replaces_deployment_id. A detached deployment is not a held live
+//   deployment: a later deployment of an app with that id replaces the
+//   direct run.
 // - Never across apps: it refuses replaces_deployment_id naming a deployment
 //   it holds for a different app_id.
 message DeviceAssignment {
@@ -298,7 +301,8 @@ message UnassignDeviceRequest {
   // records it as a removal mark (DeviceAssignment rules); one equal to a
   // removal mark is a duplicate, consumed without effect; anything else is
   // refused. A terminal removal therefore always applies unless the
-  // deployment is already terminally removed.
+  // deployment is already terminally removed or detached; after a detach it
+  // is a duplicate that deletes nothing (DetachDeviceRequest).
   // valid_until: the client defaults it to iat + the platform cap (1 year),
   // and the tenant cap does not apply to removals
   // (conformance/postbox-entry/README.md).
@@ -307,6 +311,51 @@ message UnassignDeviceRequest {
 
 message UnassignDeviceResponse {
   int64 postbox_entry_id = 1;
+}
+
+// Detach one device from one deployment when the app is deleted (sem
+// 2026-11-12 21:19): the app is NOT removed. It stays on the device and
+// becomes a direct run, as if started with `wendy run`: no deployment behind
+// it, and controlled by whoever has access to the device (stop and start
+// remotely, remove locally). Signed by an operator who may delete the app,
+// for this one device; accepted only inside DeleteAppRequest.device_detachments
+// (DeploymentService.DetachDevice). Postbox-relayed verbatim to that device
+// only, `x5c` only. Its JWS `target.resource` is the deployment's, as for
+// UnassignDevice; the device binding is the payload's `device`, which the
+// device checks equals itself. Cloud never chooses who is detached.
+// What the device checks: the chain, signature, tenant and validity as for
+// every relayed statement; the target is this device; app_id is the app of
+// deployment_id if it holds that deployment.
+// What the device does, as one step:
+// - Records the maximum revision as a removal mark (the removal flag set)
+//   for deployment_id, exactly as a terminal removal, also when it does not
+//   hold that deployment, so nothing can re-attach it and a move into it is
+//   refused.
+// - If it holds the deployment: keeps what it last applied (the container,
+//   its imported release image, configuration and run state) and the
+//   deployment's restart behaviour (restarts on boot; stays stopped if it was
+//   stopped). A pull in progress stops, and that Assign entry reports
+//   SUPERSEDED. If nothing was imported, nothing stays. It drops the
+//   deployment key and its pull rights, and from then on treats and reports
+//   the app as a direct run.
+// - Reports the entry APPLIED.
+// - Whichever of a detach and a terminal removal for that deployment the
+//   device applies first wins. After a detach, a later terminal removal is a
+//   duplicate: consumed without effect, it deletes nothing. After a terminal
+//   removal, a later detach is a duplicate: consumed without effect.
+// The decrypted image and the configuration (which may hold secrets) stay at
+// rest on a detached device by design; the delete confirmation says so.
+message DetachDeviceRequest {
+  string organization_id = 1;
+  string deployment_id = 2;
+  // The target device's SPIFFE URI.
+  string device = 3;
+  string app_id = 4;
+  // Instruction validity, under the operator's signature
+  // (conformance/postbox-entry/README.md). The client defaults it to iat +
+  // the platform cap (1 year), and the tenant cap does not apply, as for
+  // removals.
+  google.protobuf.Timestamp valid_until = 5;
 }
 
 message PublishArtifactRequest {

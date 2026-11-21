@@ -86,13 +86,18 @@ service DeploymentService {
   // - never a device whose move out of this deployment has been recorded:
   //   the move statement is its removal;
   // By app_id it is a different list: before an app delete starts and while
-  // it runs, every device in the app's removal set that still lacks its
-  // terminal removal, across the app's deployments
-  // (DeleteAppRequest.device_removals). A client reads this before it sends
-  // its first DeleteApp batch. By app_id the read requires the right to
-  // delete the app, because the removal set can include devices the caller
-  // cannot otherwise see (removals inside an app delete are authorized by
-  // that right, not by device access).
+  // it runs, every device in the app's removal set that is not yet covered
+  // by a removal or a detach (DeleteAppRequest). A client reads this before
+  // it sends its first DeleteApp batch. By app_id the read requires the
+  // right to delete the app. The row kind says what the caller may sign:
+  // - KIND_UNASSIGN (maximum revision): the caller can reach the device.
+  //   Removal is the default; detach is the operator's choice per device.
+  // - KIND_DETACH: the caller cannot reach the device; detach only.
+  // A KIND_DETACH row is the only place a device the caller cannot otherwise
+  // see is listed. It is listed only because the app was sent to it (the
+  // removal set), and it reveals only `device` (its SPIFFE URI) and
+  // `device_display_name`: nothing else about it (no tags, site, hardware,
+  // address, last seen, other apps or reported state).
   rpc ListPendingDeviceStatements(ListPendingDeviceStatementsRequest) returns (ListPendingDeviceStatementsResponse);
 
   // ==================== Per-device statements ====================
@@ -122,6 +127,17 @@ service DeploymentService {
   // current revision.
   // Signed; payload_type "wendycloud.v2.UnassignDeviceRequest".
   rpc UnassignDevice(SignedRequest) returns (DeviceStatementResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Declared for its `operation` and payload type only: a DetachDeviceRequest
+  // is accepted only nested in DeleteAppRequest.device_detachments, and cloud
+  // refuses every direct call with FAILED_PRECONDITION ("DetachDevice is
+  // accepted only inside DeleteApp"). Postbox-relayed
+  // verbatim to the one device it names. Detach outside an app delete
+  // (for example with RemoveDeployment) is a follow-up, not part of this
+  // contract.
+  // Signed; payload_type "wendycloud.v2.DetachDeviceRequest".
+  rpc DetachDevice(SignedRequest) returns (DeviceStatementResponse) {
     option (wendy.signed_request) = true;
   }
 
@@ -385,7 +401,11 @@ message DeploymentChangeResponse {
 // RemoveDeployment or DeleteApp (terminal removal), which it requires there
 // and refuses anywhere else. It accepts replaces_* only when the operator set
 // move_devices and confirmed that device as being in that deployment of the
-// same app.
+// same app. In the by-app read it signs a removal for a KIND_UNASSIGN row by
+// default and a detach only for a device the operator chose to detach, and
+// only a detach for a KIND_DETACH row. When a device's row changes kind
+// between the read and the call, it asks the operator again before it signs
+// the other kind.
 message PendingDeviceStatement {
   enum Kind {
     KIND_UNSPECIFIED = 0;
@@ -393,6 +413,10 @@ message PendingDeviceStatement {
     // A device leaving the deployment, or the deployment being removed. Never
     // used for a move: a move is one KIND_ASSIGN with replaces_* set.
     KIND_UNASSIGN = 2;
+    // By-app read only: a device in the app's removal set the caller cannot
+    // reach. Only a DetachDeviceRequest can cover it. Its row has revision 0
+    // and empty replaces_*.
+    KIND_DETACH = 3;
   }
   Kind kind = 1;
   string deployment_id = 2;
@@ -406,6 +430,9 @@ message PendingDeviceStatement {
   // DeviceAssignment.replaces_deployment_id / replaces_revision.
   string replaces_deployment_id = 5;
   int32 replaces_revision = 6;
+  // The device's display name, so the operator knows which device it signs
+  // for. By-app read only.
+  string device_display_name = 7;
 }
 
 message ListDeploymentRevisionsRequest {
@@ -643,8 +670,8 @@ message AssetApp {
   // True exactly when cloud still needs any statement for this device for
   // deployment_id (9): it is in that deployment's pending list (same content
   // rule as ListPendingDeviceStatements, including a removal it is owed), or
-  // it still lacks the terminal removal an app delete owes it (the by-app
-  // list). Computed from the same record, so this list and both pending
+  // an app delete still has it uncovered, with neither a removal nor a detach
+  // received (the by-app list). Computed from the same record, so this list and both pending
   // reads never disagree.
   // Shown as "waiting for its instruction". Cloud-asserted display
   // information: nothing a device or client acts on, no authority, and never
@@ -654,6 +681,41 @@ message AssetApp {
   // runs without a deployment (run directly, or only reported: unassigned
   // (17)), and from a cloud that predates it.
   bool statement_pending = 19;
+  // Where a detach of this device stands after its app was deleted
+  // (DeleteAppRequest.device_detachments). Cloud-asserted display
+  // information, nothing a device or client acts on. UNSPECIFIED for every
+  // row that is not a detached app's, and from a cloud that predates it.
+  // Such a row belongs to the deleted app and its deleted deployment: it is
+  // never a deployment of a new app with the same id, and it ends when the
+  // device reports the app as a direct run (then an unassigned (17) row) or
+  // reports it gone.
+  DetachState detach_state = 20;
+}
+
+enum DetachState {
+  DETACH_STATE_UNSPECIFIED = 0;
+  // Cloud received the detach and queued it; the device has not applied it.
+  DETACH_STATE_SENT = 1;
+  // The device refused the detach, and its agent does not list DetachDevice
+  // in PullChangesRequest.accepted_operations (an agent that predates
+  // detach). A refusal is judged by the accepted_operations sent with the
+  // pull that delivered that entry, so an old agent's refusal that arrives
+  // after an upgraded agent's first pull is not taken as REFUSED. Cloud sends the detach again once each time the device's
+  // accepted_operations changes to include DetachDevice, until the device
+  // applies it or its validity ends. Until then the device keeps running the
+  // app as a deployment.
+  DETACH_STATE_WAITING_FOR_AGENT = 2;
+  // The detach's validity ended before the device applied it. The device
+  // keeps the deleted deployment, which blocks a new app with the same id
+  // there (one instance per app). There is no way out through cloud: the app
+  // is gone, so no new detach can be signed. The device owner removes the app
+  // locally, or resets the device.
+  DETACH_STATE_EXPIRED = 3;
+  // An agent that listed DetachDevice, in the pull that delivered the entry,
+  // refused the detach (its outcome is in `outcome` (16)). Final: no re-send. As with EXPIRED, there is no way out
+  // through cloud; the device owner removes the app locally or resets the
+  // device. Cloud's checks at accept make this rare.
+  DETACH_STATE_REFUSED = 4;
 }
 
 message ListAssetAppsResponse {
@@ -683,7 +745,8 @@ message AppDeviceState {
 
 message ListAppDeviceStatesResponse {
   // Ordered by asset_id. Only devices the caller may see: a hidden device is
-  // absent, and nothing counts it.
+  // absent, and nothing in this list counts it. (The by-app pending read,
+  // gated by the right to delete the app, is the one documented exception.)
   repeated AppDeviceState rows = 1;
   // Empty = the last page.
   string next_page_token = 2;
