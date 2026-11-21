@@ -68,13 +68,13 @@ detach and a terminal removal the device applies first wins; the later one is
 a duplicate that deletes nothing.
 
 An agent lists the relayed operations it accepts in
-`PullChangesRequest.accepted_operations`. An agent that does not know
-`DetachDevice` refuses it (REJECTED_TARGET) and keeps the app as a deployment
-(`DETACH_STATE_WAITING_FOR_AGENT`). Cloud keeps the accepted detach and sends
-it again once each time that list changes to include `DetachDevice`, until
-the device applies it or its validity ends. A refusal is judged by the list
-sent with the pull that delivered the entry: a refusal from an agent that
-listed `DetachDevice` there is final (`DETACH_STATE_REFUSED`).
+`PullChangesRequest.accepted_operations`. Cloud holds an accepted detach and
+delivers it only once the device's pull lists `DetachDevice`
+(`DETACH_STATE_WAITING_FOR_AGENT` until then: held, not refused). It does not
+re-send: an old agent moves past an entry it refuses and never asks for it
+again, so a detach is never delivered to one. Until delivery, or the end of
+the detach's validity, the device keeps the app as a deployment. A delivered
+detach that the device refuses is final (`DETACH_STATE_REFUSED`).
 
 Named limits:
 - A detach that expires or is refused before the device applies it leaves the

@@ -293,6 +293,24 @@ membership of (realm, sub) changed". **Transmitter = wendy-auth, receiver = clou
 | `cloud-membership-changed-iss-sub` | member realm | accept |
 | `cloud-membership-changed-system-issuer-reject` | system | reject |
 
+## Group membership removal (WDY-4292)
+
+Event-type `https://schemas.wendy.sh/secevent/group-membership-removed`, a Wendy-minted type: "(realm, sub) left group <group>". **Transmitter = wendy-auth, receiver = cloud only.**
+
+- **A principal event**, verified like the RISC/CAEP ones: issuer = the member's realm (`iss->realm`, subject realm == issuer), never the `system` realm. Per-event subject `{format:"iss_sub", iss, sub}`, no `sub_id`. `sub` is the global account sub.
+- **Body** = `event_timestamp`, `reason_admin` (audit text, `group_member_removed`; a receiver never dispatches on it), `group` (the name exactly as the realm's `groups` token claim carries it) and `seq` (integer; the same on every re-send of one removal; increasing per (tenant, sub, group) in commit order).
+- **It removes and never grants** (AAA §6 unchanged). The receiver removes `group` from the member's record for `Envelope.tenant` and records `event_timestamp` as that group's last removal. A receiver adds a group only from the member's own verified token, and only when the token's `iat` is greater than the last removal's `event_timestamp` for that group. `event_timestamp` is taken after the removal committed, on the clock that stamps `iat`.
+- Replays, duplicates and late copies only remove again. A receiver that does not know the type acks it without echoing the jti, and wendy-auth keeps re-sending it until a receiver that knows it accepts it.
+- **Emission is off by default** in wendy-auth (`WENDY_AUTH_SET_GROUP_MEMBERSHIP`). It is switched on once cloud on that environment handles the type.
+
+| vector | iss | expect |
+|---|---|---|
+| `cloud-group-membership-removed-iss-sub` | member realm | accept |
+| `cloud-group-membership-removed-system-issuer-reject` | system | reject |
+
+Pending: the bytes for these two vectors come from wendy-auth and are not in
+`set-vectors-v1.json` yet.
+
 ## Coverage (v1)
 
 | name | what it pins |
@@ -314,6 +332,8 @@ membership of (realm, sub) changed". **Transmitter = wendy-auth, receiver = clou
 | `cloud-pki-issuer-session-revoked-reject` | pki-core issuer on a non-x509 event — MUST reject |
 | `cloud-membership-changed-iss-sub` | membership-changed refresh hint, cloud shape (accept) |
 | `cloud-membership-changed-system-issuer-reject` | membership-changed signed by the system realm — MUST reject |
+| `cloud-group-membership-removed-iss-sub` | group-membership-removed, cloud shape (accept). Pending: bytes from wendy-auth |
+| `cloud-group-membership-removed-system-issuer-reject` | group-membership-removed signed by the system realm — MUST reject. Pending: bytes from wendy-auth |
 | `pki-tenant-disabled-sub-id` | tenant-disabled, system-realm iss, tenant sub_id, pki aud (accept) |
 | `pki-tenant-enabled-sub-id` | tenant-enabled, system-realm iss, tenant sub_id, pki aud (accept) |
 | `pki-tenant-disabled-wrong-issuer-reject` | tenant-disabled signed by a tenant realm — MUST reject |
