@@ -85,8 +85,14 @@ service DeploymentService {
   //   revision);
   // - never a device whose move out of this deployment has been recorded:
   //   the move statement is its removal;
-  // - by app_id while the app is being deleted: every device that still
-  //   lacks its terminal removal, across the app's deployments.
+  // By app_id it is a different list: before an app delete starts and while
+  // it runs, every device in the app's removal set that still lacks its
+  // terminal removal, across the app's deployments
+  // (DeleteAppRequest.device_removals). A client reads this before it sends
+  // its first DeleteApp batch. By app_id the read requires the right to
+  // delete the app, because the removal set can include devices the caller
+  // cannot otherwise see (removals inside an app delete are authorized by
+  // that right, not by device access).
   rpc ListPendingDeviceStatements(ListPendingDeviceStatementsRequest) returns (ListPendingDeviceStatementsResponse);
 
   // ==================== Per-device statements ====================
@@ -434,8 +440,9 @@ message ListDeploymentRevisionDevicesResponse {
 }
 
 message ListPendingDeviceStatementsRequest {
-  // Exactly one of deployment_id and app_id. app_id only while the app is
-  // being deleted: the terminal removals still lacking across its deployments.
+  // Exactly one of deployment_id and app_id. app_id: the terminal removals an
+  // app delete still lacks across the app's deployments, before the delete
+  // starts and while it runs.
   string deployment_id = 1;
   // 0 = 500. The server caps it at 500.
   int32 page_size = 2;
@@ -633,6 +640,20 @@ message AssetApp {
   // The release the device reported running, when it named a release of this
   // app; app_release_id (3) stays the desired release.
   optional string reported_release_id = 18;
+  // True exactly when cloud still needs any statement for this device for
+  // deployment_id (9): it is in that deployment's pending list (same content
+  // rule as ListPendingDeviceStatements, including a removal it is owed), or
+  // it still lacks the terminal removal an app delete owes it (the by-app
+  // list). Computed from the same record, so this list and both pending
+  // reads never disagree.
+  // Shown as "waiting for its instruction". Cloud-asserted display
+  // information: nothing a device or client acts on, no authority, and never
+  // a to-do list (what to sign comes only from ListPendingDeviceStatements and
+  // the change the operator confirmed). Also returned per deployment, through
+  // ListAppDeviceStates (AppDeviceState.state). False for an app the device
+  // runs without a deployment (run directly, or only reported: unassigned
+  // (17)), and from a cloud that predates it.
+  bool statement_pending = 19;
 }
 
 message ListAssetAppsResponse {
