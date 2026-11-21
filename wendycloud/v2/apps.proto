@@ -33,6 +33,10 @@ message App {
   // Interim owner/admin-controlled grant allowing this app to send notifications.
   // WDY-2058 will replace this with capability-scoped app authorization.
   bool can_send_notifications = 7;
+  // Set while the app is being deleted: from the first accepted DeleteApp
+  // call until the delete completes (DeleteAppRequest.device_removals). Unset
+  // = not being deleted.
+  google.protobuf.Timestamp deletion_started_at = 8;
 }
 
 message UpsertAppRequest {
@@ -60,6 +64,38 @@ message UpdateAppRequest {
 message DeleteAppRequest {
   string id = 1;
   string organization_id = 2;
+  // Operator-signed UnassignDeviceRequests, one per device in the removal
+  // set: every device in any live deployment's current set of the app, or
+  // with any Assign for the app relayed to it, not only devices known to hold
+  // one. Each is a TERMINAL removal: it carries the maximum revision,
+  // 2147483647 (UnassignDeviceRequest.revision).
+  // - Authorized by the caller's right to delete the app, not by access to
+  //   each device: a removal only takes the app away, the app is the
+  //   deleter's to delete, and otherwise an interrupted delete has no way out.
+  // - Each passes the full request-signing gate as an UnassignDevice call
+  //   would: the `operation` claim of DeploymentService.UnassignDevice or its
+  //   deprecated ArtifactRegistryService twin, the deployment's resource
+  //   binding, `x5c` only, its own nonce claimed, iat/expiry checked at
+  //   receipt. It must name a deployment of the app being deleted.
+  // - DeleteApp may be repeated with batches (clients send about 200 per
+  //   call; the whole request stays under the server's message limit). Each
+  //   call's removals are verified, queued and relayed verbatim.
+  // - There is no cancel: a device that received a terminal removal cannot
+  //   be put back. The delete is resumable and idempotent. A removal for a
+  //   device already covered is skipped and not relayed, also when it is a
+  //   retried copy whose nonce was claimed by the accepted one. Any operator
+  //   who may delete the app can finish it, from any of their keys. The
+  //   devices still lacking a removal: ListPendingDeviceStatements by app_id.
+  // - From the first accepted call until the delete completes, the app is
+  //   being deleted (App.deletion_started_at). Creating or changing a
+  //   deployment of it, AssignDevice under either name, and publishing a
+  //   release for it, are refused with FAILED_PRECONDITION saying the app is
+  //   being deleted.
+  // - The call after which no device lacks a removal deletes the app, its
+  //   releases and its deployments, without waiting for the devices. Until
+  //   then each call ends with FAILED_PRECONDITION saying how many devices
+  //   still need one.
+  repeated SignedRequest device_removals = 3;
 }
 
 message DeleteAppResponse {

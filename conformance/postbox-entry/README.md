@@ -42,8 +42,38 @@ validity, set by the signing operator client inside the signed payload:
 |---|---|
 | `DeploymentService.CreateDeployment` | `CreateDeploymentRequest.valid_until` (8) |
 | `DeploymentService.ControlContainer` | `ControlContainerRequest.valid_until` (5) |
-| `ArtifactRegistryService.AssignDevice` | `DeviceAssignment.expires_at` (10), which already existed and cloud already requires |
-| `ArtifactRegistryService.UnassignDevice` | `UnassignDeviceRequest.valid_until` (4) |
+| `DeploymentService.AssignDevice`, and the deprecated `ArtifactRegistryService.AssignDevice` | `DeviceAssignment.expires_at` (10), which already existed and cloud already requires |
+| `DeploymentService.UnassignDevice`, and the deprecated `ArtifactRegistryService.UnassignDevice` | `UnassignDeviceRequest.valid_until` (4) |
+
+AssignDevice and UnassignDevice moved to `DeploymentService` (ruling D2,
+2026-11-12) and keep their payload types. The JWS `operation` claim names the
+called method, so the same statement can carry either name. Until the
+deprecated methods are removed, a device accepts both names for the same
+`payload_type` and nothing else. CreateDeploymentV2 and Update, Rollback and
+RemoveDeployment are never relayed and never on the device's list.
+
+Roll order (hard requirement): an agent that knows only the old names refuses
+an entry signed for the new ones and consumes it, so the statement is lost.
+(1) The agent first: both names, `config_json`, `revision`, `replaces_*` and
+the ordering rules on `DeviceAssignment` (registry.proto). (2) Then cloud:
+re-pin, the new RPCs, the old ones kept. (3) Then the clients.
+
+Removals come in two kinds (`UnassignDeviceRequest.revision`):
+
+- **Terminal** (RemoveDeployment, DeleteApp): the deployment itself ends. The
+  statement carries the maximum revision, 2147483647. The device's mark for
+  that deployment becomes the maximum, so it refuses every later assignment
+  for it, whatever cloud claims about revisions. Deployment ids are never
+  reused, so nothing is lost. No assignment may carry the maximum, so the
+  equal-revision rule cannot revive the deployment.
+- **Non-terminal** (an update that takes the device out, the old side of a
+  move): the deployment lives on and may take the device back later, so the
+  statement carries the deployment's current revision when it is signed (a
+  superseded removal that was never sent is re-signed at the current revision;
+  for a move it travels as `DeviceAssignment.replaces_revision`). Cloud keeps
+  such a device in the deployment until the removal is received. Here the
+  revision comes from cloud: a cloud that lies about the current revision can set the
+  mark too low to block a withheld older assignment. This is a named limit.
 
 **Why the payload and not a JWS claim:** the JWS claims are the call to cloud.
 They are shared by every verifier of the generic gate, and `expiry` already
@@ -59,7 +89,14 @@ Rules:
   2 months (60 days, 5 184 000 s), configurable per tenant in the cloud
   dashboard, never above the platform cap. Both are measured as
   `valid_until − iat` (the signed `iat`). The operator client defaults
-  `valid_until` to `iat` + the tenant cap.
+  `valid_until` to `iat` + the tenant cap, or to `iat` + the deployment's
+  validity for a DeviceAssignment.
+- **Removals** (`UnassignDeviceRequest`, including DeleteApp's
+  `device_removals`): the client defaults `valid_until` to `iat` + the platform
+  cap, and the tenant cap does not apply. Only the platform cap does: a removal
+  can only take something away, so a long validity is the safe direction. A
+  device offline for longer than the platform cap misses the removal and keeps
+  the app: a named limit of the contract.
 - **Cloud, at accept** (on top of the generic gate, whose 30 s `expiry`
   stays): refuse when `valid_until` is absent (`validity_missing`; enforced
   once the CLI and console set it, see the contract ledger), above the
