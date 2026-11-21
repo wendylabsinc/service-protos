@@ -4,6 +4,7 @@ package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
 import "wendy/options.proto";
+import "wendycloud/v2/apps.proto";
 import "wendycloud/v2/signed_request.proto";
 
 service OrganizationService {
@@ -62,6 +63,17 @@ service OrganizationService {
   // through ownership instead. Changing either half does not affect current members.
   // Signed; payload_type "wendycloud.v2.SetMemberDefaultsRequest".
   rpc SetMemberDefaults(SignedRequest) returns (Organization) {
+    option (wendy.signed_request) = true;
+  }
+  // The organization's lifecycle settings for stored releases (spec 6.9,
+  // 6.10). Gate: as GetOrganization.
+  rpc GetLifecycleSettings(GetLifecycleSettingsRequest) returns (LifecycleSettings);
+  // Replaces the organization's default policy and per-app limit. Gate:
+  // `org:update`. Each value must not exceed the plan limit (INVALID_ARGUMENT
+  // naming it). Existing app overrides above a lowered limit are clamped when
+  // applied, not rewritten.
+  // Signed; payload_type "wendycloud.v2.SetLifecycleSettingsRequest".
+  rpc SetLifecycleSettings(SignedRequest) returns (LifecycleSettings) {
     option (wendy.signed_request) = true;
   }
 }
@@ -259,4 +271,26 @@ message TransferOwnershipRequest {
 message TransferOwnershipResponse {
   OrganizationMember new_owner = 1;
   OrganizationMember previous_owner = 2;
+}
+
+message GetLifecycleSettingsRequest {
+  string organization_id = 1;
+}
+
+message SetLifecycleSettingsRequest {
+  string organization_id = 1;
+  // The organization's default for apps without an override. A field unset
+  // inherits the platform default.
+  LifecyclePolicy default_policy = 2;
+  // The most an app override may set. A field unset means only the plan
+  // limit applies.
+  LifecyclePolicy per_app_limit = 3;
+}
+
+message LifecycleSettings {
+  // The plan's limit, every field set. Read-only: set by the platform and the
+  // subscription (the lower wins), never by the organization.
+  LifecyclePolicy plan_limit = 1;
+  LifecyclePolicy default_policy = 2;
+  LifecyclePolicy per_app_limit = 3;
 }

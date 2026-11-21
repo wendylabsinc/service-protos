@@ -163,6 +163,9 @@ message AppRelease {
   string id = 1;
   string organization_id = 2;
   string app_id = 3;
+  // A name ending in `@sha256:` followed by 64 lowercase hex characters is an
+  // untagged release (published by digest); any other name is tagged
+  // (LifecyclePolicy).
   string name = 4;
   string details = 5;
   // For a registry-backed release: ArtifactManifest.manifest_digest, set by
