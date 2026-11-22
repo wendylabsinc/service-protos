@@ -291,6 +291,12 @@ message LifecycleSettings {
   // The plan's limit, every field set. Read-only: set by the platform and the
   // subscription (the lower wins), never by the organization.
   LifecyclePolicy plan_limit = 1;
+  // The organization's own stored default. A field unset follows
+  // platform_default.
   LifecyclePolicy default_policy = 2;
   LifecyclePolicy per_app_limit = 3;
+  // The platform's default policy, every field set. Applies to each field
+  // left unset in default_policy. Read-only: set by the platform, never by
+  // the organization; for display only.
+  LifecyclePolicy platform_default = 4;
 }
