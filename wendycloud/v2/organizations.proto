@@ -30,6 +30,10 @@ service OrganizationService {
     option (wendy.signed_request) = true;
   }
   // Signed; payload_type "wendycloud.v2.RemoveMemberRequest".
+  // Deprecated: cloud removes nobody (WDY-4301). Membership is wendy-auth's, and realm sign-in
+  // adds back anyone still in the realm, so every call is refused with FAILED_PRECONDITION after
+  // the caller's membership check: remove people in wendy-auth's member management. Kept for wire
+  // compatibility until its senders drop it; then it is removed and its name reserved.
   rpc RemoveMember(SignedRequest) returns (RemoveMemberResponse) {
     option (wendy.signed_request) = true;
   }
@@ -204,6 +208,7 @@ message RemoveMemberRequest {
 }
 
 message RemoveMemberResponse {
+  // Never true: RemoveMember is always refused (WDY-4301).
   bool success = 1;
 }
 
