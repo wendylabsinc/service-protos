@@ -73,6 +73,11 @@ message RealmMember {
   string            name                         = 8;
   // Exactly the names the member's next access token carries in its `groups` claim.
   repeated RealmMemberGroup groups               = 9;
+  // True for the realm's one Owner (sem 2026-11-22 23:31: one Owner, kept in wendy-auth; cloud copies
+  // it). At most one member of a realm is true; none while the realm has no Owner. A suspended Owner
+  // stays true. Filled only by a server whose GetCapabilities lists "wendyauth.v1.RealmMember.owner";
+  // from any other server false means "not known", and the caller must not act on it.
+  bool owner                                     = 10;
 }
 
 message RealmMemberGroup {
