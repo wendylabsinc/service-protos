@@ -281,6 +281,25 @@ message GetAgentVersionResponse {
     // agent supervisor. Absent when no supervisor started this agent (older
     // images, generic Linux, macOS).
     optional AgentSupervision supervision = 30;
+    // Build label the WendyOS Builder stamped into the running image, from the
+    // "Build:" line of /etc/issue. os_version names only the release an image
+    // is based on, which a release, a nightly and a pull-request image share;
+    // this tells them apart: "pr-<N>" for an image built from Builder pull
+    // request N (e.g. "pr-343"), "nightly-<YYYYMMDD>T<HHMMSS>" (UTC) for a
+    // nightly, and the release version itself (e.g. "0.21.0") for a release
+    // and for an image built outside CI. At most 64 printable ASCII
+    // characters, without spaces. Absent on hosts that are not WendyOS, on
+    // images without a readable stamp (WendyOS before 0.17.0), and on agents
+    // predating this field.
+    optional string os_build = 31;
+    // Builder commit the running WendyOS image was built from, from
+    // /usr/lib/wendyos/commit: the full Git hash in lower-case hexadecimal.
+    // For a pull-request image it is the head commit of the pull request, so
+    // it distinguishes two builds of one pull request, which share os_build.
+    // Absent on hosts that are not WendyOS, on images built outside CI or
+    // before 0.17.0 (they carry no commit), and on agents predating this
+    // field.
+    optional string os_commit = 32;
 }
 
 // A network interface on the device and the IP addresses assigned to it.
