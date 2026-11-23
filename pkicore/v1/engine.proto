@@ -17,6 +17,7 @@ service CAEngine {
   rpc GetCAChain(GetCAChainRequest)               returns (GetCAChainResponse);
   rpc GetAuditLog(GetAuditLogRequest)             returns (stream AuditLogEntry);
   rpc GetCACerts(GetCACertsRequest)                          returns (GetCACertsResponse);
+  rpc GetPeerCACertificates(GetPeerCACertificatesRequest) returns (GetPeerCACertificatesResponse);
   rpc VerifyEABSignature(VerifyEABSignatureRequest) returns (VerifyEABSignatureResponse);
   rpc GetCertificate(GetCertificateRequest)         returns (GetCertificateResponse);
 
@@ -529,6 +530,18 @@ message GetCACertsRequest {
 }
 message GetCACertsResponse {
   repeated bytes certs = 1; // DER-encoded CA certificates (root → device CA order)
+}
+
+// GetPeerCACertificates returns the peer CA snapshot for an enrolled Lite device.
+message GetPeerCACertificatesRequest {
+  // DER leaf from the CSR frontend's TLS client. The frontend verifies key
+  // possession during TLS, and the engine authorizes the leaf in the tenant
+  // from x-tenant-id.
+  bytes device_certificate = 1;
+}
+message GetPeerCACertificatesResponse {
+  repeated bytes additional_roots = 1; // DER trust anchors, excluding the device's own CA
+  repeated bytes additional_intermediates = 2; // DER issuer candidates, excluding the platform root
 }
 
 message VerifyEABSignatureRequest {
