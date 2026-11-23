@@ -1,0 +1,136 @@
+syntax = "proto3";
+package wendy.agent.services.v2;
+option go_package = "github.com/wendylabsinc/wendy/proto/gen/agentpb/v2;agentpbv2";
+
+// Who may reach a device that is not enrolled with Wendy Cloud, and how its
+// owner manages that. A device is in one of three access shapes:
+//
+//   Open      anyone on the network may call anything, as an unenrolled
+//             device always has. It holds no trusted keys.
+//   Closed    only callers who prove a key on the device's trusted list, over
+//             an encrypted channel, get in, each with that key's role. The
+//             owner may also let callers without a key deploy and manage apps.
+//   Enrolled  the device belongs to a cloud tenant and is reached with that
+//             tenant's credentials, as today. Its trusted keys are kept but
+//             not used; unenrolling returns it to Closed with them.
+//
+// Every method except GetAccess and CloseDevice needs a Closed device and an
+// owner key: it fails with FAILED_PRECONDITION on a device in another shape
+// and with PERMISSION_DENIED for any other caller. An agent that predates
+// this service answers UNIMPLEMENTED.
+service WendyAccessService {
+    // Report the device's shape, whether keyless apps are on, and the
+    // caller's role. Any caller the device lets connect may call it.
+    rpc GetAccess(GetAccessRequest) returns (GetAccessResponse);
+
+    // Close an Open device. Anyone may call it on an Open device; the key
+    // in the request becomes the first owner, and keyless apps start off.
+    // On a device that is not Open it fails with FAILED_PRECONDITION.
+    rpc CloseDevice(CloseDeviceRequest) returns (CloseDeviceResponse);
+
+    // Open a Closed device: drop every trusted key and turn keyless apps
+    // off. Owner only. A factory reset also returns a device to Open.
+    rpc OpenDevice(OpenDeviceRequest) returns (OpenDeviceResponse);
+
+    // Turn keyless apps on or off. Owner only.
+    rpc SetKeylessApps(SetKeylessAppsRequest) returns (SetKeylessAppsResponse);
+
+    // Add a key to the trusted list with one role. Owner only.
+    rpc AddTrustedKey(AddTrustedKeyRequest) returns (AddTrustedKeyResponse);
+
+    // List the trusted keys. Owner only.
+    rpc ListTrustedKeys(ListTrustedKeysRequest) returns (ListTrustedKeysResponse);
+
+    // Remove a key from the trusted list. Owner only. Removing the last
+    // owner key fails with FAILED_PRECONDITION; OpenDevice or a factory
+    // reset is the way out instead.
+    rpc RemoveTrustedKey(RemoveTrustedKeyRequest) returns (RemoveTrustedKeyResponse);
+}
+
+enum AccessShape {
+    ACCESS_SHAPE_UNSPECIFIED = 0;
+    ACCESS_SHAPE_OPEN = 1;
+    ACCESS_SHAPE_CLOSED = 2;
+    ACCESS_SHAPE_ENROLLED = 3;
+}
+
+// The three fixed roles of a trusted key. There are no custom roles.
+enum TrustedKeyRole {
+    TRUSTED_KEY_ROLE_UNSPECIFIED = 0;
+    // Everything, including the trusted keys, the shape, the shell and the
+    // root post-start hook.
+    TRUSTED_KEY_ROLE_OWNER = 1;
+    // Deploy and run apps.
+    TRUSTED_KEY_ROLE_OPERATOR = 2;
+    // Read only.
+    TRUSTED_KEY_ROLE_VIEWER = 3;
+}
+
+message TrustedKey {
+    // "sha256:" + hex SHA-256 of the SubjectPublicKeyInfo DER.
+    string fingerprint = 1;
+    // SubjectPublicKeyInfo, DER.
+    bytes public_key = 2;
+    TrustedKeyRole role = 3;
+    string label = 4;
+    // Unix seconds.
+    int64 added_at = 5;
+    // Fingerprint of the key that added this one, or "install" for a key
+    // seeded by the installer.
+    string added_by = 6;
+}
+
+message GetAccessRequest {}
+
+message GetAccessResponse {
+    AccessShape shape = 1;
+    // Callers without a key may deploy and manage apps on this Closed
+    // device. Never the shell or the root post-start hook. Off by default.
+    bool keyless_apps = 2;
+    // The role of the key the caller proved; UNSPECIFIED for a caller
+    // without a key.
+    TrustedKeyRole caller_role = 3;
+}
+
+message CloseDeviceRequest {
+    // SubjectPublicKeyInfo, DER or PEM ("PUBLIC KEY").
+    bytes public_key = 1;
+    string label = 2;
+}
+
+message CloseDeviceResponse {
+    TrustedKey owner = 1;
+}
+
+message OpenDeviceRequest {}
+
+message OpenDeviceResponse {}
+
+message SetKeylessAppsRequest {
+    bool enabled = 1;
+}
+
+message SetKeylessAppsResponse {}
+
+message AddTrustedKeyRequest {
+    // SubjectPublicKeyInfo, DER or PEM ("PUBLIC KEY").
+    bytes public_key = 1;
+    TrustedKeyRole role = 2;
+    string label = 3;
+}
+
+message AddTrustedKeyResponse {
+    TrustedKey key = 1;
+}
+
+message ListTrustedKeysRequest {}
+
+message ListTrustedKeysResponse {
+    repeated TrustedKey keys = 1;
+}
+
+message RemoveTrustedKeyRequest {
+    string fingerprint = 1;
+}
+
+message RemoveTrustedKeyResponse {}

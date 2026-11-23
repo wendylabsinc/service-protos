@@ -46,6 +46,7 @@ lint:
       - wendy/agent/services/v1/wendy_agent_v1_shell_service.proto
       - wendy/agent/services/v1/wendy_agent_v1_telemetry_service.proto
       - wendy/agent/services/v1/wendy_agent_v1_video_service.proto
+      - wendy/agent/services/v2/access_service.proto
       - wendy/agent/services/v2/agent_update_service.proto
       - wendy/agent/services/v2/audio_service.proto
       - wendy/agent/services/v2/bluetooth_service.proto
