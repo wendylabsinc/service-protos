@@ -142,6 +142,12 @@ message OrganizationMember {
   // unresolved realm membership, or a viewer without device-access:list or full fleet access.
   // Uses the caller's token groups for self; current auth directory groups for other members.
   optional int32 device_access_count = 10;
+  // ListMembers only: the member's display name and email, as User.name and User.email, so one
+  // ListMembers call renders the member list without a GetUser per member. Read-only, filled by
+  // the server. Present empty means the directory cannot name them; absent means not filled,
+  // including older servers, and the client falls back to GetUser.
+  optional string name = 11;
+  optional string email = 12;
 }
 
 message CreateOrganizationRequest {
