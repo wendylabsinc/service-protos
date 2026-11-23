@@ -144,8 +144,10 @@ message OrganizationMember {
   optional int32 device_access_count = 10;
   // ListMembers only: the member's display name and email, as User.name and User.email, so one
   // ListMembers call renders the member list without a GetUser per member. Read-only, filled by
-  // the server. Present empty means the directory cannot name them; absent means not filled,
-  // including older servers, and the client falls back to GetUser.
+  // the server. Present empty means the server filled the field and has no value to give the
+  // caller: either the directory cannot name the member, or the caller may not read that
+  // member's profile (the same rule as UserService.GetUser). Absent means not filled, including
+  // older servers, and the client falls back to GetUser.
   optional string name = 11;
   optional string email = 12;
 }
