@@ -138,7 +138,8 @@ service ArtifactRegistryService {
   // publish (publisher, pre-granted users, custodian), deployment scope at
   // deployment create, operator invite and rotation; secret scope after
   // SetSecret and whenever access passes on (same path and gate as the
-  // release scope, never a CUSTODIAN wrap there). Device wraps travel in
+  // release scope; no client makes a CUSTODIAN wrap there, and AddWraps
+  // refuses one as a tripwire). Device wraps travel in
   // DeviceAssignment instead.
   // Signed; payload_type "wendycloud.v2.AddWrapsRequest".
   rpc AddWraps(SignedRequest) returns (AddWrapsResponse) {
@@ -175,22 +176,37 @@ service ArtifactRegistryService {
   // client encrypts the value under a fresh secret key (SealedSecret) and
   // wraps that key with the existing wrap format (KeyWrap) to the operator
   // keys that reach the app, at the secret scope (WrapScope.secret_version).
-  // Never to the custodian: AddWraps refuses a CUSTODIAN wrap on the secret
-  // scope (INVALID_ARGUMENT), so neither Cloud nor its KMS can open a secret.
+  // Never to the custodian. The rule binds the CLIENT: a client never makes a
+  // CUSTODIAN wrap at the secret scope (WrapScope; conformance/registry/README.md,
+  // key wrap), so neither Cloud nor its KMS can open a secret. AddWraps also
+  // refuses one (INVALID_ARGUMENT), only as a tripwire: the guarantee is that
+  // no client makes one. A client that finds a CUSTODIAN wrap at a secret
+  // version's scope treats that version as compromised: it never uses it (no
+  // wrap onward, never in a DeviceAssignment), tells its operator, and reports
+  // it, naming the app, the secret name and the version; the secret is then set
+  // again as a new version.
   // Devices get each secret in their signed DeviceAssignment (secrets).
   //
-  // Names follow the rules of configuration names (the keys of config_json),
-  // and one name is never both a variable and a secret of the same app. Cloud
-  // refuses, with FAILED_PRECONDITION naming the name, a secret whose name is
-  // a key of a live deployment's config_json, or of a release's
-  // default_config_json or required_config_names, for that app; and the
-  // reverse on CreateAppRelease, CreateDeploymentV2 and UpdateDeployment. The
-  // device refuses an assignment whose config_json has a key that is also a
-  // secret name in it.
+  // Names: one written rule for secret names and for configuration names (the
+  // keys of config_json), the agent's environment-name check: ASCII
+  // [A-Za-z_][A-Za-z0-9_]*; not starting, in any case, with LD_, DYLD_,
+  // WENDY_, ROS_ or OTEL_; not RMW_IMPLEMENTATION or CYCLONEDDS_URI (variables
+  // the agent sets itself). SetSecret refuses another name (INVALID_ARGUMENT);
+  // the device refuses an assignment that carries one.
+  // A name is never both a variable and a secret in one deployment revision.
+  // That is checked per revision only: Cloud refuses a revision whose
+  // config_json has a key that is also one of its secret names
+  // (DeploymentRevision.secrets), and the device refuses such an assignment
+  // (DeviceAssignment.secrets). SetSecret does not look at releases or
+  // deployments, so a variable moves to a secret while old releases and live
+  // deployments still carry it as a variable: set the secret, then a new
+  // revision drops the variable and carries the secret.
   //
   // Readback is names and metadata only (SecretInfo, SecretRef): no message
   // returns a value in clear. The sealed value goes back only with the
-  // caller's own wraps (GetMyWraps), so a key holder can wrap onward.
+  // caller's own wraps (GetMyWraps), inside the setter's signed SetSecret
+  // request (SignedSecretVersion), so a key holder can wrap onward and Cloud
+  // cannot plant a value of its own.
   //
   // The console calls these same RPCs with its browser operator key (an
   // ordinary RECIPIENT_KIND_USER key); nothing about secrets is CLI-only.
@@ -202,7 +218,12 @@ service ArtifactRegistryService {
   // deployment: a new deployment revision picks the new version (SecretRef).
   // Same gate as PublishArtifact for the app. Refused with FAILED_PRECONDITION
   // while the app is being deleted. The response lists the keys the client
-  // then wraps the secret key to with AddWraps, besides its own.
+  // then wraps the secret key to with AddWraps, besides its own. A version
+  // whose wraps never arrive has no Cloud rule: the client retries AddWraps,
+  // or the operator sets the secret again.
+  // Signed with `x5c` only (`kid` is refused): Cloud stores the request
+  // verbatim and serves it back as SignedSecretVersion.set_request, which is
+  // what lets a later client check who set the value.
   // Signed; payload_type "wendycloud.v2.SetSecretRequest".
   rpc SetSecret(SignedRequest) returns (SetSecretResponse) {
     option (wendy.signed_request) = true;
@@ -219,7 +240,8 @@ service ArtifactRegistryService {
     option (wendy.signed_request) = true;
   }
   // The app's secrets at their current version, by name. Metadata only. Same
-  // gate as ListArtifacts (`artifact:read`). A read: not signed.
+  // gate as ListArtifacts (`artifact:read`). A read: not signed. There is no
+  // per-name history read.
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
 
   // One signed statement per target device (Q7, sem 2026-10-19 01:15: one
@@ -331,13 +353,20 @@ message DeviceAssignment {
   // secret key wrapped to THIS device's registered encryption key. Nothing
   // about secrets is sealed under the deployment key, whose custodian wrap
   // stays as it is. Under the operator's signature like every other field.
+  // The signing client copies each value byte for byte from a
+  // SignedSecretVersion it has verified (GetMyWraps), never from anything
+  // unsigned: a value without a valid signed SetSecret request is never placed
+  // here.
   // Cloud refuses the statement unless its (name, version) set equals the
   // revision's, each value is byte-equal to the stored SealedSecret, and each
   // device_wrap is to this device's live key at that secret's scope.
   // The device opens each wrap (scope kind 3, conformance/registry/README.md)
   // and each value, and refuses the whole assignment (REJECTED_UNWRAP) if one
-  // does not open, a name repeats, a name is also a key of config_json, or it
-  // is above the limits: at most 64 secrets and 64 KiB of values in total.
+  // does not open, a name repeats, a name breaks the name rule
+  // (ArtifactRegistryService, app secrets), a name is also a key of
+  // config_json, or it is above the limits: at most 64 secrets and 64 KiB of
+  // values in total. REJECTED_UNWRAP covers every one of these; there is no
+  // new ApplyOutcome value.
   // It applies each as NAME=VALUE beside the configuration. Its postbox copy
   // keeps the sealed form; values are in clear only where the app's
   // environment needs them. Empty = no secrets in this revision.
@@ -539,11 +568,53 @@ message GetMyWrapsRequest {
 message GetMyWrapsResponse {
   repeated KeyWrap wraps = 1;
   repeated SealedContentKey sealed_content_keys = 2;
-  // Secret scope only: the sealed value of that version, returned with the
-  // caller's wraps so it can wrap the secret key onward (another operator key,
-  // a device) and copy the value into DeviceAssignment.secrets unchanged.
-  // Empty when the caller holds no wrap at that scope.
-  repeated SealedSecret sealed_secrets = 3;
+  // Secret scope only: the setter's signed SetSecret request for that
+  // version, returned with the caller's wraps so it can wrap the secret key
+  // onward (another operator key, a device) and copy the sealed value into
+  // DeviceAssignment.secrets unchanged. The value exists only inside the
+  // signed request, never as a bare SealedSecret. Empty when the caller holds
+  // no wrap at that scope.
+  repeated SignedSecretVersion secret_versions = 3;
+}
+
+// One secret version as its setter signed it, the way RecipientKey returns a
+// signed key registration: Cloud is an untrusted courier and can withhold a
+// version, never plant one. HPKE base mode does not authenticate who made a
+// wrap, so the client trusts a secret version only through this signature.
+// Before it wraps the key onward or copies the value into a
+// DeviceAssignment, the client checks, refusing the version at the first
+// failure:
+// - The JWS over set_request verifies with its `x5c` leaf (`kid` is refused),
+//   payload_type is "wendycloud.v2.SetSecretRequest", the JWS operation is
+//   "wendycloud.v2.ArtifactRegistryService/SetSecret", and body_sha256 matches
+//   the payload. Its nonce, iat window and expiry bound the call to Cloud and
+//   are not checked again here.
+// - The leaf is an operator certificate in the caller's own tenant chain: it
+//   chains through chain_der to the tenant CA, valid at the JWS iat, and that
+//   CA is anchored to the client-pinned platform root, never to the served
+//   chain alone (as for RecipientKey). The CA's tenant, the JWS
+//   target.tenant and SetSecretRequest.organization_id all equal the caller's
+//   organization.
+// - The signer is a current member of that organization: the operator name in
+//   the leaf's SPIFFE URI is the subject of a member that
+//   OrganizationService.ListMembers lists. (Membership is Cloud's word; it
+//   only drops versions whose setter has left. The signature is what stops a
+//   planted value.)
+// - The signed SealedSecret names this app, secret name, version and
+//   secret_key_id: app_id, name and version equal the requested scope
+//   (WrapScope.secret_version), and secret_key_id equals the scope's key_id
+//   and SHA-256 of the key the caller's own wrap opens to.
+// - The ciphertext matches: the signed nonce and ciphertext open under that
+//   key with the secret seal AAD, and the SealedSecret the client places in a
+//   DeviceAssignment is byte-equal to the signed one.
+// A version that fails any check is never wrapped onward and never placed in
+// a DeviceAssignment; the client reports it to its operator.
+// Vectors: conformance/postbox-entry, secret_readback_vectors.
+message SignedSecretVersion {
+  SignedRequest set_request = 1;  // verbatim as Cloud received it
+  // Intermediates from the signing leaf up to and including the tenant CA,
+  // DER. The leaf itself is the `x5c` in set_request.
+  repeated bytes chain_der = 2;
 }
 
 // ==================== App secrets ====================
@@ -685,13 +756,20 @@ enum RecipientKind {
   // service account, so no service and no CI can open a custodian wrap; every
   // call is audit-logged and alerts (sem 2026-10-23, WDY-4007). The accepted
   // custodian key ids are config, not wire. The registry refuses a release or
-  // deployment with no CUSTODIAN wrap, and a CUSTODIAN wrap at secret scope.
+  // deployment with no CUSTODIAN wrap. At secret scope no client ever makes a
+  // CUSTODIAN wrap (WrapScope); the registry's refusal there is a tripwire.
   RECIPIENT_KIND_CUSTODIAN = 3;
 }
 
 // What a wrap opens. Deployment scope: the deployment key. Release scope: the
 // content key itself, for release holders before any deployment exists (Q1).
-// Secret scope: one secret version's key (WDY-4374); never a CUSTODIAN wrap.
+// Secret scope: one secret version's key (WDY-4374). A client NEVER makes a
+// CUSTODIAN wrap at the secret scope, whatever list of recipients it is given
+// (a wrap helper that adds the custodian for releases and deployments must
+// not add it here). AddWraps refusing one is a tripwire, not the guarantee. A
+// client that finds a CUSTODIAN wrap at a secret scope treats that secret
+// version as compromised: it refuses to use it (no wrap onward, never in a
+// DeviceAssignment) and reports it to its operator.
 message WrapScope {
   oneof scope {
     string deployment_id = 1;

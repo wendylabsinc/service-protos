@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -318,6 +319,69 @@ func main() {
 	material["device_kem_ikm_hex"] = hex.EncodeToString(devIKM)
 	material["device_key_id"] = devKeyID
 
+	// ---------- WDY-4374: signed readback of a secret version ----------
+	// SignedSecretVersion: set_request 1 (SignedRequest: payload 1,
+	// payload_type 2, signature 3), chain_der 2. SetSecretRequest:
+	// organization_id 1, value 2 (SealedSecret).
+	setResource := "org/" + tenant + "/app/" + appID // placeholder: the readback check ignores resource
+	setSecret := func(k detSigner, leaf *cert, value []byte, nonce string) []byte {
+		p := cat(pbBytes(1, []byte(tenant)), pbBytes(2, value))
+		body := sha256.Sum256(p)
+		j := sign(k, leaf, map[string]any{
+			"aud": aud, "body_sha256": b64u(body[:]), "correlation_id": "2d6f0a4c-8e1b-4c5d-9a3f-7b1e5c9d3a60",
+			"expiry": iat + 30, "iat": iat, "nonce": nonce, "operation": "wendycloud.v2.ArtifactRegistryService/SetSecret",
+			"target": map[string]any{"tenant": tenant, "resource": setResource},
+		})
+		return cat(pbBytes(1, p), pbBytes(2, []byte("wendycloud.v2.SetSecretRequest")), pbBytes(3, []byte(j)))
+	}
+	ssv := func(sr []byte, chain ...*cert) string {
+		m := pbBytes(1, sr)
+		for _, c := range chain {
+			m = append(m, pbBytes(2, c.der)...)
+		}
+		return b64(m)
+	}
+	leftKey := key("operator-left")
+	leftLeaf := issue(11, "vector operator (left the tenant)", "spiffe://wendy.sh/tenant/"+tenant+"/operator/9b3d5f7a-1c2e-4a6b-8d0f-3e5a7c9b1d24", leftKey, operatorCA)
+	otherOpKey := key("other-operator")
+	otherOpLeaf := issue(12, "vector operator (other tenant)", "spiffe://wendy.sh/tenant/"+otherTenant+"/operator/5e7a9c1b-3d4f-4b8a-a2c6-1f3b5d7e9a08", otherOpKey, otherOperatorCA)
+	// Cloud's own chain, under a root the client does not pin, claiming the
+	// real operator's identity.
+	cloudTenantCA := issue(21, "Vector Tenant CA", "", key("cloud-tenant-ca"), issue(20, "Cloud-made root", "", key("cloud-root"), nil))
+	cloudOpCA := issue(22, "Vector Operator Authority CA", "", key("cloud-operator-ca"), cloudTenantCA)
+	cloudKey := key("cloud-planted")
+	cloudLeaf := issue(23, "vector operator", opURI, cloudKey, cloudOpCA)
+	value := sealedSecret(sealed)
+	plantKey := seed("wendy-postbox-entry-vector-planted-secret-key-2026-11")
+	otherName := cat(pbBytes(1, []byte(appID)), pbBytes(2, []byte("API_TOKEN")), pbVarint(3, 1), pbBytes(4, []byte(secretKeyID)), pbBytes(5, sealNonce), pbBytes(6, sealed))
+	tamperedSet := setSecret(opKey, opLeaf, value, "8c4e2a6f-0b1d-4e3a-9f5c-6d2b8a0e4c17")
+	tamperedSet[bytes.Index(tamperedSet, sealed)] ^= 1
+	readback := func(name, sv, openedKey, expect, refusal, reason string) vec {
+		v := vec{"name": name, "secret_version_b64": sv, "scope": secretScope, "scope_key_id": secretKeyID, "opened_key_hex": openedKey, "expect": expect}
+		if refusal != "" {
+			v["refusal"], v["invalid_reason"] = refusal, reason
+		} else {
+			v["expected_sealed_secret_b64"] = b64(value)
+		}
+		return v
+	}
+	key1 := hex.EncodeToString(secretKey)
+	readbackVectors := []vec{
+		readback("secret-readback-valid", ssv(setSecret(opKey, opLeaf, value, "8c4e2a6f-0b1d-4e3a-9f5c-6d2b8a0e4c17"), operatorCA, orgCA), key1, "valid", "", ""),
+		readback("secret-readback-unpinned-root-invalid", ssv(setSecret(cloudKey, cloudLeaf, value, "1a5c9e3f-7b2d-4f6a-8c0e-4d8b2f6a0c35"), cloudOpCA, cloudTenantCA), key1, "invalid", "chain",
+			"Cloud planted the version: a leaf with the real operator's identity, under a tenant CA Cloud made and a root the client does not pin"),
+		readback("secret-readback-other-tenant-invalid", ssv(setSecret(otherOpKey, otherOpLeaf, value, "3e7b1d5a-9c2f-4a8e-b6d0-5f1a3c7e9b42"), otherOperatorCA, otherOrgCA), key1, "invalid", "tenant",
+			"the signer is a real operator under the pinned root, but of another tenant"),
+		readback("secret-readback-not-member-invalid", ssv(setSecret(leftKey, leftLeaf, value, "5f9d3b7e-1a4c-4e2b-8f6a-7c3e9a1d5b80"), operatorCA, orgCA), key1, "invalid", "not_member",
+			"signature and chain hold, but ListMembers no longer lists the signer's operator name"),
+		readback("secret-readback-wrong-name-invalid", ssv(setSecret(opKey, opLeaf, otherName, "7b1f5d9a-3c6e-4a0b-9d2f-8e4a0c6b2d91"), operatorCA, orgCA), key1, "invalid", "scope",
+			"a valid signed request for API_TOKEN served for the requested DB_PASSWORD scope"),
+		readback("secret-readback-key-mismatch-invalid", ssv(setSecret(opKey, opLeaf, value, "9d3b7f1c-5e8a-4c2d-a0f4-1b6e2c8d4f03"), operatorCA, orgCA), hex.EncodeToString(plantKey), "invalid", "key_id",
+			"the signed request is real, but the caller's wrap opens to a key Cloud chose: its SHA-256 is not the signed secret_key_id"),
+		readback("secret-readback-ciphertext-tampered-invalid", ssv(tamperedSet, operatorCA, orgCA), key1, "invalid", "body_sha256",
+			"one bit of the signed SealedSecret.ciphertext flipped after signing"),
+	}
+
 	writeJSON(path, map[string]any{
 		"version":  "postbox-entry-vectors-v1",
 		"contract": "conformance/postbox-entry/README.md; wendycloud/v2/postbox.proto (GetOrgCAs); valid_until on the postbox-relayed requests",
@@ -340,6 +404,9 @@ func main() {
 		"assign_resource":              assignResource,
 		"secret_material":              material,
 		"secret_vectors":               secretVectors,
+		"platform_root_cert_der_b64":   b64(root.der),
+		"members":                      []string{opURI[strings.LastIndex(opURI, "/")+1:]},
+		"secret_readback_vectors":      readbackVectors,
 	})
 }
 

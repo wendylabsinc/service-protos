@@ -275,6 +275,103 @@ func checkSecrets(orgCA, opCA *x509.Certificate, top, v map[string]any) error {
 	return nil
 }
 
+// checkReadback is an operator client's check of a SignedSecretVersion
+// (registry.proto) before it wraps the key onward or places the value in a
+// DeviceAssignment, in the order the contract lists.
+func checkReadback(top, v map[string]any) error {
+	ssv, err := allFields(b64(v["secret_version_b64"]))
+	if err != nil || len(ssv[1]) != 1 {
+		return errors.New("bad SignedSecretVersion")
+	}
+	sr, err := fields(ssv[1][0])
+	if err != nil {
+		return err
+	}
+	parts := strings.Split(string(sr[3]), ".")
+	if len(parts) != 3 {
+		return errors.New("not compact JWS")
+	}
+	var header, claims map[string]any
+	hb, _ := base64.RawURLEncoding.DecodeString(parts[0])
+	cb, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	sig, _ := base64.RawURLEncoding.DecodeString(parts[2])
+	if json.Unmarshal(hb, &header) != nil || json.Unmarshal(cb, &claims) != nil || header["alg"] != "ML-DSA-65" {
+		return errors.New("bad JWS")
+	}
+	x5c, _ := header["x5c"].([]any)
+	if len(x5c) != 1 {
+		return errors.New("x5c must carry exactly the leaf")
+	}
+	leaf, err := x509.ParseCertificate(b64(x5c[0]))
+	if err != nil {
+		return err
+	}
+	pk, ok := leaf.PublicKey.(*mldsa.PublicKey)
+	if !ok || mldsa.Verify(pk, []byte(parts[0]+"."+parts[1]), sig, nil) != nil {
+		return refusal("signature")
+	}
+	if string(sr[2]) != "wendycloud.v2.SetSecretRequest" || claims["operation"] != "wendycloud.v2.ArtifactRegistryService/SetSecret" {
+		return errors.New("claims")
+	}
+	body := sha256.Sum256(sr[1])
+	if claims["body_sha256"] != base64.RawURLEncoding.EncodeToString(body[:]) {
+		return refusal("body_sha256")
+	}
+	// Chain through chain_der to the PINNED root at the signed iat.
+	org := top["organization_id"].(string)
+	roots, inter := x509.NewCertPool(), x509.NewCertPool()
+	roots.AddCert(must(x509.ParseCertificate(b64(top["platform_root_cert_der_b64"]))))
+	for _, der := range ssv[2] {
+		inter.AddCert(must(x509.ParseCertificate(der)))
+	}
+	chains, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, CurrentTime: time.Unix(num(claims["iat"]), 0), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
+	if err != nil {
+		return refusal("chain")
+	}
+	// The caller's own tenant: its tenant CA, the leaf's tenant, the signed
+	// target and payload organization.
+	tenantCA := chains[0][len(chains[0])-2]
+	target, _ := claims["target"].(map[string]any)
+	p, err := fields(sr[1])
+	if err != nil {
+		return err
+	}
+	if len(leaf.URIs) != 1 || !bytes.Equal(tenantCA.Raw, b64(top["org_ca_cert_der_b64"])) ||
+		!strings.HasPrefix(leaf.URIs[0].String(), "spiffe://wendy.sh/tenant/"+org+"/operator/") ||
+		target["tenant"] != org || string(p[1]) != org {
+		return refusal("tenant")
+	}
+	uri := leaf.URIs[0].String()
+	member := false
+	for _, m := range top["members"].([]any) {
+		member = member || m == uri[strings.LastIndex(uri, "/")+1:]
+	}
+	if !member {
+		return refusal("not_member")
+	}
+	sv, err := fields(p[2])
+	if err != nil {
+		return err
+	}
+	ver, _ := binary.Uvarint(sv[3])
+	version := strconv.FormatUint(ver, 10)
+	if string(sv[1])+"/"+string(sv[2])+"/"+version != v["scope"] {
+		return refusal("scope")
+	}
+	key, _ := hex.DecodeString(v["opened_key_hex"].(string))
+	if string(sv[4]) != v["scope_key_id"] || string(sv[4]) != fmt.Sprintf("%x", sha256.Sum256(key)) {
+		return refusal("key_id")
+	}
+	gcm := must(cipher.NewGCM(must(aes.NewCipher(key))))
+	if _, err := gcm.Open(nil, sv[5], sv[6], lp([]byte("wendy-secret-seal-v1"), org, string(sv[1]), string(sv[2]), version, string(sv[4]))); err != nil {
+		return refusal("ciphertext")
+	}
+	if !bytes.Equal(p[2], b64(v["expected_sealed_secret_b64"])) {
+		return errors.New("placed SealedSecret differs from the signed one")
+	}
+	return nil
+}
+
 // lp: conformance/registry/README.md.
 func lp(b []byte, fields ...string) []byte {
 	for _, f := range fields {
@@ -324,6 +421,15 @@ func main() {
 			got = "invalid"
 		}
 		report("secrets", v, got, err)
+	}
+	for _, x := range top["secret_readback_vectors"].([]any) {
+		v := x.(map[string]any)
+		err := checkReadback(top, v)
+		got := "valid"
+		if err != nil {
+			got = "invalid"
+		}
+		report("secret-readback", v, got, err)
 	}
 	if bad > 0 {
 		fmt.Printf("%d vector(s) disagree\n", bad)
