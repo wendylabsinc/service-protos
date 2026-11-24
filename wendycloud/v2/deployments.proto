@@ -77,8 +77,8 @@ service DeploymentService {
   // DeploymentChangeResponse.to_sign, and how any operator who may make the
   // change resumes after an interruption, from any of their keys. Pending is
   // every device whose last statement cloud has received differs from the
-  // current revision in content (release, configuration, desired state,
-  // membership), not merely in revision number:
+  // current revision in content (release, configuration, secrets, desired
+  // state, membership), not merely in revision number:
   // - a device in the current set: an Assign at the current revision;
   // - a device outside the current set that still holds an older revision,
   //   also one a superseded revision dropped before its removal was sent: an
@@ -190,6 +190,15 @@ message AppRelease {
   // nothing about it is signed per device. A release published without it
   // has none required; old clients ignore it.
   repeated string required_config_names = 11;
+  // The secret names the app requires (WDY-4374), names only: the values are
+  // app secrets (ArtifactRegistryService.SetSecret), never part of a release.
+  // None may also be a key of default_config_json or in
+  // required_config_names (INVALID_ARGUMENT). Unlike required_config_names,
+  // cloud enforces it: it refuses, with FAILED_PRECONDITION naming the
+  // missing names, a deployment revision of this release whose secrets lack
+  // one, so an old client that cannot send secrets is refused, never let
+  // through. A release published without it requires none.
+  repeated string required_secret_names = 12;
 }
 
 message CreateAppReleaseRequest {
@@ -204,6 +213,9 @@ message CreateAppReleaseRequest {
   // Set by the CLI from wendy.json at publish. Same rules as
   // AppRelease.required_config_names.
   repeated string required_config_names = 7;
+  // Set by the CLI from wendy.json at publish. Same rules as
+  // AppRelease.required_secret_names.
+  repeated string required_secret_names = 8;
 }
 
 // Use this to assign a image_digest to an app_release after it has been pushed to the registry
@@ -277,6 +289,21 @@ message Deployment {
   // The sites the current revision selects devices by, beside target_tags
   // (10) and target_device_ids (11); the rules are on DeviceSelection.
   repeated string target_site_ids = 20;
+  // The app secrets the current revision carries, names and versions only
+  // (DeploymentRevision.secrets).
+  repeated SecretRef secrets = 21;
+}
+
+// One app secret at one version (ArtifactRegistryService.SetSecret). Names
+// and versions only: no readback carries a value.
+message SecretRef {
+  string name = 1;
+  int32 version = 2;
+}
+
+// The full set of app secrets a deployment revision carries.
+message SecretSelection {
+  repeated SecretRef secrets = 1;
 }
 
 // One recorded change to a deployment. Revisions are numbered from 1 and never
@@ -306,6 +333,14 @@ message DeploymentRevision {
   // (terminal removal, UnassignDeviceRequest.revision).
   bool removed = 13;
   google.protobuf.Duration validity = 14;
+  // The app secrets this revision's statements carry, one version per name
+  // (DeviceAssignment.secrets). Replacing a secret makes a new version and
+  // never changes a recorded revision; a later revision picks it up. Cloud
+  // refuses a revision that names an unknown or removed version, names one
+  // secret twice, has a name that is also a key of its config_json, lacks a
+  // name its release requires (AppRelease.required_secret_names), or goes
+  // above 64 secrets or 64 KiB of values in total.
+  repeated SecretRef secrets = 15;
 }
 
 message DeviceMove {
@@ -359,6 +394,12 @@ message CreateDeploymentRequest {
   // carries any with INVALID_ARGUMENT ("site selection needs
   // CreateDeploymentV2"); it never ignores them.
   repeated string target_site_ids = 14;
+  // Read by CreateDeploymentV2: the app secrets revision 1 carries
+  // (DeploymentRevision.secrets). The client offers the current version of
+  // each secret the release requires. The deprecated CreateDeployment
+  // refuses a request that carries any with INVALID_ARGUMENT, and a release
+  // that requires any with FAILED_PRECONDITION.
+  repeated SecretRef secrets = 15;
 }
 
 // The full new device set of a deployment.
@@ -402,14 +443,18 @@ message UpdateDeploymentRequest {
   bool move_devices = 9;
   // Unset = unchanged.
   google.protobuf.Duration validity = 10;
+  // Unset = the current secrets unchanged, also when the release changes (the
+  // new release's required names must still be met). Set = the full new set.
+  SecretSelection secrets = 11;
 }
 
 message RollbackDeploymentRequest {
   string organization_id = 1;
   string deployment_id = 2;
   int32 expected_revision = 3;
-  // The new revision copies this one's release, configuration, desired state
-  // and devices.
+  // The new revision copies this one's release, configuration, secrets,
+  // desired state and devices. Refused with FAILED_PRECONDITION, naming the
+  // secret, when a secret version it carried has been removed since.
   int32 to_revision = 4;
   string note = 5;
   bool move_devices = 6;
@@ -438,7 +483,8 @@ message DeploymentChangeResponse {
 
 // Cloud-asserted, so it is a to-do list, not authority. The client builds and
 // signs each statement only from the change its operator confirmed (release,
-// configuration and desired state of that revision, and a device the operator
+// configuration, secret names and versions and desired state of that
+// revision, and a device the operator
 // saw in the device set) and refuses an entry that does not match it. It also
 // refuses a revision other than its own expected_revision + 1 (1 on create),
 // or, when resuming, the current revision whose content it showed the

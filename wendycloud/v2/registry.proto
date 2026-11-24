@@ -136,7 +136,9 @@ service ArtifactRegistryService {
   rpc PutBlob(stream PutBlobRequest) returns (PutBlobResponse);
   // Attaches wraps and sealed content keys made client-side: release scope at
   // publish (publisher, pre-granted users, custodian), deployment scope at
-  // deployment create, operator invite and rotation. Device wraps travel in
+  // deployment create, operator invite and rotation; secret scope after
+  // SetSecret and whenever access passes on (same path and gate as the
+  // release scope, never a CUSTODIAN wrap there). Device wraps travel in
   // DeviceAssignment instead.
   // Signed; payload_type "wendycloud.v2.AddWrapsRequest".
   rpc AddWraps(SignedRequest) returns (AddWrapsResponse) {
@@ -164,6 +166,61 @@ service ArtifactRegistryService {
   // registry directly; the dashboard calls cloud, which forwards this same
   // call with the operator's identity.
   rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse);
+
+  // ==================== App secrets (WDY-4374) ====================
+  // Configuration splits in two (sem 2026-11-24 17:14): VARIABLES stay
+  // configuration (config_json, readable as today) and SECRETS are values
+  // Wendy must not be able to read. A secret belongs to one app (organization
+  // + app) and has a name. It is handled like a release's content key: the
+  // client encrypts the value under a fresh secret key (SealedSecret) and
+  // wraps that key with the existing wrap format (KeyWrap) to the operator
+  // keys that reach the app, at the secret scope (WrapScope.secret_version).
+  // Never to the custodian: AddWraps refuses a CUSTODIAN wrap on the secret
+  // scope (INVALID_ARGUMENT), so neither Cloud nor its KMS can open a secret.
+  // Devices get each secret in their signed DeviceAssignment (secrets).
+  //
+  // Names follow the rules of configuration names (the keys of config_json),
+  // and one name is never both a variable and a secret of the same app. Cloud
+  // refuses, with FAILED_PRECONDITION naming the name, a secret whose name is
+  // a key of a live deployment's config_json, or of a release's
+  // default_config_json or required_config_names, for that app; and the
+  // reverse on CreateAppRelease, CreateDeploymentV2 and UpdateDeployment. The
+  // device refuses an assignment whose config_json has a key that is also a
+  // secret name in it.
+  //
+  // Readback is names and metadata only (SecretInfo, SecretRef): no message
+  // returns a value in clear. The sealed value goes back only with the
+  // caller's own wraps (GetMyWraps), so a key holder can wrap onward.
+  //
+  // The console calls these same RPCs with its browser operator key (an
+  // ordinary RECIPIENT_KIND_USER key); nothing about secrets is CLI-only.
+
+  // Sets a NEW version of one secret: creating a name (version 1) and
+  // replacing its value (current version + 1) are the same call. Refused with
+  // ABORTED unless value.version is the current version + 1 (1 for a new
+  // name). A version never changes. Replacing a value does not touch any
+  // deployment: a new deployment revision picks the new version (SecretRef).
+  // Same gate as PublishArtifact for the app. Refused with FAILED_PRECONDITION
+  // while the app is being deleted. The response lists the keys the client
+  // then wraps the secret key to with AddWraps, besides its own.
+  // Signed; payload_type "wendycloud.v2.SetSecretRequest".
+  rpc SetSecret(SignedRequest) returns (SetSecretResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Removes one secret name: every version, its sealed value and every wrap.
+  // Refused with FAILED_PRECONDITION, naming the deployments, while the
+  // current revision of a live deployment carries it: update those first.
+  // Devices keep what they last applied until a new revision reaches them. A
+  // rollback to a revision that carried a removed secret is refused
+  // (RollbackDeployment). Deleting the app removes its secrets. Same gate as
+  // SetSecret.
+  // Signed; payload_type "wendycloud.v2.RemoveSecretRequest".
+  rpc RemoveSecret(SignedRequest) returns (RemoveSecretResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // The app's secrets at their current version, by name. Metadata only. Same
+  // gate as ListArtifacts (`artifact:read`). A read: not signed.
+  rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
 
   // One signed statement per target device (Q7, sem 2026-10-19 01:15: one
   // signature per device, not per deployment), postbox-relayed verbatim to that
@@ -206,8 +263,9 @@ service ArtifactRegistryService {
 //   every assignment for that deployment_id is refused: none can be above it,
 //   and the equal-revision rule below applies only to an assignment's mark.
 // - At a revision equal to an assignment's mark, it accepts only identical
-//   app_release_id, manifest_digest, config_json, desired_state and replaces_*
-//   (deployment_key_id, device_wrap and expires_at may differ: key rotation),
+//   app_release_id, manifest_digest, config_json, desired_state, replaces_*
+//   and each secret's value (deployment_key_id, device_wrap, expires_at and each
+//   secret's device_wrap may differ: key rotation),
 //   and does not apply replaces_* again: the move was applied with the first
 //   copy. The replaces_* checks below apply only above the mark.
 // - One instance per app: it refuses an assignment for app_id while it holds
@@ -268,6 +326,34 @@ message DeviceAssignment {
   // replaced deployment's removal for this device.
   string replaces_deployment_id = 13;
   int32 replaces_revision = 14;
+  // The app's secrets for this device (WDY-4374): for each secret the
+  // revision carries (DeploymentRevision.secrets), the sealed value and the
+  // secret key wrapped to THIS device's registered encryption key. Nothing
+  // about secrets is sealed under the deployment key, whose custodian wrap
+  // stays as it is. Under the operator's signature like every other field.
+  // Cloud refuses the statement unless its (name, version) set equals the
+  // revision's, each value is byte-equal to the stored SealedSecret, and each
+  // device_wrap is to this device's live key at that secret's scope.
+  // The device opens each wrap (scope kind 3, conformance/registry/README.md)
+  // and each value, and refuses the whole assignment (REJECTED_UNWRAP) if one
+  // does not open, a name repeats, a name is also a key of config_json, or it
+  // is above the limits: at most 64 secrets and 64 KiB of values in total.
+  // It applies each as NAME=VALUE beside the configuration. Its postbox copy
+  // keeps the sealed form; values are in clear only where the app's
+  // environment needs them. Empty = no secrets in this revision.
+  // An agent that predates this field would ignore it and run the app without
+  // its secrets, so cloud holds back an assignment that carries secrets until
+  // the device's pull lists "wendycloud.v2.DeviceAssignment.secrets" in
+  // PullChangesRequest.accepted_fields (postbox.proto).
+  repeated DeviceSecret secrets = 15;
+}
+
+// One secret in one DeviceAssignment.
+message DeviceSecret {
+  SealedSecret value = 1;
+  // recipient_kind DEVICE, recipient = the assignment's device, scope =
+  // value's secret_version, key_id = value.secret_key_id.
+  KeyWrap device_wrap = 2;
 }
 
 message AssignDeviceResponse {
@@ -453,6 +539,82 @@ message GetMyWrapsRequest {
 message GetMyWrapsResponse {
   repeated KeyWrap wraps = 1;
   repeated SealedContentKey sealed_content_keys = 2;
+  // Secret scope only: the sealed value of that version, returned with the
+  // caller's wraps so it can wrap the secret key onward (another operator key,
+  // a device) and copy the value into DeviceAssignment.secrets unchanged.
+  // Empty when the caller holds no wrap at that scope.
+  repeated SealedSecret sealed_secrets = 3;
+}
+
+// ==================== App secrets ====================
+
+message SetSecretRequest {
+  string organization_id = 1;
+  // Its app_id, name and version say which secret version this sets.
+  SealedSecret value = 2;
+}
+
+message SetSecretResponse {
+  SecretInfo secret = 1;
+  // Users whose current permissions reach the app: the same set
+  // PublishArtifactResponse.auto_grant_keys gives for a release of it,
+  // browser keys included. The client wraps the secret key to each of them,
+  // and to its own key, at the secret scope with AddWraps.
+  repeated RecipientKey auto_grant_keys = 2;
+}
+
+message RemoveSecretRequest {
+  string organization_id = 1;
+  string app_id = 2;
+  string name = 3;
+}
+
+message RemoveSecretResponse {}
+
+message ListSecretsRequest {
+  string organization_id = 1;
+  string app_id = 2;
+  // 0 or less = 100. The server caps it at 500.
+  int32 page_size = 3;
+  // next_page_token of the previous page; empty = the first page.
+  string page_token = 4;
+}
+
+message ListSecretsResponse {
+  // Ordered by name.
+  repeated SecretInfo secrets = 1;
+  // Empty = the last page.
+  string next_page_token = 2;
+}
+
+// What anyone may read about a secret version: never its value.
+message SecretInfo {
+  string app_id = 1;
+  string name = 2;
+  int32 version = 3;
+  string secret_key_id = 4;
+  // The verified signer's SPIFFE URI on the SetSecret that made this version.
+  string set_by = 5;
+  // Empty once that user is deleted.
+  string set_by_user_id = 6;
+  google.protobuf.Timestamp set_at = 7;
+}
+
+// One secret version's value, encrypted on the client under that version's
+// own 32-byte secret key (fresh from a CSPRNG for every version, never
+// reused): AES-256-GCM, 12-byte random nonce, AAD length-prefixed over
+// tenant, app_id, name, version and secret_key_id
+// (conformance/registry/README.md, secret seal). Plaintext = the value,
+// UTF-8 without NUL, at most 16 KiB. Cloud stores it as sent and cannot open
+// it.
+message SealedSecret {
+  string app_id = 1;
+  string name = 2;
+  // From 1.
+  int32 version = 3;
+  string secret_key_id = 4;  // SHA-256 (hex) of the secret key
+  bytes nonce = 5;
+  bytes ciphertext = 6;
 }
 
 // ==================== Artifact format ====================
@@ -523,16 +685,19 @@ enum RecipientKind {
   // service account, so no service and no CI can open a custodian wrap; every
   // call is audit-logged and alerts (sem 2026-10-23, WDY-4007). The accepted
   // custodian key ids are config, not wire. The registry refuses a release or
-  // deployment with no CUSTODIAN wrap.
+  // deployment with no CUSTODIAN wrap, and a CUSTODIAN wrap at secret scope.
   RECIPIENT_KIND_CUSTODIAN = 3;
 }
 
 // What a wrap opens. Deployment scope: the deployment key. Release scope: the
 // content key itself, for release holders before any deployment exists (Q1).
+// Secret scope: one secret version's key (WDY-4374); never a CUSTODIAN wrap.
 message WrapScope {
   oneof scope {
     string deployment_id = 1;
     string app_release_id = 2;
+    // "<app_id>/<name>/<version>", version in decimal from 1.
+    string secret_version = 4;
   }
   // SHA-256 (hex) of the wrapped key; tells a stale wrap after rotation.
   string key_id = 3;

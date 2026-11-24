@@ -148,7 +148,7 @@ Rules:
 `{version, contract, generation, organization_id, device, aud,
 org_ca_cert_der_b64, verify_at, org_ca_vectors[], operator_ca_cert_der_b64,
 platform_cap_seconds, device_cap_tolerance_seconds, default_tenant_cap_seconds,
-validity_vectors[]}`. The
+validity_vectors[], assign_resource, secret_material, secret_vectors[]}`. The
 device holds `org_ca_cert_der_b64` (its tenant CA). Each invalid vector names
 the one check that must fail in `refusal`; the codes are vector labels, not
 wire values.
@@ -181,8 +181,25 @@ device's trusted time; at `accept`, `tenant_cap_seconds` is the tenant's cap.
 | `above-tenant-cap-accept-invalid` | accept | `above_tenant_cap`: 61 days against the 60-day cap |
 | `above-platform-cap-accept-invalid` | accept | `above_platform_cap`: 365 days + 1 s, tenant cap at the platform cap |
 
+`secret_vectors[]` (WDY-4374, app secrets): `signed_request_b64` is a
+`DeploymentService.AssignDevice` whose `DeviceAssignment` carries one
+`DeviceSecret` in `secrets` (15). The JWS `target.resource` is
+`assign_resource`. `secret_material` holds the device's KEM seed
+(`device_kem_ikm_hex`, a test private key), its `device_key_id`, and the
+committed wraps with the keys they wrap. The device checks the JWS as above,
+then opens each secret: its `device_wrap` (HPKE, wrap info with scope kind 3
+and scope id `<app_id>/<name>/<version>`) gives the secret key, which opens the
+`SealedSecret` under the secret seal AAD (both layouts:
+`conformance/registry/README.md`).
+
+| name | stage | expect (`refusal`) |
+|---|---|---|
+| `assign-with-secret-valid` | device | valid: the signature holds and the secret opens to `expected_secrets` |
+| `secret-ciphertext-tampered-invalid` | device | `body_sha256`: one bit of the sealed value flipped after signing |
+
 Generation: `go run conformance/postbox-entry/generate.go conformance` (Go 1.27,
 standard library). Every key is ML-DSA-65 from `SHA-256(<label>)` and every
-signature is deterministic, so a rerun is byte-identical. **The labels are test
-private keys.** `go run conformance/postbox-entry/verify.go conformance` checks
+signature is deterministic. HPKE encapsulation is randomized, so the generator
+keeps the committed wraps in `secret_material` while their inputs are unchanged;
+a rerun is byte-identical. **The labels are test private keys.** `go run conformance/postbox-entry/verify.go conformance` checks
 each vector's outcome and refusal code.

@@ -131,6 +131,14 @@ message PullChangesRequest {
   // back an entry whose operation the pull does not list (a detach: see
   // AssetApp.detach_state) and delivers it once a pull lists it.
   repeated string accepted_operations = 3;
+  // Payload fields this agent applies that an older agent would silently
+  // ignore (fully-qualified field names). Empty from an agent that predates
+  // this field. Device-asserted and descriptive, like accepted_operations.
+  // Cloud holds back an entry whose payload sets a field defined here until a
+  // pull lists that field. Defined: "wendycloud.v2.DeviceAssignment.secrets"
+  // (WDY-4374), so no agent runs an app without the secrets its assignment
+  // carries. Until delivery the device keeps what it last applied.
+  repeated string accepted_fields = 4;
 }
 
 message PullChangesResponse {
