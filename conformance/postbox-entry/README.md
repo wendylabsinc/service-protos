@@ -136,6 +136,7 @@ Rules:
   (`validity_missing`), `valid_until − iat` within the platform cap
   (`above_platform_cap`, so a cloud that skipped the accept check gains
   nothing), and trusted now `< valid_until` (`stale`; strict, like `expiry`).
+  The device tolerates 5 minutes (300 s) over the platform cap; Cloud does not.
   Trusted now is the TSA/checkpoint time when present, else the device clock.
 - **The device does not check the request `expiry` or the ±60 s `iat` window
   on a postbox entry.** Its former 10-minute `expiry − iat` cap is gone.
@@ -146,7 +147,8 @@ Rules:
 
 `{version, contract, generation, organization_id, device, aud,
 org_ca_cert_der_b64, verify_at, org_ca_vectors[], operator_ca_cert_der_b64,
-platform_cap_seconds, default_tenant_cap_seconds, validity_vectors[]}`. The
+platform_cap_seconds, device_cap_tolerance_seconds, default_tenant_cap_seconds,
+validity_vectors[]}`. The
 device holds `org_ca_cert_der_b64` (its tenant CA). Each invalid vector names
 the one check that must fail in `refusal`; the codes are vector labels, not
 wire values.
@@ -173,7 +175,8 @@ device's trusted time; at `accept`, `tenant_cap_seconds` is the tenant's cap.
 | `call-expiry-ignored-valid` | device | valid: the same entry 14 days later, long past the 30 s `expiry` |
 | `past-valid-until-invalid` | device | `stale`: trusted now = `valid_until` |
 | `valid-until-missing-invalid` | device | `validity_missing` |
-| `above-platform-cap-device-invalid` | device | `above_platform_cap`: `valid_until` = `iat` + 365 days + 1 s |
+| `platform-cap-tolerance-boundary-device-valid` | device | valid: `valid_until` = `iat` + 365 days + 5 min |
+| `above-platform-cap-device-invalid` | device | `above_platform_cap`: `valid_until` = `iat` + 365 days + 5 min + 1 s |
 | `tenant-cap-boundary-accept-valid` | accept | valid: `valid_until − iat` = the 60-day tenant cap |
 | `above-tenant-cap-accept-invalid` | accept | `above_tenant_cap`: 61 days against the 60-day cap |
 | `above-platform-cap-accept-invalid` | accept | `above_platform_cap`: 365 days + 1 s, tenant cap at the platform cap |

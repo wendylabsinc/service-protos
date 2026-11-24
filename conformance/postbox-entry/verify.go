@@ -99,8 +99,9 @@ func checkOrgCA(orgCA *x509.Certificate, at int64, v map[string]any) (string, er
 // checkEntry verifies a postbox-relayed ControlContainer the way the device
 // does: the x5c leaf chains through the cached Operator CA to the tenant CA at
 // the signed iat, the signature and claims hold, and valid_until (never the
-// 30 s request expiry) is checked against trusted now and the platform cap. At
-// stage "accept" it applies cloud's caps instead.
+// 30 s request expiry) is checked against trusted now and the platform cap
+// plus the device's tolerance. At stage "accept" it applies cloud's exact caps
+// instead.
 func checkEntry(orgCA, opCA *x509.Certificate, top, v map[string]any) error {
 	sr, err := fields(b64(v["signed_request_b64"]))
 	if err != nil {
@@ -156,14 +157,17 @@ func checkEntry(orgCA, opCA *x509.Certificate, top, v map[string]any) error {
 	}
 	u, _ := binary.Uvarint(ts[1])
 	validUntil := int64(u)
-	if validUntil-iat > num(top["platform_cap_seconds"]) {
-		return refusal("above_platform_cap")
-	}
 	if v["stage"] == "accept" {
+		if validUntil-iat > num(top["platform_cap_seconds"]) {
+			return refusal("above_platform_cap")
+		}
 		if validUntil-iat > num(v["tenant_cap_seconds"]) {
 			return refusal("above_tenant_cap")
 		}
 		return nil
+	}
+	if validUntil-iat > num(top["platform_cap_seconds"])+num(top["device_cap_tolerance_seconds"]) {
+		return refusal("above_platform_cap")
 	}
 	if num(v["trusted_now"]) >= validUntil {
 		return refusal("stale")
