@@ -149,7 +149,7 @@ Rules:
 org_ca_cert_der_b64, verify_at, org_ca_vectors[], operator_ca_cert_der_b64,
 platform_cap_seconds, device_cap_tolerance_seconds, default_tenant_cap_seconds,
 validity_vectors[], assign_resource, secret_material, secret_vectors[],
-platform_root_cert_der_b64, members, secret_readback_vectors[]}`. The
+platform_root_cert_der_b64, secret_readback_vectors[]}`. The
 device holds `org_ca_cert_der_b64` (its tenant CA). Each invalid vector names
 the one check that must fail in `refusal`; the codes are vector labels, not
 wire values.
@@ -205,12 +205,12 @@ before it wraps the secret key onward or places the value in a
 `SignedSecretVersion`), the requested `scope` and `scope_key_id`, and
 `opened_key_hex`, the key the caller's own wrap opened to (the wrap itself is
 covered by the `key_wrap` vectors). The client pins
-`platform_root_cert_der_b64`; its tenant CA is `org_ca_cert_der_b64`;
-`members` is the operator names `ListMembers` returns. Checks, in order: the
+`platform_root_cert_der_b64`; its tenant CA is `org_ca_cert_der_b64`.
+Checks, in order: the
 JWS with its `x5c` leaf, payload type, operation and `body_sha256`; the leaf
 through `chain_der` to the pinned root at the signed `iat` (`chain`); the
 tenant CA, leaf tenant, `target.tenant` and `organization_id` are the caller's
-(`tenant`); the signer is a member (`not_member`); the signed `SealedSecret`
+(`tenant`); the signed `SealedSecret`
 names the requested app, name and version (`scope`); its `secret_key_id`
 equals `scope_key_id` and SHA-256 of the opened key (`key_id`); the value opens
 under the secret seal AAD (`ciphertext`). The valid vector's
@@ -223,7 +223,7 @@ placeholder the readback check does not read.
 | `secret-readback-valid` | valid |
 | `secret-readback-unpinned-root-invalid` | `chain`: Cloud planted the version, signing as the real operator under a CA and root it made |
 | `secret-readback-other-tenant-invalid` | `tenant`: a real operator of another tenant |
-| `secret-readback-not-member-invalid` | `not_member`: valid signer who has left the tenant |
+| `secret-readback-setter-left-valid` | valid: the setter has since left the tenant; their leaf was valid at the signed `iat`, and the secret stays usable |
 | `secret-readback-wrong-name-invalid` | `scope`: a real signed request for another secret name |
 | `secret-readback-key-mismatch-invalid` | `key_id`: the caller's wrap opens to a key Cloud chose |
 | `secret-readback-ciphertext-tampered-invalid` | `body_sha256`: one bit of the signed ciphertext flipped |

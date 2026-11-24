@@ -32,7 +32,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -372,8 +371,7 @@ func main() {
 			"Cloud planted the version: a leaf with the real operator's identity, under a tenant CA Cloud made and a root the client does not pin"),
 		readback("secret-readback-other-tenant-invalid", ssv(setSecret(otherOpKey, otherOpLeaf, value, "3e7b1d5a-9c2f-4a8e-b6d0-5f1a3c7e9b42"), otherOperatorCA, otherOrgCA), key1, "invalid", "tenant",
 			"the signer is a real operator under the pinned root, but of another tenant"),
-		readback("secret-readback-not-member-invalid", ssv(setSecret(leftKey, leftLeaf, value, "5f9d3b7e-1a4c-4e2b-8f6a-7c3e9a1d5b80"), operatorCA, orgCA), key1, "invalid", "not_member",
-			"signature and chain hold, but ListMembers no longer lists the signer's operator name"),
+		readback("secret-readback-setter-left-valid", ssv(setSecret(leftKey, leftLeaf, value, "5f9d3b7e-1a4c-4e2b-8f6a-7c3e9a1d5b80"), operatorCA, orgCA), key1, "valid", "", ""),
 		readback("secret-readback-wrong-name-invalid", ssv(setSecret(opKey, opLeaf, otherName, "7b1f5d9a-3c6e-4a0b-9d2f-8e4a0c6b2d91"), operatorCA, orgCA), key1, "invalid", "scope",
 			"a valid signed request for API_TOKEN served for the requested DB_PASSWORD scope"),
 		readback("secret-readback-key-mismatch-invalid", ssv(setSecret(opKey, opLeaf, value, "9d3b7f1c-5e8a-4c2d-a0f4-1b6e2c8d4f03"), operatorCA, orgCA), hex.EncodeToString(plantKey), "invalid", "key_id",
@@ -405,7 +403,6 @@ func main() {
 		"secret_material":              material,
 		"secret_vectors":               secretVectors,
 		"platform_root_cert_der_b64":   b64(root.der),
-		"members":                      []string{opURI[strings.LastIndex(opURI, "/")+1:]},
 		"secret_readback_vectors":      readbackVectors,
 	})
 }

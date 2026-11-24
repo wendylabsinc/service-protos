@@ -341,14 +341,6 @@ func checkReadback(top, v map[string]any) error {
 		target["tenant"] != org || string(p[1]) != org {
 		return refusal("tenant")
 	}
-	uri := leaf.URIs[0].String()
-	member := false
-	for _, m := range top["members"].([]any) {
-		member = member || m == uri[strings.LastIndex(uri, "/")+1:]
-	}
-	if !member {
-		return refusal("not_member")
-	}
 	sv, err := fields(p[2])
 	if err != nil {
 		return err

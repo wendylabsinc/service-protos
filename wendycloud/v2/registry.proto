@@ -42,14 +42,24 @@ import "wendycloud/v2/signed_request.proto";
 // - Another session of the SAME user (approve a new session):
 //   KeyDirectoryService.ApproveSession records that it is approved, then the
 //   approving session passes on every wrap it holds (GetMyWraps listing,
-//   AddWraps).
+//   AddWraps). The newly approved session then passes on what it holds
+//   itself (wraps from before WDY-4375 included) to the user's other
+//   approved sessions, the same way.
 // - Another MEMBER (unlock an item): a member holding a wrap re-wraps it to
 //   the approved sessions of that member (GetRecipientKeys, AddWraps).
 // Approval is a SessionApproval signed with the approving session's approval
 // key, which no one but that session holds; Cloud stores and serves it and
 // cannot make one. A user's first session approves itself (the root). Nothing
-// is wrapped to a waiting session. Reads that find no wrap tell the client
-// why (GetMyWrapsResponse.missing), so it can show the right text.
+// is wrapped to a waiting session.
+// A login alone never approves (WDY-4375 round 2): revoking an approved
+// session needs a signature from an approved session of the same user
+// (RevokeUserEncryptionKeyRequest.revocation), and a user who has, or since
+// joining had, an approved session cannot make a new root. A user who lost
+// every approved session comes back only through an organization admin who
+// removes and re-adds the member; removal already revokes all their keys and
+// wraps. Members then unlock items for them as for anyone else.
+// Reads that find no wrap tell the client why (GetMyWrapsResponse.missing),
+// so it can show the right text.
 // Releases and deployments keep their custodian wraps; nothing here adds a
 // custodian path, and secrets never get one.
 
@@ -90,20 +100,31 @@ service KeyDirectoryService {
   // the signature verifies with the approver's approval_public_key; and
   // either approver_key_id is another live, approved key of the caller (a
   // session that approves must itself be approved), or approver_key_id equals
-  // key_id (the root) and the caller has no other live approved key. Cloud's
-  // checks are a courtesy; clients check the same chain themselves
-  // (RecipientKey). The approving client then passes on its wraps with
-  // AddWraps.
+  // key_id (the root) and the caller has never had an approved key in this
+  // organization since the member was last added (revoked keys count, so
+  // revoking every approved session never opens a new root; removing and
+  // re-adding the member resets it). Cloud's checks are a courtesy; clients
+  // check the same chain themselves (RecipientKey). The approving client then
+  // passes on its wraps with AddWraps, and the newly approved client passes on
+  // its own to the user's other approved sessions.
   // Signed; payload_type "wendycloud.v2.ApproveSessionRequest".
   rpc ApproveSession(SignedRequest) returns (ApproveSessionResponse) {
     option (wendy.signed_request) = true;
   }
   // Ends one session of the caller (WDY-4375): the key stops being live, and
   // every wrap addressed to it, at every scope, is deleted. A lost machine,
-  // or a sign-out that does not keep the key. Only the key's own user, from
-  // any session (FAILED_PRECONDITION for another user's key). Approvals the
-  // key made earlier stay valid; it makes no new ones. Cloud does the same
-  // for every key of a user whose membership of the organization ends.
+  // or a sign-out that does not keep the key. Only the key's own user
+  // (FAILED_PRECONDITION for another user's key). A waiting key may be
+  // revoked from any session of the user. An approved key is revoked only
+  // with `revocation`, signed by an approved session of the same user (the
+  // key itself or another one), so a stolen login cannot clear the real
+  // sessions away (PERMISSION_DENIED without one, or when it does not verify
+  // with a live approved key's approval_public_key). Revoking the user's last
+  // approved session leaves the member without one: no new root is possible
+  // (ApproveSession), and the way back is an admin removing and re-adding the
+  // member. Approvals the key made earlier stay valid; it makes no new ones.
+  // Cloud does the same, with no revocation needed, for every key of a user
+  // whose membership of the organization ends.
   // Signed; payload_type "wendycloud.v2.RevokeUserEncryptionKeyRequest".
   rpc RevokeUserEncryptionKey(SignedRequest) returns (RevokeUserEncryptionKeyResponse) {
     option (wendy.signed_request) = true;
@@ -130,7 +151,8 @@ message RegisterEncryptionKeyRequest {
   // User keys only (WDY-4375); a device key leaves both empty. The session's
   // approval key: an ML-DSA-65 public key (FIPS 204 encoding) the session
   // generates with public_key and keeps with it. It signs SessionApprovals
-  // and nothing else. A key registered without one can never be approved.
+  // and SessionRevocations, nothing else. A key registered without one can
+  // never be approved.
   bytes approval_public_key = 4;
   // What the user sees when asked to approve this session: the machine name
   // (host name) or the browser, at most 64 UTF-8 bytes. Under the user's
@@ -150,7 +172,8 @@ message GetRecipientKeysRequest {
   // permissions reach this app, the same set as
   // PublishArtifactResponse.auto_grant_keys. Cloud supplies these candidates
   // only: the client verifies each key, wraps only to approved sessions, and
-  // shows the members' names in the review its operator confirms. Setting
+  // shows the members' names in the review its operator confirms, all before
+  // it signs the publish, SetSecret or deployment that needs them. Setting
   // both principals and app_id is INVALID_ARGUMENT.
   string app_id = 3;
 }
@@ -177,10 +200,10 @@ message GetRecipientKeysRequest {
 // approved, until a root (approver_key_id = key_id). All of one user's
 // approved keys chain to ONE root; a client that finds two refuses every key
 // of that user and tells its operator. A client that has wrapped to a member
-// before remembers that member's root key_id; when it changes (the member
-// lost every session and started again), it says so in the review before it
-// wraps. A waiting session (no approval, or one that does not verify) is
-// never wrapped to.
+// before remembers that member's root key_id; when it changes (an admin
+// removed and re-added the member, the only way to a new root), it says so in
+// the review before it wraps. A waiting session (no approval, or one that
+// does not verify) is never wrapped to.
 message RecipientKey {
   string principal = 1;
   SignedRequest registration = 2;  // verbatim as registered
@@ -188,13 +211,10 @@ message RecipientKey {
   // DER. The leaf itself is the `x5c` in `registration`.
   repeated bytes chain_der = 3;
   // User keys only: this session's approval, verbatim as recorded by
-  // ApproveSession. Empty = waiting.
+  // ApproveSession. Empty = waiting. After login, a client whose own key is
+  // waiting while another key of its user is approved asks the user to
+  // approve this session from that one.
   SignedSessionApproval approval = 4;
-  // Only for the caller's own keys (false for anyone else's): this key holds
-  // at least one wrap. Cloud-asserted, for display: after login, a client
-  // whose own key is waiting while another of its user's keys is approved
-  // and holds wraps asks the user to approve this session from that one.
-  bool holds_wraps = 5;
 }
 
 message GetRecipientKeysResponse {
@@ -241,6 +261,33 @@ message ApproveSessionResponse {}
 message RevokeUserEncryptionKeyRequest {
   string organization_id = 1;
   string key_id = 2;
+  // Required when key_id is an approved session (WDY-4375 round 2); unset for
+  // a waiting one. Its statement names this organization, the caller and
+  // key_id.
+  SignedSessionRevocation revocation = 3;
+}
+
+// One approved session of a user ending an approved session of the same
+// user, itself included. Signed with the revoking session's approval key,
+// never by Cloud. Signature layout: conformance/registry/README.md, session
+// revocation.
+message SessionRevocation {
+  string organization_id = 1;
+  // The user's SPIFFE URI: both sessions belong to it.
+  string user = 2;
+  // The revoked session's key.
+  string key_id = 3;
+  // The revoking session's key, approved and live; equal to key_id when a
+  // session ends itself.
+  string revoker_key_id = 4;
+}
+
+message SignedSessionRevocation {
+  // A serialized SessionRevocation: the exact bytes signed. Verify, then
+  // decode.
+  bytes statement = 1;
+  // ML-DSA-65 over the statement (conformance/registry/README.md).
+  bytes signature = 2;
 }
 
 message RevokeUserEncryptionKeyResponse {
@@ -365,10 +412,13 @@ service ArtifactRegistryService {
   // name). A version never changes. Replacing a value does not touch any
   // deployment: a new deployment revision picks the new version (SecretRef).
   // Same gate as PublishArtifact for the app. Refused with FAILED_PRECONDITION
-  // while the app is being deleted. The response lists the keys the client
-  // then wraps the secret key to with AddWraps, besides its own. A version
-  // whose wraps never arrive has no Cloud rule: the client retries AddWraps,
-  // or the operator sets the secret again.
+  // while the app is being deleted. Order (WDY-4375 round 2): the client
+  // first calls GetRecipientKeys(app_id), keeps the approved sessions and
+  // shows their members in the review; only after its operator confirms does
+  // it sign and send SetSecret, then wrap the secret key with AddWraps to
+  // exactly the reviewed sessions and its own key. A version whose wraps
+  // never arrive has no Cloud rule: the client retries AddWraps, or the
+  // operator sets the secret again.
   // Signed with `x5c` only (`kid` is refused): Cloud stores the request
   // verbatim and serves it back as SignedSecretVersion.set_request, which is
   // what lets a later client check who set the value.
@@ -637,12 +687,14 @@ message PublishArtifactResponse {
   // Users whose current permissions already reach every release of this app.
   // The publishing client wraps the content key to each of them at release
   // scope at publish, not on request (Q1 amendment, sem 2026-10-18 16:37).
-  // Candidates only (WDY-4375 G): the client verifies each key, keeps the
-  // approved sessions (RecipientKey), shows the members' names in the
-  // publish review its operator confirms, and wraps to nobody else. Every
-  // live key is listed with its approval, as before, so a client that
-  // predates WDY-4375 behaves as today. The same holds at deploy: the client
-  // wraps the new deployment key to GetRecipientKeys(app_id).
+  // Kept for clients that predate WDY-4375, which behave as today: every
+  // live key is listed with its approval. A WDY-4375 client does not wait for
+  // this list: it calls GetRecipientKeys(app_id) (the same set) before it
+  // signs PublishArtifact, verifies each key, keeps the approved sessions
+  // (RecipientKey), shows their members in the publish review its operator
+  // confirms, and wraps to nobody else. Deploy follows the same order: the
+  // recipients of a new deployment key come from GetRecipientKeys(app_id),
+  // reviewed before the deployment is signed.
   repeated RecipientKey auto_grant_keys = 4;
 }
 
@@ -742,6 +794,10 @@ message GetMyWrapsRequest {
 //   else with access to <item> to unlock it for you."
 // - else: "<Item> is encrypted and has not been unlocked for you. Ask
 //   someone with access to <item> to unlock it for you."
+// Before it shows the first text, the client makes one more GetMyWraps call
+// for the same scope with recipient_key_id empty: wraps held by the user's
+// other sessions. If none come back, nothing of the user's holds the item, and
+// it shows the second or third text instead.
 message MissingAccess {
   // The calling session (GetMyWrapsRequest.recipient_key_id) has a recorded
   // approval.
@@ -791,11 +847,6 @@ message GetMyWrapsResponse {
 //   chain alone (as for RecipientKey). The CA's tenant, the JWS
 //   target.tenant and SetSecretRequest.organization_id all equal the caller's
 //   organization.
-// - The signer is a current member of that organization: the operator name in
-//   the leaf's SPIFFE URI is the subject of a member that
-//   OrganizationService.ListMembers lists. (Membership is Cloud's word; it
-//   only drops versions whose setter has left. The signature is what stops a
-//   planted value.)
 // - The signed SealedSecret names this app, secret name, version and
 //   secret_key_id: app_id, name and version equal the requested scope
 //   (WrapScope.secret_version), and secret_key_id equals the scope's key_id
@@ -805,6 +856,9 @@ message GetMyWrapsResponse {
 //   DeviceAssignment is byte-equal to the signed one.
 // A version that fails any check is never wrapped onward and never placed in
 // a DeviceAssignment; the client reports it to its operator.
+// The setter need not still be a member (WDY-4375 round 2): a secret outlives
+// its setter's membership and is never retyped for it. The chain check at the
+// signed iat is the whole check on the signer.
 // Vectors: conformance/postbox-entry, secret_readback_vectors.
 message SignedSecretVersion {
   SignedRequest set_request = 1;  // verbatim as Cloud received it
@@ -823,14 +877,6 @@ message SetSecretRequest {
 
 message SetSecretResponse {
   SecretInfo secret = 1;
-  // Users whose current permissions reach the app: the same set
-  // PublishArtifactResponse.auto_grant_keys gives for a release of it,
-  // browser keys included. The client wraps the secret key to each of them,
-  // and to its own key, at the secret scope with AddWraps. Candidates only,
-  // as for PublishArtifactResponse.auto_grant_keys: approved sessions only,
-  // named in the review the operator confirms before SetSecret is sent
-  // (WDY-4375 G); Cloud never adds a recipient the operator did not see.
-  repeated RecipientKey auto_grant_keys = 2;
 }
 
 message RemoveSecretRequest {
