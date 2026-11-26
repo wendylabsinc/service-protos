@@ -1,6 +1,6 @@
 //go:build ignore
 
-// Generates conformance/registry/registry-vectors-v1.json and
+// Generates conformance/registry/{registry,session}-vectors-v1.json and
 // conformance/reqsig/device-signed-request-vectors-v1.json (WDY-3958).
 // Go standard library only (Go 1.27+: crypto/mldsa, crypto/hpke, ML-DSA in
 // crypto/x509). Run: go run conformance/registry/generate.go conformance
@@ -189,6 +189,7 @@ func writeJSON(path string, v any) {
 
 func main() {
 	out := os.Args[1]
+	generateSessions(out)
 
 	// ---------- registry crypto ----------
 	kem := hpke.MLKEM768X25519()
@@ -696,4 +697,108 @@ func must2s(enc []byte, s *hpke.Sender, err error) ([]byte, *hpke.Sender) {
 		panic(err)
 	}
 	return enc, s
+}
+
+// generateSessions pins the two domain-separated signatures. Registration
+// verification and approval-chain traversal are prerequisites, not mocked JWSs.
+func generateSessions(out string) {
+	user := "spiffe://wendy.sh/tenant/" + tenant + "/operator/87b63b62-0ec6-4c83-b4bf-ff9018c0271d"
+	sessions := map[string]any{}
+	keys := map[string]*mldsa.PrivateKey{}
+	ids := map[string]string{}
+	for _, name := range []string{"root", "child", "other"} {
+		label := "wendy-session-vector-" + name + "-2026-11"
+		keys[name] = mldsaKey(label)
+		kemSeed := seed(label + "-kem")
+		pub := must(hpke.MLKEM768X25519().DeriveKeyPair(kemSeed)).PublicKey().Bytes()
+		id := sha256.Sum256(pub)
+		ids[name] = hex.EncodeToString(id[:])
+		sessions[name] = map[string]any{
+			"key_id": ids[name], "kem_ikm_hex": hex.EncodeToString(kemSeed),
+			"kem_public_key_hex":      hex.EncodeToString(pub),
+			"approval_seed_hex":       hex.EncodeToString(seed(label)),
+			"approval_public_key_hex": hex.EncodeToString(keys[name].PublicKey().Bytes()),
+		}
+	}
+	groups := map[string]any{}
+	for _, kind := range []string{"approval", "revocation"} {
+		prefix := "wendy-session-" + kind + "-v1"
+		otherPrefix := "wendy-session-approval-v1"
+		if kind == "approval" {
+			otherPrefix = "wendy-session-revocation-v1"
+		}
+		statement := func(values []string, reverse bool) []byte {
+			var b []byte
+			order := []int{0, 1, 2, 3}
+			if reverse {
+				order = []int{3, 2, 1, 0}
+			}
+			for _, i := range order {
+				b = append(b, pbBytes(i+1, []byte(values[i]))...)
+			}
+			return b
+		}
+		values := []string{tenant, user, ids["child"], ids["root"]}
+		var vectors []map[string]any
+		add := func(name string, actual []string, reverse bool, signedPrefix, signingKey, refusal string, mutate func(map[string]any)) {
+			msg := statement(actual, reverse)
+			sig := must(keys[signingKey].SignDeterministic(append([]byte(signedPrefix), msg...), nil))
+			v := map[string]any{
+				"name": kind + "-" + name, "expect": "valid", "signer": "root",
+				"signed_session_b64": b64(cat(pbBytes(1, msg), pbBytes(2, sig))),
+				"expected_statement": map[string]any{"organization_id": tenant, "user": user, "key_id": ids["child"], "signer_key_id": ids["root"]},
+				"signer_live":        true, "signer_approved": true, "has_prior_root": true,
+			}
+			if refusal != "" {
+				v["expect"], v["refusal"] = "invalid", refusal
+			}
+			if mutate != nil {
+				mutate(v)
+			}
+			vectors = append(vectors, v)
+		}
+		add("other-session-valid", values, false, prefix, "root", "", nil)
+		add("reordered-fields-valid", values, true, prefix, "root", "", nil)
+		self := []string{tenant, user, ids["root"], ids["root"]}
+		selfContext := func(v map[string]any) {
+			v["expected_statement"].(map[string]any)["key_id"] = ids["root"]
+			if kind == "approval" {
+				v["signer_approved"], v["has_prior_root"] = false, false
+			}
+		}
+		add("self-valid", self, false, prefix, "root", "", selfContext)
+		add("wrong-signing-key-invalid", values, false, prefix, "other", "signature", nil)
+		add("cross-domain-invalid", values, false, otherPrefix, "root", "signature", nil)
+		add("missing-prefix-invalid", values, false, "", "root", "signature", nil)
+		add("statement-tampered-invalid", values, false, prefix, "root", "signature", func(v map[string]any) {
+			msg := statement(values, false)
+			sig := must(keys["root"].SignDeterministic(append([]byte(prefix), msg...), nil))
+			msg[len(msg)-1] ^= 1
+			v["signed_session_b64"] = b64(cat(pbBytes(1, msg), pbBytes(2, sig)))
+		})
+		add("signature-tampered-invalid", values, false, prefix, "root", "signature", func(v map[string]any) {
+			b := must(base64.StdEncoding.DecodeString(v["signed_session_b64"].(string)))
+			b[len(b)-1] ^= 1
+			v["signed_session_b64"] = b64(b)
+		})
+		for i, field := range []string{"organization", "user", "key-id", "signer-key-id"} {
+			changed := append([]string(nil), values...)
+			changed[i] = []string{"6a1f0c3e-8d2b-4f7a-9e5c-3b1d0a8f6e4c", "spiffe://wendy.sh/tenant/" + tenant + "/operator/11111111-1111-4111-8111-111111111111", ids["other"], ids["other"]}[i]
+			add("wrong-"+field+"-invalid", changed, false, prefix, "root", "binding", nil)
+		}
+		add("waiting-signer-invalid", values, false, prefix, "root", "signer_not_approved", func(v map[string]any) { v["signer_approved"] = false })
+		add("revoked-signer-invalid", values, false, prefix, "root", "signer_not_live", func(v map[string]any) { v["signer_live"] = false })
+		if kind == "approval" {
+			add("new-root-after-revocation-invalid", self, false, prefix, "root", "root_already_exists", func(v map[string]any) {
+				selfContext(v)
+				v["has_prior_root"] = true
+			})
+		}
+		groups[kind+"_vectors"] = vectors
+	}
+	groups["version"] = "session-vectors-v1"
+	groups["contract"] = "conformance/registry/README.md; wendycloud/v2/registry.proto"
+	groups["sessions"] = sessions
+	groups["generation"] = "Go 1.27 crypto/mldsa, pure ML-DSA-65, empty context, deterministic signing. TEST KEYS ONLY: seeds are private keys."
+	writeJSON(filepath.Join(out, "registry", "session-vectors-v1.json"), groups)
 }

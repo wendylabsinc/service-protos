@@ -185,7 +185,14 @@ device's trusted time; at `accept`, `tenant_cap_seconds` is the tenant's cap.
 `secret_vectors[]` (WDY-4374, app secrets): `signed_request_b64` is a
 `DeploymentService.AssignDevice` whose `DeviceAssignment` carries one
 `DeviceSecret` in `secrets` (15). The JWS `target.resource` is
-`assign_resource`. `secret_material` holds the device's KEM seed
+`assign_resource`, which is
+`org/<organization_id>/deployment/<deployment_id>/device/<device_uuid>`.
+UUIDs are lower-case; `device_uuid` is the UUID in `DeviceAssignment.device`,
+not the full SPIFFE URI. This matches Cloud's
+[assignment gate at f00f3436](https://github.com/wendylabsinc/cloud/blob/f00f3436a3f60773bfabb35ef8efe1c5dce2b1b8/swift/Sources/GRPCServices/DeviceStatements.swift#L978).
+The verifier reconstructs the resource from the assignment and the receiving
+device's identity. It does not trust the fixture's `assign_resource` as the
+expected binding. `secret_material` holds the device's KEM seed
 (`device_kem_ikm_hex`, a test private key), its `device_key_id`, and the
 committed wraps with the keys they wrap. The device checks the JWS as above,
 then opens each secret: its `device_wrap` (HPKE, wrap info with scope kind 3
@@ -197,6 +204,9 @@ and scope id `<app_id>/<name>/<version>`) gives the secret key, which opens the
 |---|---|---|
 | `assign-with-secret-valid` | device | valid: the signature holds and the secret opens to `expected_secrets` |
 | `secret-ciphertext-tampered-invalid` | device | `body_sha256`: one bit of the sealed value flipped after signing |
+| `assign-resource-missing-device-invalid` | device | `resource`: valid signature, but the resource names only the deployment |
+| `assign-resource-wrong-device-invalid` | device | `resource`: valid signature, but the resource names another device |
+| `assign-resource-wrong-deployment-invalid` | device | `resource`: valid signature, but the resource names another deployment |
 
 `secret_readback_vectors[]` (WDY-4374): the operator client's check of a
 `SignedSecretVersion` (`wendycloud/v2/registry.proto`) from `GetMyWraps`,
@@ -216,7 +226,12 @@ equals `scope_key_id` and SHA-256 of the opened key (`key_id`); the value opens
 under the secret seal AAD (`ciphertext`). The valid vector's
 `expected_sealed_secret_b64` is the value placed in the assignment, byte-equal
 to the signed one and to `assign-with-secret-valid`'s. `target.resource` is a
-placeholder the readback check does not read.
+placeholder the readback check does not read. Service-protos delegates this
+value to Cloud's per-method signing rules, and Cloud has no SetSecret rule
+or implementation yet. [WDY-4391](https://linear.app/wendylabsinc/issue/WDY-4391)
+tracks agreement, resource/audience checks and regenerated readback vectors.
+The placeholder is not a production signing rule; this remains a readiness
+blocker for the secrets contract.
 
 | name | expect (`refusal`) |
 |---|---|

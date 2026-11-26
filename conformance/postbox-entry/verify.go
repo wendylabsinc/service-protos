@@ -155,8 +155,11 @@ func checkJWS(orgCA, opCA *x509.Certificate, top, v map[string]any, op, ptype st
 		return nil, 0, fmt.Errorf("chain to the tenant CA at iat: %w", err)
 	}
 	target, _ := claims["target"].(map[string]any)
-	if claims["operation"] != op || claims["aud"] != top["aud"] || target["tenant"] != top["organization_id"] || target["resource"] != resource || string(sr[2]) != ptype {
+	if claims["operation"] != op || claims["aud"] != top["aud"] || target["tenant"] != top["organization_id"] || string(sr[2]) != ptype {
 		return nil, 0, errors.New("claims")
+	}
+	if target["resource"] != resource {
+		return nil, 0, refusal("resource")
 	}
 	body := sha256.Sum256(sr[1])
 	if claims["body_sha256"] != base64.RawURLEncoding.EncodeToString(body[:]) {
@@ -210,7 +213,21 @@ func checkEntry(orgCA, opCA *x509.Certificate, top, v map[string]any) error {
 // after the statement's JWS: each secret's device wrap (scope kind 3) and
 // sealed value must open and yield the vector's expected_secrets.
 func checkSecrets(orgCA, opCA *x509.Certificate, top, v map[string]any) error {
-	payload, _, err := checkJWS(orgCA, opCA, top, v, "wendycloud.v2.DeploymentService/AssignDevice", "wendycloud.v2.DeviceAssignment", top["assign_resource"])
+	// Derive the resource from the payload and this device's identity, not
+	// from assign_resource in the fixture. Cloud enforces this same binding.
+	sr, err := fields(b64(v["signed_request_b64"]))
+	if err != nil {
+		return err
+	}
+	assignment, err := fields(sr[1])
+	if err != nil {
+		return err
+	}
+	org := top["organization_id"].(string)
+	device := top["device"].(string)
+	deviceID := strings.TrimPrefix(device, "spiffe://wendy.sh/tenant/"+org+"/device/")
+	resource := "org/" + org + "/deployment/" + string(assignment[2]) + "/device/" + deviceID
+	payload, _, err := checkJWS(orgCA, opCA, top, v, "wendycloud.v2.DeploymentService/AssignDevice", "wendycloud.v2.DeviceAssignment", resource)
 	if err != nil {
 		return err
 	}
@@ -218,7 +235,9 @@ func checkSecrets(orgCA, opCA *x509.Certificate, top, v map[string]any) error {
 	if err != nil {
 		return err
 	}
-	org := top["organization_id"].(string)
+	if string(assignment[1]) != org || string(assignment[3]) != device {
+		return refusal("assignment_target")
+	}
 	mat := top["secret_material"].(map[string]any)
 	ikm, _ := hex.DecodeString(mat["device_kem_ikm_hex"].(string))
 	devKEM, err := hpke.MLKEM768X25519().DeriveKeyPair(ikm)

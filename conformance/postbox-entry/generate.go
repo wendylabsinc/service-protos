@@ -296,24 +296,39 @@ func main() {
 			pbBytes(11, []byte(`{"LOG_LEVEL":"info"}`)), pbVarint(12, 1),
 			pbBytes(15, cat(pbBytes(1, sealedSecret(ct)), pbBytes(2, secretWrap))))
 	}
-	assignResource := "org/" + tenant + "/deployment/" + deploymentID
+	assignResource := "org/" + tenant + "/deployment/" + deploymentID + "/device/" + deviceID
 	signedAssign := assignment(sealed)
 	body := sha256.Sum256(signedAssign)
-	assignJWS := sign(opKey, opLeaf, map[string]any{
-		"aud": aud, "body_sha256": b64u(body[:]), "correlation_id": "6f2a8c4e-1b7d-4a3f-9e5c-8d0b2f6a4c19",
-		"expiry": iat + 30, "iat": iat, "nonce": "7a3e9c1f-5b2d-4f8a-a6c4-2e0d8b6f4a71", "operation": assignDevice,
-		"target": map[string]any{"tenant": tenant, "resource": assignResource},
-	})
+	signAssignment := func(resource string) string {
+		return sign(opKey, opLeaf, map[string]any{
+			"aud": aud, "body_sha256": b64u(body[:]), "correlation_id": "6f2a8c4e-1b7d-4a3f-9e5c-8d0b2f6a4c19",
+			"expiry": iat + 30, "iat": iat, "nonce": "7a3e9c1f-5b2d-4f8a-a6c4-2e0d8b6f4a71", "operation": assignDevice,
+			"target": map[string]any{"tenant": tenant, "resource": resource},
+		})
+	}
+	assignJWS := signAssignment(assignResource)
 	tampered := bytes.Clone(sealed)
 	tampered[0] ^= 1
-	assignSR := func(payload []byte) string {
-		return b64(cat(pbBytes(1, payload), pbBytes(2, []byte("wendycloud.v2.DeviceAssignment")), pbBytes(3, []byte(assignJWS))))
+	assignSR := func(payload []byte, signature string) string {
+		return b64(cat(pbBytes(1, payload), pbBytes(2, []byte("wendycloud.v2.DeviceAssignment")), pbBytes(3, []byte(signature))))
 	}
 	secretVectors := []vec{
-		{"name": "assign-with-secret-valid", "stage": "device", "signed_request_b64": assignSR(signedAssign), "expect": "valid",
+		{"name": "assign-with-secret-valid", "stage": "device", "signed_request_b64": assignSR(signedAssign, assignJWS), "expect": "valid",
 			"expected_secrets": []vec{{"name": secretName, "version": 1, "value": secretValue}}},
-		{"name": "secret-ciphertext-tampered-invalid", "stage": "device", "signed_request_b64": assignSR(assignment(tampered)), "expect": "invalid",
+		{"name": "secret-ciphertext-tampered-invalid", "stage": "device", "signed_request_b64": assignSR(assignment(tampered), assignJWS), "expect": "invalid",
 			"refusal": "body_sha256", "invalid_reason": "one bit of DeviceAssignment.secrets[0].value.ciphertext flipped after the operator signed: the payload no longer matches the signed body_sha256"},
+	}
+	for _, wrong := range []struct{ name, resource string }{
+		{"missing-device", "org/" + tenant + "/deployment/" + deploymentID},
+		{"wrong-device", "org/" + tenant + "/deployment/" + deploymentID + "/device/11111111-1111-4111-8111-111111111111"},
+		{"wrong-deployment", "org/" + tenant + "/deployment/11111111-1111-4111-8111-111111111111/device/" + deviceID},
+	} {
+		secretVectors = append(secretVectors, vec{
+			"name": "assign-resource-" + wrong.name + "-invalid", "stage": "device",
+			"signed_request_b64": assignSR(signedAssign, signAssignment(wrong.resource)),
+			"expect":             "invalid", "refusal": "resource",
+			"invalid_reason": "the signature and payload digest are valid, but target.resource does not name this assignment's deployment and device",
+		})
 	}
 	material["device_kem_ikm_hex"] = hex.EncodeToString(devIKM)
 	material["device_key_id"] = devKeyID
@@ -322,7 +337,7 @@ func main() {
 	// SignedSecretVersion: set_request 1 (SignedRequest: payload 1,
 	// payload_type 2, signature 3), chain_der 2. SetSecretRequest:
 	// organization_id 1, value 2 (SealedSecret).
-	setResource := "org/" + tenant + "/app/" + appID // placeholder: the readback check ignores resource
+	setResource := "org/" + tenant + "/app/" + appID // Pending Cloud agreement (WDY-4391); not a normative resource.
 	setSecret := func(k detSigner, leaf *cert, value []byte, nonce string) []byte {
 		p := cat(pbBytes(1, []byte(tenant)), pbBytes(2, value))
 		body := sha256.Sum256(p)
