@@ -565,13 +565,38 @@ message DeviceAssignment {
   // config_json, or it is above the limits: at most 64 secrets and 64 KiB of
   // values in total. REJECTED_UNWRAP covers every one of these; there is no
   // new ApplyOutcome value.
-  // It applies each as NAME=VALUE beside the configuration. Its postbox copy
-  // keeps the sealed form; values are in clear only where the app's
-  // environment needs them. Empty = no secrets in this revision.
+  // Container delivery: the agent writes each decrypted value to a private
+  // tmpfs for this app instance and mounts it read-only at /run/secrets.
+  // Each name is one regular file, /run/secrets/<name>, containing the exact
+  // plaintext bytes: preserve CR, LF and whitespace; never append a newline.
+  // Files are mode 0400, owned by the container's configured runtime UID;
+  // the directory is mode 0500 with the same owner. The agent accounts for
+  // user-namespace mappings. No other app receives this mount. A conflicting
+  // mount at /run/secrets or below it is refused, never allowed to hide or
+  // replace these files. The tmpfs mount uses nodev,nosuid,noexec and must
+  // not spill plaintext to unencrypted swap.
+  // Prepare every file and its permissions before starting the container;
+  // if preparation or mounting fails, report APPLY_FAILED and do not start
+  // the new instance. Never fall back to environment injection or disk.
+  // A revision changing the selected secrets recreates the mount and
+  // restarts the app; files are not updated in place. Stop the old instance
+  // before releasing its mount. Unmount and discard the tmpfs on stop,
+  // removal and failed startup; recreate it from the sealed assignment on
+  // restart. A detach that keeps the instance running keeps its mount until
+  // that instance stops. Empty = no secret files or secret mount.
+  // The postbox copy keeps the sealed form. Plaintext is never stored in the
+  // image, writable container layer, runtime config, logs or persisted
+  // environment. The agent does not create NAME or NAME_FILE variables.
+  // Apps read the files directly, or the operator supplies a non-secret path
+  // setting such as DATABASE_PASSWORD_FILE=/run/secrets/DATABASE_PASSWORD.
+  // NAME_FILE is an application convention. An app requiring NAME=VALUE may
+  // explicitly opt in through its own entrypoint adapter, reading the file
+  // into its process environment without persisting or logging the value.
   // An agent that predates this field would ignore it and run the app without
   // its secrets, so cloud holds back an assignment that carries secrets until
   // the device's pull lists "wendycloud.v2.DeviceAssignment.secrets" in
-  // PullChangesRequest.accepted_fields (postbox.proto).
+  // PullChangesRequest.accepted_fields (postbox.proto). Advertising this
+  // field means the agent implements these file-mount delivery rules.
   repeated DeviceSecret secrets = 15;
 }
 
@@ -921,8 +946,9 @@ message SecretInfo {
 // reused): AES-256-GCM, 12-byte random nonce, AAD length-prefixed over
 // tenant, app_id, name, version and secret_key_id
 // (conformance/registry/README.md, secret seal). Plaintext = the value,
-// UTF-8 without NUL, at most 16 KiB. Cloud stores it as sent and cannot open
-// it.
+// UTF-8 without NUL, at most 16 KiB. CR and LF are allowed, including in PEM
+// values; DeviceAssignment.secrets delivers the exact bytes as a file.
+// Cloud stores it as sent and cannot open it.
 message SealedSecret {
   string app_id = 1;
   string name = 2;

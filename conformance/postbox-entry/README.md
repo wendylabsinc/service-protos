@@ -203,10 +203,21 @@ and scope id `<app_id>/<name>/<version>`) gives the secret key, which opens the
 | name | stage | expect (`refusal`) |
 |---|---|---|
 | `assign-with-secret-valid` | device | valid: the signature holds and the secret opens to `expected_secrets` |
+| `assign-with-multiline-secret-valid` | device | valid: CRLF, LF, leading/trailing whitespace and no final newline survive decryption byte for byte |
 | `secret-ciphertext-tampered-invalid` | device | `body_sha256`: one bit of the sealed value flipped after signing |
 | `assign-resource-missing-device-invalid` | device | `resource`: valid signature, but the resource names only the deployment |
 | `assign-resource-wrong-device-invalid` | device | `resource`: valid signature, but the resource names another device |
 | `assign-resource-wrong-deployment-invalid` | device | `resource`: valid signature, but the resource names another deployment |
+
+The plaintext in `expected_secrets[].value` is the exact content of
+`/run/secrets/<name>`, without trimming, newline conversion or an appended
+newline. The multiline case uses synthetic PEM-shaped text, not a real key.
+The agent delivers these files through a private, read-only tmpfs mount as
+specified on `DeviceAssignment.secrets`. No environment variable is created
+automatically. An app may explicitly use an entrypoint adapter if it needs
+the value in its process environment. These vectors verify the signed
+assignment and decrypted bytes; container mount isolation, permissions and
+cleanup require agent runtime tests.
 
 `secret_readback_vectors[]` (WDY-4374): the operator client's check of a
 `SignedSecretVersion` (`wendycloud/v2/registry.proto`) from `GetMyWraps`,

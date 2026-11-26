@@ -289,12 +289,15 @@ func main() {
 	depWrap := wrap("deployment_wrap", 1, 1, deploymentID, deploymentKey)
 	md := sha256.Sum256([]byte("vector manifest"))
 	// DeviceAssignment fields 1-12 and 15 (registry.proto).
-	assignment := func(ct []byte) []byte {
+	assignmentWithSecret := func(value, deviceWrap []byte) []byte {
 		return cat(pbBytes(1, []byte(tenant)), pbBytes(2, []byte(deploymentID)), pbBytes(3, []byte(device)), pbBytes(4, []byte(appID)),
 			pbBytes(5, []byte("9e1f3a5c-7b2d-4c6e-8f0a-1b3d5e7f9a2c")), pbBytes(6, []byte("sha256:"+hex.EncodeToString(md[:]))),
 			pbBytes(7, []byte(hexID(deploymentKey))), pbVarint(8, 1), pbBytes(9, depWrap), pbBytes(10, pbVarint(1, iat+defaultTenantCap)),
 			pbBytes(11, []byte(`{"LOG_LEVEL":"info"}`)), pbVarint(12, 1),
-			pbBytes(15, cat(pbBytes(1, sealedSecret(ct)), pbBytes(2, secretWrap))))
+			pbBytes(15, cat(pbBytes(1, value), pbBytes(2, deviceWrap))))
+	}
+	assignment := func(ct []byte) []byte {
+		return assignmentWithSecret(sealedSecret(ct), secretWrap)
 	}
 	assignResource := "org/" + tenant + "/deployment/" + deploymentID + "/device/" + deviceID
 	signedAssign := assignment(sealed)
@@ -330,6 +333,28 @@ func main() {
 			"invalid_reason": "the signature and payload digest are valid, but target.resource does not name this assignment's deployment and device",
 		})
 	}
+	// A file secret preserves CRLF, LF, leading whitespace and the absence of
+	// a final newline. This is synthetic PEM-shaped text, not a private key.
+	const multilineName = "TLS_CERTIFICATE"
+	const multilineValue = "  -----BEGIN CERTIFICATE-----\r\nZml4dHVyZQ==\n-----END CERTIFICATE-----  "
+	multilineKey := seed("wendy-postbox-entry-vector-multiline-key-2026-11")
+	multilineKeyID := hexID(multilineKey)
+	multilineNonce := seed("wendy-postbox-entry-vector-multiline-nonce-2026-11")[:12]
+	multilineCT := must(cipher.NewGCM(must(aes.NewCipher(multilineKey)))).Seal(nil, multilineNonce, []byte(multilineValue), secretAAD(tenant, appID, multilineName, 1, multilineKeyID))
+	multilineSecret := cat(pbBytes(1, []byte(appID)), pbBytes(2, []byte(multilineName)), pbVarint(3, 1), pbBytes(4, []byte(multilineKeyID)), pbBytes(5, multilineNonce), pbBytes(6, multilineCT))
+	multilineWrap := wrap("multiline_wrap", 4, 3, appID+"/"+multilineName+"/1", multilineKey)
+	multilineAssign := assignmentWithSecret(multilineSecret, multilineWrap)
+	multilineBody := sha256.Sum256(multilineAssign)
+	multilineJWS := sign(opKey, opLeaf, map[string]any{
+		"aud": aud, "body_sha256": b64u(multilineBody[:]), "correlation_id": "b86135f0-7ca4-4c16-88c3-0df215cd2e6b",
+		"expiry": iat + 30, "iat": iat, "nonce": "f251c46b-b429-4cec-8b11-67a93f5426ad", "operation": assignDevice,
+		"target": map[string]any{"tenant": tenant, "resource": assignResource},
+	})
+	secretVectors = append(secretVectors, vec{
+		"name": "assign-with-multiline-secret-valid", "stage": "device", "expect": "valid",
+		"signed_request_b64": b64(cat(pbBytes(1, multilineAssign), pbBytes(2, []byte("wendycloud.v2.DeviceAssignment")), pbBytes(3, []byte(multilineJWS)))),
+		"expected_secrets":   []vec{{"name": multilineName, "version": 1, "value": multilineValue}},
+	})
 	material["device_kem_ikm_hex"] = hex.EncodeToString(devIKM)
 	material["device_key_id"] = devKeyID
 

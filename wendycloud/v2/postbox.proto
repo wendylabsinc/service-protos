@@ -137,7 +137,9 @@ message PullChangesRequest {
   // Cloud holds back an entry whose payload sets a field defined here until a
   // pull lists that field. Defined: "wendycloud.v2.DeviceAssignment.secrets"
   // (WDY-4374), so no agent runs an app without the secrets its assignment
-  // carries. Until delivery the device keeps what it last applied.
+  // carries. Advertising this field requires the read-only tmpfs file
+  // delivery defined on DeviceAssignment.secrets, not environment injection.
+  // Until delivery the device keeps what it last applied.
   repeated string accepted_fields = 4;
 }
 

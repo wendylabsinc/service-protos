@@ -192,6 +192,9 @@ message AppRelease {
   repeated string required_config_names = 11;
   // The secret names the app requires (WDY-4374), names only: the values are
   // app secrets (ArtifactRegistryService.SetSecret), never part of a release.
+  // The app reads each value from /run/secrets/<name>; delivery and file
+  // permissions are defined on DeviceAssignment.secrets. No environment
+  // variable is automatically created for a required secret.
   // None may also be a key of default_config_json or in
   // required_config_names (INVALID_ARGUMENT). Unlike required_config_names,
   // cloud enforces it: it refuses, with FAILED_PRECONDITION naming the
@@ -335,9 +338,10 @@ message DeploymentRevision {
   google.protobuf.Duration validity = 14;
   // The app secrets this revision's statements carry, one version per name
   // (DeviceAssignment.secrets). Replacing a secret makes a new version and
-  // never changes a recorded revision; a later revision picks it up. Cloud
-  // refuses a revision that names an unknown or removed version, names one
-  // secret twice, has a name that is also a key of its config_json, lacks a
+  // never changes a recorded revision; a later revision picks it up by
+  // recreating the secret mount and restarting the app (DeviceAssignment).
+  // Cloud refuses a revision that names an unknown or removed version, names
+  // one secret twice, has a name that is also a key of its config_json, lacks a
   // name its release requires (AppRelease.required_secret_names), or goes
   // above 64 secrets or 64 KiB of values in total.
   repeated SecretRef secrets = 15;
