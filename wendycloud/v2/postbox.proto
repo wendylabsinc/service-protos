@@ -124,9 +124,19 @@ message PullChangesRequest {
   // Page size. The server caps it; a full page means MORE ENTRIES REMAIN, so
   // page on has_more rather than treating one page as "all changes".
   uint32 limit = 2;
+  // The relayed operations (fully-qualified method names, as in the JWS
+  // `operation` claim) this agent accepts from its postbox. Empty from an
+  // agent that predates this field. Device-asserted and descriptive: it
+  // authorizes nothing, and the device still checks every entry. Cloud holds
+  // back an entry whose operation the pull does not list (a detach: see
+  // AssetApp.detach_state) and delivers it once a pull lists it.
+  repeated string accepted_operations = 3;
 }
 
 message PullChangesResponse {
+  // Byte cap: the server stops adding entries before the serialized response
+  // exceeds 2 MiB, and always returns at least one entry when one exists
+  // above after_entry_id (one entry is far below the cap), setting has_more.
   repeated PostboxEntry entries = 1;
   // pki-core's notarized checkpoint for this chain, byte-for-byte as pki-core
   // signed it. Empty when the chain has not been notarized yet (notarization is

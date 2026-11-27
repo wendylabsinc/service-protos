@@ -42,8 +42,65 @@ validity, set by the signing operator client inside the signed payload:
 |---|---|
 | `DeploymentService.CreateDeployment` | `CreateDeploymentRequest.valid_until` (8) |
 | `DeploymentService.ControlContainer` | `ControlContainerRequest.valid_until` (5) |
-| `ArtifactRegistryService.AssignDevice` | `DeviceAssignment.expires_at` (10), which already existed and cloud already requires |
-| `ArtifactRegistryService.UnassignDevice` | `UnassignDeviceRequest.valid_until` (4) |
+| `DeploymentService.AssignDevice`, and the deprecated `ArtifactRegistryService.AssignDevice` | `DeviceAssignment.expires_at` (10), which already existed and cloud already requires |
+| `DeploymentService.UnassignDevice`, and the deprecated `ArtifactRegistryService.UnassignDevice` | `UnassignDeviceRequest.valid_until` (4) |
+| `DeploymentService.DetachDevice` (only inside `DeleteAppRequest.device_detachments`) | `DetachDeviceRequest.valid_until` (5) |
+
+AssignDevice and UnassignDevice moved to `DeploymentService` (ruling D2,
+2026-11-12) and keep their payload types. The JWS `operation` claim names the
+called method, so the same statement can carry either name. Until the
+deprecated methods are removed, a device accepts both names for the same
+`payload_type` and nothing else. CreateDeploymentV2 and Update, Rollback and
+RemoveDeployment are never relayed and never on the device's list.
+
+Roll order (hard requirement): an agent that knows only the old names refuses
+an entry signed for the new ones and consumes it, so the statement is lost.
+(1) The agent first: both names, `config_json`, `revision`, `replaces_*` and
+the ordering rules on `DeviceAssignment` (registry.proto), and
+`DetachDevice` with its payload type `DetachDeviceRequest`, listed in
+`PullChangesRequest.accepted_operations`. (2) Then cloud:
+re-pin, the new RPCs, the old ones kept. (3) Then the clients.
+
+Detach (`DetachDeviceRequest`, registry.proto) is a third terminal statement
+alongside the removals below. It ends the deployment on the device at the
+maximum removal mark, but keeps the app there as a direct run. Whichever of a
+detach and a terminal removal the device applies first wins; the later one is
+a duplicate that deletes nothing.
+
+An agent lists the relayed operations it accepts in
+`PullChangesRequest.accepted_operations`. Cloud holds an accepted detach and
+delivers it only once the device's pull lists `DetachDevice`
+(`DETACH_STATE_WAITING_FOR_AGENT` until then: held, not refused). It does not
+re-send: an old agent moves past an entry it refuses and never asks for it
+again, so a detach is never delivered to one. Until delivery, or the end of
+the detach's validity, the device keeps the app as a deployment. A delivered
+detach that the device refuses is final (`DETACH_STATE_REFUSED`).
+
+Named limits:
+- A detach that expires or is refused before the device applies it leaves the
+  device holding the deleted deployment, which blocks a new app with the same
+  id there. The device owner removes the app locally or resets the device.
+- A compromised cloud can mark a device the caller can reach as `KIND_DETACH`,
+  so the operator signs a detach for that named device.
+- When a removal and a detach were both signed for one device, a compromised
+  cloud picks which arrives first.
+
+Removals come in two kinds (`UnassignDeviceRequest.revision`):
+
+- **Terminal** (RemoveDeployment, DeleteApp): the deployment itself ends. The
+  statement carries the maximum revision, 2147483647. The device's mark for
+  that deployment becomes the maximum, so it refuses every later assignment
+  for it, whatever cloud claims about revisions. Deployment ids are never
+  reused, so nothing is lost. No assignment may carry the maximum, so the
+  equal-revision rule cannot revive the deployment.
+- **Non-terminal** (an update that takes the device out, the old side of a
+  move): the deployment lives on and may take the device back later, so the
+  statement carries the deployment's current revision when it is signed (a
+  superseded removal that was never sent is re-signed at the current revision;
+  for a move it travels as `DeviceAssignment.replaces_revision`). Cloud keeps
+  such a device in the deployment until the removal is received. Here the
+  revision comes from cloud: a cloud that lies about the current revision can set the
+  mark too low to block a withheld older assignment. This is a named limit.
 
 **Why the payload and not a JWS claim:** the JWS claims are the call to cloud.
 They are shared by every verifier of the generic gate, and `expiry` already
@@ -59,7 +116,16 @@ Rules:
   2 months (60 days, 5 184 000 s), configurable per tenant in the cloud
   dashboard, never above the platform cap. Both are measured as
   `valid_until − iat` (the signed `iat`). The operator client defaults
-  `valid_until` to `iat` + the tenant cap.
+  `valid_until` to `iat` + the tenant cap, or to `iat` + the deployment's
+  validity for a DeviceAssignment.
+- **Removals and detaches** (`UnassignDeviceRequest`, including DeleteApp's
+  `device_removals`, and `DetachDeviceRequest`): the client defaults
+  `valid_until` to `iat` + the platform cap, and the tenant cap does not apply.
+  Only the platform cap does: a removal can only take something away, and a
+  detach removes nothing and grants nothing, so a long validity is the safe
+  direction. A device offline for longer than the platform cap misses the
+  statement and keeps the app as a deployment: a named limit of the
+  contract.
 - **Cloud, at accept** (on top of the generic gate, whose 30 s `expiry`
   stays): refuse when `valid_until` is absent (`validity_missing`; enforced
   once the CLI and console set it, see the contract ledger), above the
@@ -70,6 +136,7 @@ Rules:
   (`validity_missing`), `valid_until − iat` within the platform cap
   (`above_platform_cap`, so a cloud that skipped the accept check gains
   nothing), and trusted now `< valid_until` (`stale`; strict, like `expiry`).
+  The device tolerates 5 minutes (300 s) over the platform cap; Cloud does not.
   Trusted now is the TSA/checkpoint time when present, else the device clock.
 - **The device does not check the request `expiry` or the ±60 s `iat` window
   on a postbox entry.** Its former 10-minute `expiry − iat` cap is gone.
@@ -80,7 +147,8 @@ Rules:
 
 `{version, contract, generation, organization_id, device, aud,
 org_ca_cert_der_b64, verify_at, org_ca_vectors[], operator_ca_cert_der_b64,
-platform_cap_seconds, default_tenant_cap_seconds, validity_vectors[]}`. The
+platform_cap_seconds, device_cap_tolerance_seconds, default_tenant_cap_seconds,
+validity_vectors[]}`. The
 device holds `org_ca_cert_der_b64` (its tenant CA). Each invalid vector names
 the one check that must fail in `refusal`; the codes are vector labels, not
 wire values.
@@ -107,7 +175,8 @@ device's trusted time; at `accept`, `tenant_cap_seconds` is the tenant's cap.
 | `call-expiry-ignored-valid` | device | valid: the same entry 14 days later, long past the 30 s `expiry` |
 | `past-valid-until-invalid` | device | `stale`: trusted now = `valid_until` |
 | `valid-until-missing-invalid` | device | `validity_missing` |
-| `above-platform-cap-device-invalid` | device | `above_platform_cap`: `valid_until` = `iat` + 365 days + 1 s |
+| `platform-cap-tolerance-boundary-device-valid` | device | valid: `valid_until` = `iat` + 365 days + 5 min |
+| `above-platform-cap-device-invalid` | device | `above_platform_cap`: `valid_until` = `iat` + 365 days + 5 min + 1 s |
 | `tenant-cap-boundary-accept-valid` | accept | valid: `valid_until − iat` = the 60-day tenant cap |
 | `above-tenant-cap-accept-invalid` | accept | `above_tenant_cap`: 61 days against the 60-day cap |
 | `above-platform-cap-accept-invalid` | accept | `above_platform_cap`: 365 days + 1 s, tenant cap at the platform cap |

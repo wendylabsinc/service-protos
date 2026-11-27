@@ -4,6 +4,7 @@ package wendycloud.v2;
 
 import "google/protobuf/timestamp.proto";
 import "wendy/options.proto";
+import "wendycloud/v2/apps.proto";
 import "wendycloud/v2/signed_request.proto";
 
 service OrganizationService {
@@ -29,6 +30,10 @@ service OrganizationService {
     option (wendy.signed_request) = true;
   }
   // Signed; payload_type "wendycloud.v2.RemoveMemberRequest".
+  // Deprecated: cloud removes nobody (WDY-4301). Membership is wendy-auth's, and realm sign-in
+  // adds back anyone still in the realm, so every call is refused with FAILED_PRECONDITION after
+  // the caller's membership check: remove people in wendy-auth's member management. Kept for wire
+  // compatibility until its senders drop it; then it is removed and its name reserved.
   rpc RemoveMember(SignedRequest) returns (RemoveMemberResponse) {
     option (wendy.signed_request) = true;
   }
@@ -62,6 +67,17 @@ service OrganizationService {
   // through ownership instead. Changing either half does not affect current members.
   // Signed; payload_type "wendycloud.v2.SetMemberDefaultsRequest".
   rpc SetMemberDefaults(SignedRequest) returns (Organization) {
+    option (wendy.signed_request) = true;
+  }
+  // The organization's lifecycle settings for stored releases (spec 6.9,
+  // 6.10). Gate: as GetOrganization.
+  rpc GetLifecycleSettings(GetLifecycleSettingsRequest) returns (LifecycleSettings);
+  // Replaces the organization's default policy and per-app limit. Gate:
+  // `org:update`. Each value must not exceed the plan limit (INVALID_ARGUMENT
+  // naming it). Existing app overrides above a lowered limit are clamped when
+  // applied, not rewritten.
+  // Signed; payload_type "wendycloud.v2.SetLifecycleSettingsRequest".
+  rpc SetLifecycleSettings(SignedRequest) returns (LifecycleSettings) {
     option (wendy.signed_request) = true;
   }
 }
@@ -126,6 +142,14 @@ message OrganizationMember {
   // unresolved realm membership, or a viewer without device-access:list or full fleet access.
   // Uses the caller's token groups for self; current auth directory groups for other members.
   optional int32 device_access_count = 10;
+  // ListMembers only: the member's display name and email, as User.name and User.email, so one
+  // ListMembers call renders the member list without a GetUser per member. Read-only, filled by
+  // the server. Present empty means the server filled the field and has no value to give the
+  // caller: either the directory cannot name the member, or the caller may not read that
+  // member's profile (the same rule as UserService.GetUser). Absent means not filled, including
+  // older servers, and the client falls back to GetUser.
+  optional string name = 11;
+  optional string email = 12;
 }
 
 message CreateOrganizationRequest {
@@ -192,6 +216,7 @@ message RemoveMemberRequest {
 }
 
 message RemoveMemberResponse {
+  // Never true: RemoveMember is always refused (WDY-4301).
   bool success = 1;
 }
 
@@ -259,4 +284,32 @@ message TransferOwnershipRequest {
 message TransferOwnershipResponse {
   OrganizationMember new_owner = 1;
   OrganizationMember previous_owner = 2;
+}
+
+message GetLifecycleSettingsRequest {
+  string organization_id = 1;
+}
+
+message SetLifecycleSettingsRequest {
+  string organization_id = 1;
+  // The organization's default for apps without an override. A field unset
+  // inherits the platform default.
+  LifecyclePolicy default_policy = 2;
+  // The most an app override may set. A field unset means only the plan
+  // limit applies.
+  LifecyclePolicy per_app_limit = 3;
+}
+
+message LifecycleSettings {
+  // The plan's limit, every field set. Read-only: set by the platform and the
+  // subscription (the lower wins), never by the organization.
+  LifecyclePolicy plan_limit = 1;
+  // The organization's own stored default. A field unset follows
+  // platform_default.
+  LifecyclePolicy default_policy = 2;
+  LifecyclePolicy per_app_limit = 3;
+  // The platform's default policy, every field set. Applies to each field
+  // left unset in default_policy. Read-only: set by the platform, never by
+  // the organization; for display only.
+  LifecyclePolicy platform_default = 4;
 }

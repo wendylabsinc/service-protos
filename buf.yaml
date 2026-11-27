@@ -19,6 +19,8 @@ lint:
     - RPC_REQUEST_STANDARD_NAME
     - RPC_REQUEST_RESPONSE_UNIQUE
   ignore_only:
+    PACKAGE_DEFINED:
+      - wendylite/v1/wendy_com_msg.proto # Preserve existing WendyCom message names.
     PACKAGE_DIRECTORY_MATCH:
       - notifications.proto # Legacy import path used by existing clients.
       - organizations.proto # Legacy import path used by existing clients.
@@ -46,6 +48,7 @@ lint:
       - wendy/agent/services/v1/wendy_agent_v1_shell_service.proto
       - wendy/agent/services/v1/wendy_agent_v1_telemetry_service.proto
       - wendy/agent/services/v1/wendy_agent_v1_video_service.proto
+      - wendy/agent/services/v2/access_service.proto
       - wendy/agent/services/v2/agent_update_service.proto
       - wendy/agent/services/v2/audio_service.proto
       - wendy/agent/services/v2/bluetooth_service.proto

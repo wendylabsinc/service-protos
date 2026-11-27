@@ -52,6 +52,16 @@ service SecurityEventService {
   // never dispatched on). It grants, removes and changes NOTHING by itself: the receiver
   // re-reads (tenant_uuid, sub) through AuthFabric.ListRealmMembers and converges from that
   // answer. A receiver that does not know the type acks it and ignores it.
+  //
+  // Group membership removal (WDY-4292, event-type
+  // https://schemas.wendy.sh/secevent/group-membership-removed): "(realm, sub) left group
+  // <group>". Transmitter wendy-auth, receiver cloud only. Signed by the MEMBER'S realm,
+  // never the system realm, subject = per-event iss_sub. Body: event_timestamp,
+  // reason_admin (audit text, never dispatched on), group (the name exactly as the realm's
+  // groups token claim carries it) and seq (the same on every re-send of one removal;
+  // increasing per (tenant, sub, group) in commit order). It removes and never grants: a
+  // group is added only from the member's own verified token issued after the last removal
+  // (iat greater than that removal's event_timestamp). See conformance/set/README.md.
   rpc PushSecurityEvent(Envelope) returns (PushSecurityEventAck);
 }
 
