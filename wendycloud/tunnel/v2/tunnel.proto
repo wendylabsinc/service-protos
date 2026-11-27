@@ -498,15 +498,53 @@ message PresenceOfferAcknowledgement {
   reserved 3 to 15;
 }
 
+// Why an agent will not serve a session. A value names a condition of the
+// agent and nothing else: it identifies no user, organization, asset, service,
+// host or port, so it may cross the broker boundary. Receivers treat a value
+// they do not know as SESSION_REFUSAL_REASON_UNSPECIFIED.
+enum SessionRefusalReason {
+  // The agent gives no reason.
+  SESSION_REFUSAL_REASON_UNSPECIFIED = 0;
+
+  // The grant's signature and bindings hold, but its iat/exp window does not
+  // hold on the agent's clock. The usual cause is a wrong agent clock.
+  SESSION_REFUSAL_REASON_CLOCK = 1;
+
+  // The agent is at its limit of retained offers or live sessions.
+  SESSION_REFUSAL_REASON_BUSY = 2;
+
+  // Nothing accepted the agent's connection to the dial target.
+  SESSION_REFUSAL_REASON_SERVICE_UNREACHABLE = 3;
+
+  // The agent does not serve the decrypted dial instruction's service or
+  // transport.
+  SESSION_REFUSAL_REASON_UNSUPPORTED = 4;
+}
+
+// The agent will not serve an offer it received on this stream. It replaces the
+// acknowledgement, or follows it when the agent finds the reason only after
+// acknowledging (a failed dial, a full session limit). The agent has not joined
+// the session and will not.
+message PresenceOfferRefusal {
+  string offer_id = 1; // Exact opaque offer_id received from broker, 1..128 bytes.
+  string session_id = 2; // Exact opaque session_id in that offer, 1..128 bytes.
+  SessionRefusalReason reason = 3;
+  reserved 4 to 15;
+}
+
 message RegisterPresenceRequest {
   // State machine: first open, then exactly one proof, then zero or more
-  // renewals and offer acknowledgements. Traffic in any other order closes the
-  // stream. Acknowledgements are valid only after PresenceAccepted.
+  // renewals, offer acknowledgements and offer refusals. Traffic in any other
+  // order closes the stream. Acknowledgements are valid only after
+  // PresenceAccepted; refusals only after a PresenceAccepted that sets
+  // offer_refusal_supported.
   oneof message {
     PresenceOpen open = 1;
     PresenceProof proof = 2;
     PresenceRenewal renewal = 3;
     PresenceOfferAcknowledgement offer_acknowledgement = 4;
+    // Field 16: 5..15 stay reserved (buf breaking forbids un-reserving them).
+    PresenceOfferRefusal offer_refusal = 16;
   }
   reserved 5 to 15;
 }
@@ -521,6 +559,12 @@ message BrokerChallenge {
 message PresenceAccepted {
   google.protobuf.Timestamp lease_expires_at = 1; // Signed lease exp.
   google.protobuf.Timestamp renew_by = 2; // Advisory; never extends exp.
+
+  // True when this broker accepts PresenceOfferRefusal on this stream. A broker
+  // that predates the message closes the stream on it as invalid message
+  // order, so an agent MUST NOT send a refusal unless this is true.
+  // Field 16: 3..15 stay reserved (buf breaking forbids un-reserving them).
+  bool offer_refusal_supported = 16;
   reserved 3 to 15;
 }
 
@@ -614,6 +658,18 @@ message RegisterPresenceResponse {
 // role, consume grant jti, extend exp, or make the relay active. Agent JoinOpen
 // requires the matching offer to have been acknowledged; otherwise it fails
 // FAILED_PRECONDITION.
+//
+// An agent that will not serve an offer may say so with PresenceOfferRefusal
+// instead of leaving the caller to wait out admission exp. Broker accepts it
+// only from the proven owner of the session's route, with the offer's exact
+// offer_id and session_id, while the session is WAITING_FOR_ENDPOINTS. The
+// session then becomes TERMINAL: it is never redelivered, never becomes ACTIVE,
+// and its grant jti stays unconsumed. Broker reports the reason to the
+// caller with SessionRefused. A refusal that matches no waiting session of the
+// route (unknown, expired, already active or terminal, or another offer_id) is
+// ignored and never closes the stream. Broker sends the agent no reply. A
+// refusal is advisory for the caller: it grants nothing, and a caller treats it
+// exactly as a session that was never admitted.
 
 enum JoinRole {
   JOIN_ROLE_UNSPECIFIED = 0;
@@ -713,11 +769,24 @@ message JoinAccepted {
   reserved 3 to 15;
 }
 
+// Sent to the caller in place of JoinAccepted when the agent refused the
+// session's offer (PresenceOfferRefusal). Broker sends it only after it has
+// verified that stream's caller JoinProof, whether the refusal arrived before
+// or after the caller joined, and then ends the stream with
+// FAILED_PRECONDITION. It is the last message on the stream. A caller that
+// predates this message fails the join on an unknown response.
+message SessionRefused {
+  SessionRefusalReason reason = 1;
+  reserved 2 to 15;
+}
+
 message JoinSessionResponse {
   oneof message {
     BrokerChallenge challenge = 1;
     JoinAccepted accepted = 2;
     TunnelFrame frame = 3;
+    // Field 16: 4..15 stay reserved (buf breaking forbids un-reserving them).
+    SessionRefused refused = 16;
   }
   reserved 4 to 15;
 }
