@@ -55,7 +55,7 @@ Responses are unchanged.
 | claim | rule |
 |---|---|
 | `operation` | fully-qualified method, e.g. `wendycloud.v2.AssetService/CreateAsset`. Must equal the called method. |
-| `target` | `{tenant, ca?, resource}`. `tenant` = the signer's pki tenant UUID. `resource` follows the per-method table in cloud's `RequestSigning.md`. |
+| `target` | `{tenant, ca?, resource}`. `tenant` = the signer's pki tenant UUID. `resource` follows Cloud's per-method signing rules; see the confirmed assignment resource below. |
 | `body_sha256` | `base64url(SHA-256(payload))`, unpadded, computed over the `payload` bytes exactly as carried. Never re-serialize them. |
 | `nonce` | fresh and unpredictable, at most 256 bytes, single use per audience across all replicas. A request that fails any other check does not consume it. The server keeps it for `min(expiry, iat + 60s)`. |
 | `iat` / `expiry` | Unix seconds. `iat` within ±60 s of the server clock. `expiry` is strict: `now == expiry` is already expired. |
@@ -112,6 +112,7 @@ when the method carries one of the two options, and never both.
 |---|---|---|---|
 | `SignedRequest.signature` | operator leaf | `x5c` or `kid`; `kid` → `FAILED_PRECONDITION` "leaf not stored" means retry once with `x5c`, then fail loudly | request body |
 | `SignedRequest.signature` on `RegisterOperatorLeaf` and the postbox-relayed `DeploymentService.CreateDeployment` / `ControlContainer` / `AssignDevice` / `UnassignDevice` / `DetachDevice` (and the deprecated `ArtifactRegistryService.AssignDevice` / `UnassignDevice`), including each one in `DeleteAppRequest.device_removals` and `device_detachments`, which passes the full gate as an `UnassignDevice` or `DetachDevice` call (operation, resource, its own nonce claimed, iat/expiry at receipt) | operator leaf | `x5c` only; `kid` is refused (the postbox JWS is forwarded verbatim to devices in `PostboxEntry.request_jws`) | request body, then the postbox |
+| `SignedRequest.signature` on `ArtifactRegistryService.SetSecret` (WDY-4374) | operator leaf | `x5c` only; `kid` is refused (the request is served back verbatim to other operator clients in `SignedSecretVersion.set_request`, which they verify) | request body, then `GetMyWraps` |
 | `SignedRequest.signature` on the `wendy.device_signed_request` methods (`KeyDirectoryService.RegisterDeviceEncryptionKey`, `DevicePostboxService.AckHead`) | device leaf | `x5c` only, and it must be the mTLS peer | request body |
 | `SignedRequest.pki_management_request` (tier-3) | the same operator leaf | `x5c`, byte-equal to the resolved signature leaf | request body |
 | enrollment, over-duration request/approval/pickup JWS | operator leaf | its own format, verified by pki-core | a field of the signed payload |
@@ -139,6 +140,22 @@ the certificates and JWS were signed with OpenSSL `deterministic:1`. Rebuilding
 from the labels in `generation` with OpenSSL ≥ 3.5 and `buf convert` reproduces
 it byte for byte. **The labels are test private keys.** Real producers sign
 hedged (randomized), and verifiers cannot tell the difference.
+
+### Assignment resource
+
+For `DeploymentService/AssignDevice` and the deprecated
+`ArtifactRegistryService/AssignDevice`, `target.resource` is
+`org/<organization_id>/deployment/<deployment_id>/device/<device_uuid>`.
+UUIDs are lower-case. The device UUID comes from `DeviceAssignment.device`'s
+SPIFFE URI. This is Cloud's existing
+[assignment gate](https://github.com/wendylabsinc/cloud/blob/f00f3436a3f60773bfabb35ef8efe1c5dce2b1b8/swift/Sources/GRPCServices/DeviceStatements.swift#L978),
+also documented in its former `RequestSigning.md`. The
+`conformance/postbox-entry` vectors pin it and reject missing or mismatched
+device/deployment components.
+
+SetSecret's resource remains pending Cloud agreement in
+[WDY-4391](https://linear.app/wendylabsinc/issue/WDY-4391). Its current
+postbox-entry readback fixture uses a placeholder, not an agreed rule.
 
 ## Device-signer profile (WDY-3958)
 

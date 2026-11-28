@@ -21,7 +21,10 @@ consumers refuse it rather than truncate the length.
 | per-blob key (Q4 amendment, amended 2026-10-22 20:50) | `blob_key = HKDF-SHA256(IKM = content key, salt = none, info = UTF-8 bytes of EncryptedBlob.plaintext_digest ‖ u32 big-endian ArtifactManifest.chunk_size, L = 32)`. No salt means the RFC 5869 default (32 zero bytes). `plaintext_digest` is the string as carried, `sha256:<hex>`. Two blobs of one release get different keys, and so does one blob chunked at two sizes: without the chunk size in the key, re-chunking the same blob under the same content key would encrypt different bytes under the same key and nonce (GCM nonce reuse). An AAD would not prevent that; the key must differ. This changes the `per_blob_key` vectors first published in #141 (no consumer had shipped). | `per_blob_key` |
 | hybrid KEM (Q5) | HPKE base mode (RFC 9180), KEM `MLKEM768-X25519` (X-Wing, draft-ietf-hpke-pq, `kem_id` 0x647a), KDF HKDF-SHA256 (`0x0001`), AEAD AES-256-GCM (`0x0002`). `RegisterEncryptionKeyRequest.public_key` is the KEM's `SerializePublicKey` output (1216 bytes). `KeyWrap.enc` is the encapsulation, `KeyWrap.ciphertext` the sealed key with its tag. | `hybrid_kem` |
 | chunk AEAD | AES-256-GCM per chunk under the per-blob key. Nonce = 11-byte big-endian chunk index ‖ 1 byte last-chunk flag (`0x01` on the last chunk, else `0x00`). No AAD: the per-blob key already binds the blob. Ciphertext = the chunks' `ct‖tag` (16-byte tag) concatenated, nothing else. Every chunk holds `chunk_size` plaintext bytes except the last, which holds 1..`chunk_size`; an empty blob is one empty last chunk (16 bytes). Chunk index ≤ 2^32. A reader treats the chunk the ciphertext ends with as the last one, so truncation, reordering and splicing fail authentication. | `chunk_aead` |
-| key wrap | HPKE base mode with the suite above. `info = "wendy-registry-wrap-v1" ‖ lp(organization_id) ‖ u8 scope kind (1 = deployment_id, 2 = app_release_id) ‖ lp(scope id) ‖ lp(WrapScope.key_id) ‖ u8 recipient_kind (the RecipientKind enum value) ‖ lp(recipient) ‖ lp(recipient_key_id)`; `recipient` is empty for the custodian. AAD empty. Plaintext = the 32-byte deployment key (deployment scope) or content key (release scope). | `key_wrap` |
+| key wrap | HPKE base mode with the suite above. `info = "wendy-registry-wrap-v1" ‖ lp(organization_id) ‖ u8 scope kind (1 = deployment_id, 2 = app_release_id, 3 = secret_version) ‖ lp(scope id) ‖ lp(WrapScope.key_id) ‖ u8 recipient_kind (the RecipientKind enum value) ‖ lp(recipient) ‖ lp(recipient_key_id)`; `recipient` is empty for the custodian. AAD empty. Plaintext = the 32-byte deployment key (deployment scope), content key (release scope) or secret key (secret scope, WDY-4374). **A client never makes a custodian wrap at secret scope**, whatever recipients it is given; a wrap helper that adds the custodian for releases and deployments must not add it there. The registry's refusal of one is a tripwire only. A client that finds a custodian wrap at a secret scope treats that secret version as compromised: it refuses to use it (no wrap onward, never in a `DeviceAssignment`) and reports it to its operator. HPKE base mode does not authenticate the sender, so a secret-scope wrap is trusted only with the setter's signed `SetSecret` request (`SignedSecretVersion`, `wendycloud/v2/registry.proto`). | `key_wrap`; secret scope: `conformance/postbox-entry` `secret_vectors`, `secret_readback_vectors` |
+| secret seal (WDY-4374) | AES-256-GCM under the 32-byte secret key of one secret version (fresh per version), 12-byte random nonce in `SealedSecret.nonce`. `AAD = "wendy-secret-seal-v1" ‖ lp(organization_id) ‖ lp(app_id) ‖ lp(name) ‖ lp(version in decimal) ‖ lp(secret_key_id)`. Plaintext = the value (UTF-8, no NUL, at most 16 KiB); CR and LF are allowed. The agent mounts the exact bytes read-only at `/run/secrets/<name>` on a private tmpfs, as specified on `DeviceAssignment.secrets`. | `conformance/postbox-entry` `secret_vectors` |
+| session approval (WDY-4375) | ML-DSA-65 (FIPS 204, pure, empty context string) with the approving session's approval key (`RegisterEncryptionKeyRequest.approval_public_key`, the FIPS 204 public key encoding). Message = `"wendy-session-approval-v1"` ‖ `SignedSessionApproval.statement`, the serialized `SessionApproval` exactly as carried; a verifier checks the signature over the received bytes, then decodes. Root: `approver_key_id = key_id`, signed with the approved session's own approval key. | `session-vectors-v1.json`, `approval_vectors` |
+| session revocation (WDY-4375) | As session approval, with the revoking session's approval key. Message = `"wendy-session-revocation-v1"` ‖ `SignedSessionRevocation.statement`, the serialized `SessionRevocation` exactly as carried. Its own prefix, so an approval never verifies as a revocation. | `session-vectors-v1.json`, `revocation_vectors` |
 | sealed content key | AES-256-GCM under the 32-byte deployment key, 12-byte random nonce in `SealedContentKey.nonce` (fresh from a CSPRNG for every seal; the vector's fixed nonce is for the vector only). `AAD = "wendy-registry-seal-v1" ‖ lp(organization_id) ‖ lp(deployment_id) ‖ lp(manifest_digest) ‖ lp(content_key_id) ‖ lp(deployment_key_id)`. Plaintext = the 32-byte content key. | `sealed_content_key` |
 
 `hybrid_kem` pins the suite only. Its `info` and `aad` are labelled test
@@ -52,12 +55,53 @@ recipient_key_id). `sealed_content_key` vectors are opened with
 organization). A consumer that checks key ids before opening may refuse
 some of them earlier; either way they must not open.
 
+## Session signatures (WDY-4375)
+
+`session-vectors-v1.json` contains 15 `approval_vectors` and 14
+`revocation_vectors`. Each `signed_session_b64` is the serialized
+`SignedSessionApproval` or `SignedSessionRevocation`: field 1 is the exact
+statement bytes, field 2 is the ML-DSA-65 signature. Verify the appropriate
+prefix concatenated with the received statement bytes, with an empty ML-DSA
+context. Decode only after verification. The reverse-field-order valid cases
+ensure a verifier does not reserialize the statement before checking it.
+
+`sessions` contains test-only KEM seeds, public keys and their SHA-256 key
+ids, and approval-key seeds and public keys. A vector's `signer` selects an
+already verified registration. `expected_statement` gives the caller's
+organization, user, target key id and signer key id. `signer_key_id` means
+`approver_key_id` for approval and `revoker_key_id` for revocation.
+
+The checks model acceptance of the inner statement at ApproveSession or
+RevokeUserEncryptionKey. The target is a live registered session of the
+caller, waiting for approval or approved for revocation. `signer_live`,
+`signer_approved` and `has_prior_root` are trusted test preconditions from
+registration, approval-chain verification and membership history. They are
+not claims supplied by the session being approved or revoked. These vectors
+do not test the outer SignedRequest, registration certificate chains,
+approval-chain traversal or discovery of multiple roots. Historical approvals
+made by a now-revoked signer remain valid; the live check here applies only
+to accepting a new approval or revocation.
+
+Both sets cover another session and self, reordered protobuf fields, a wrong
+signing key, the other operation's prefix, a missing prefix, tampered
+statement/signature bytes, each of the four statement bindings, and waiting
+or revoked signers. Approval also rejects a new self-approved root after an
+earlier root was revoked. A first root may self-approve without an existing
+approved signer. A self-revocation still requires an approved signer.
+
+Invalid cases must fail with their exact `refusal`, not just any error.
+Those labels are conformance checks, not wire status values. Signing is
+deterministic only to make these test vectors reproducible; production
+signatures may use randomized ML-DSA signing.
+
 ## Files
 
-- `registry-vectors-v1.json`: the vectors.
-- `generate.go`: writes this file and `conformance/reqsig/device-signed-request-vectors-v1.json`.
+- `registry-vectors-v1.json`: registry encryption vectors.
+- `session-vectors-v1.json`: session approval and revocation vectors.
+- `generate.go`: writes both registry files and `conformance/reqsig/device-signed-request-vectors-v1.json`.
   `go run conformance/registry/generate.go conformance` (Go 1.27+, standard library only).
-- `verify.go`: checks every vector in both files against its `expect`.
+- `verify.go`: checks every vector in all three files against its `expect`,
+  including the exact session refusal labels and derived key material.
   `go run conformance/registry/verify.go conformance`.
 
 Keys come from `SHA-256(<label>)`; the labels in `generate.go` are test private

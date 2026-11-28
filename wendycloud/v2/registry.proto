@@ -33,6 +33,35 @@ import "wendycloud/v2/signed_request.proto";
 // operator device or browser generates and registers its own key, so one user
 // holds several live keys. A device that already holds a wrap re-wraps onward
 // (GetMyWraps, then AddWraps) for a device the same user signs in on later.
+//
+// Sessions and approval (WDY-4375, sem 2026-11-24 17:38). Each operator key
+// is one SESSION: one machine or browser of one user. A session is either
+// approved or waiting. Access is passed on by one action, whoever the target
+// is: a session that already holds wraps re-wraps them to another session,
+// and only because a person did it there (CLI or console). Two targets:
+// - Another session of the SAME user (approve a new session):
+//   KeyDirectoryService.ApproveSession records that it is approved, then the
+//   approving session passes on every wrap it holds (GetMyWraps listing,
+//   AddWraps). The newly approved session then passes on what it holds
+//   itself (wraps from before WDY-4375 included) to the user's other
+//   approved sessions, the same way.
+// - Another MEMBER (unlock an item): a member holding a wrap re-wraps it to
+//   the approved sessions of that member (GetRecipientKeys, AddWraps).
+// Approval is a SessionApproval signed with the approving session's approval
+// key, which no one but that session holds; Cloud stores and serves it and
+// cannot make one. A user's first session approves itself (the root). Nothing
+// is wrapped to a waiting session.
+// A login alone never approves (WDY-4375 round 2): revoking an approved
+// session needs a signature from an approved session of the same user
+// (RevokeUserEncryptionKeyRequest.revocation), and a user who has, or since
+// joining had, an approved session cannot make a new root. A user who lost
+// every approved session comes back only through an organization admin who
+// removes and re-adds the member; removal already revokes all their keys and
+// wraps. Members then unlock items for them as for anyone else.
+// Reads that find no wrap tell the client why (GetMyWrapsResponse.missing),
+// so it can show the right text.
+// Releases and deployments keep their custodian wraps; nothing here adds a
+// custodian path, and secrets never get one.
 
 // ==================== Key directory ====================
 
@@ -51,8 +80,53 @@ service KeyDirectoryService {
   // never replaces another device's key. Replacement applies to one device's
   // own key only. TODO(ruling): how a device's old key is retired when that
   // device rotates (no wire field ties two key ids to one device yet).
+  // A client may keep its key across a logout and a later login of the SAME
+  // account (WDY-4375 default D): registering the same public_key again is
+  // not a new session, and keeps its approval and its wraps. Registering it
+  // with an approval_public_key other than the one stored is refused
+  // (ALREADY_EXISTS); a key stored without one (a client that predates
+  // WDY-4375) takes one once. A revoked key_id is never accepted again
+  // (FAILED_PRECONDITION).
   // Signed; payload_type "wendycloud.v2.RegisterEncryptionKeyRequest".
   rpc RegisterUserEncryptionKey(SignedRequest) returns (RegisterEncryptionKeyResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Records one session of the caller as approved (WDY-4375). The approval is
+  // made and signed by the approving session (SignedSessionApproval); Cloud
+  // only stores it, then serves it in RecipientKey.approval. Cloud checks,
+  // refusing with FAILED_PRECONDITION: approval.user is the caller;
+  // approval.key_id is a live key of the caller that has an
+  // approval_public_key and no approval yet (ALREADY_EXISTS if approved);
+  // the signature verifies with the approver's approval_public_key; and
+  // either approver_key_id is another live, approved key of the caller (a
+  // session that approves must itself be approved), or approver_key_id equals
+  // key_id (the root) and the caller has never had an approved key in this
+  // organization since the member was last added (revoked keys count, so
+  // revoking every approved session never opens a new root; removing and
+  // re-adding the member resets it). Cloud's checks are a courtesy; clients
+  // check the same chain themselves (RecipientKey). The approving client then
+  // passes on its wraps with AddWraps, and the newly approved client passes on
+  // its own to the user's other approved sessions.
+  // Signed; payload_type "wendycloud.v2.ApproveSessionRequest".
+  rpc ApproveSession(SignedRequest) returns (ApproveSessionResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Ends one session of the caller (WDY-4375): the key stops being live, and
+  // every wrap addressed to it, at every scope, is deleted. A lost machine,
+  // or a sign-out that does not keep the key. Only the key's own user
+  // (FAILED_PRECONDITION for another user's key). A waiting key may be
+  // revoked from any session of the user. An approved key is revoked only
+  // with `revocation`, signed by an approved session of the same user (the
+  // key itself or another one), so a stolen login cannot clear the real
+  // sessions away (PERMISSION_DENIED without one, or when it does not verify
+  // with a live approved key's approval_public_key). Revoking the user's last
+  // approved session leaves the member without one: no new root is possible
+  // (ApproveSession), and the way back is an admin removing and re-adding the
+  // member. Approvals the key made earlier stay valid; it makes no new ones.
+  // Cloud does the same, with no revocation needed, for every key of a user
+  // whose membership of the organization ends.
+  // Signed; payload_type "wendycloud.v2.RevokeUserEncryptionKeyRequest".
+  rpc RevokeUserEncryptionKey(SignedRequest) returns (RevokeUserEncryptionKeyResponse) {
     option (wendy.signed_request) = true;
   }
   // A device registers the encryption key it generated at enrollment, over its
@@ -74,6 +148,17 @@ message RegisterEncryptionKeyRequest {
   string organization_id = 1;  // tenant UUID
   KemSuite suite = 2;
   bytes public_key = 3;
+  // User keys only (WDY-4375); a device key leaves both empty. The session's
+  // approval key: an ML-DSA-65 public key (FIPS 204 encoding) the session
+  // generates with public_key and keeps with it. It signs SessionApprovals
+  // and SessionRevocations, nothing else. A key registered without one can
+  // never be approved.
+  bytes approval_public_key = 4;
+  // What the user sees when asked to approve this session: the machine name
+  // (host name) or the browser, at most 64 UTF-8 bytes. Under the user's
+  // signature, so Cloud cannot change it. The registration's JWS iat is the
+  // time the session was registered.
+  string machine_name = 5;
 }
 
 message RegisterEncryptionKeyResponse {
@@ -83,6 +168,14 @@ message RegisterEncryptionKeyResponse {
 message GetRecipientKeysRequest {
   string organization_id = 1;
   repeated string principals = 2;  // device or user SPIFFE URIs
+  // Instead of principals (WDY-4375 G): every current member whose
+  // permissions reach this app, the same set as
+  // PublishArtifactResponse.auto_grant_keys. Cloud supplies these candidates
+  // only: the client verifies each key, wraps only to approved sessions, and
+  // shows the members' names in the review its operator confirms, all before
+  // it signs the publish, SetSecret or deployment that needs them. Setting
+  // both principals and app_id is INVALID_ARGUMENT.
+  string app_id = 3;
 }
 
 // The client trusts `registration` and `chain_der` only as far as they chain
@@ -98,21 +191,108 @@ message GetRecipientKeysRequest {
 // issuing CA fixes the algorithm: a leaf under the Device Identity CA signs
 // ML-DSA-65 only, a leaf under the Lite Device CA ES256 only; anything else is
 // refused (conformance/reqsig/README.md, device-signer profile).
+//
+// A user key is an APPROVED session (WDY-4375) only when its approval chain
+// verifies, checked by the client, never taken from Cloud: approval names
+// this organization, principal and key_id; its signature verifies with the
+// approval_public_key in the approver's verified registration (one of this
+// response's keys or approvers, same principal); and the approver is itself
+// approved, until a root (approver_key_id = key_id). All of one user's
+// approved keys chain to ONE root; a client that finds two refuses every key
+// of that user and tells its operator. A client that has wrapped to a member
+// before remembers that member's root key_id; when it changes (an admin
+// removed and re-added the member, the only way to a new root), it says so in
+// the review before it wraps. A waiting session (no approval, or one that
+// does not verify) is never wrapped to.
 message RecipientKey {
   string principal = 1;
   SignedRequest registration = 2;  // verbatim as registered
   // Intermediates from the signing leaf up to and including the tenant CA,
   // DER. The leaf itself is the `x5c` in `registration`.
   repeated bytes chain_der = 3;
+  // User keys only: this session's approval, verbatim as recorded by
+  // ApproveSession. Empty = waiting. After login, a client whose own key is
+  // waiting while another key of its user is approved asks the user to
+  // approve this session from that one.
+  SignedSessionApproval approval = 4;
 }
 
 message GetRecipientKeysResponse {
   // One entry per live key. A user principal appears once per registered
-  // operator device key; the client wraps to each of them.
+  // operator device key, waiting sessions included (each with an empty
+  // approval). The client wraps only to devices and approved sessions.
   repeated RecipientKey keys = 1;
   // Principals with no live registration (never registered, revoked, deleted):
   // the client refuses to target them.
   repeated string unbound = 2;
+  // Keys that are no longer live but approved a key in `keys`, directly or
+  // through another approver: served only so the client can verify approval
+  // chains. Never wrapped to.
+  repeated RecipientKey approvers = 3;
+}
+
+// One session approving another session of the same user, or itself as the
+// root (WDY-4375). Signed with the approver's approval key, never by Cloud.
+// Signature layout: conformance/registry/README.md, session approval.
+message SessionApproval {
+  string organization_id = 1;
+  // The user's SPIFFE URI: approver and approved session belong to it.
+  string user = 2;
+  // The approved session's key (RegisterEncryptionKeyResponse.key_id).
+  string key_id = 3;
+  // The approving session's key; equal to key_id for the root.
+  string approver_key_id = 4;
+}
+
+message SignedSessionApproval {
+  // A serialized SessionApproval: the exact bytes signed. Verify, then decode.
+  bytes statement = 1;
+  // ML-DSA-65 over the statement (conformance/registry/README.md).
+  bytes signature = 2;
+}
+
+message ApproveSessionRequest {
+  string organization_id = 1;
+  SignedSessionApproval approval = 2;
+}
+
+message ApproveSessionResponse {}
+
+message RevokeUserEncryptionKeyRequest {
+  string organization_id = 1;
+  string key_id = 2;
+  // Required when key_id is an approved session (WDY-4375 round 2); unset for
+  // a waiting one. Its statement names this organization, the caller and
+  // key_id.
+  SignedSessionRevocation revocation = 3;
+}
+
+// One approved session of a user ending an approved session of the same
+// user, itself included. Signed with the revoking session's approval key,
+// never by Cloud. Signature layout: conformance/registry/README.md, session
+// revocation.
+message SessionRevocation {
+  string organization_id = 1;
+  // The user's SPIFFE URI: both sessions belong to it.
+  string user = 2;
+  // The revoked session's key.
+  string key_id = 3;
+  // The revoking session's key, approved and live; equal to key_id when a
+  // session ends itself.
+  string revoker_key_id = 4;
+}
+
+message SignedSessionRevocation {
+  // A serialized SessionRevocation: the exact bytes signed. Verify, then
+  // decode.
+  bytes statement = 1;
+  // ML-DSA-65 over the statement (conformance/registry/README.md).
+  bytes signature = 2;
+}
+
+message RevokeUserEncryptionKeyResponse {
+  // Wraps deleted with the key.
+  uint32 removed_wraps = 1;
 }
 
 // ==================== Operator side ====================
@@ -136,13 +316,28 @@ service ArtifactRegistryService {
   rpc PutBlob(stream PutBlobRequest) returns (PutBlobResponse);
   // Attaches wraps and sealed content keys made client-side: release scope at
   // publish (publisher, pre-granted users, custodian), deployment scope at
-  // deployment create, operator invite and rotation. Device wraps travel in
+  // deployment create, operator invite and rotation; secret scope after
+  // SetSecret and whenever access passes on (same path and gate as the
+  // release scope; no client makes a CUSTODIAN wrap there, and AddWraps
+  // refuses one as a tripwire). Device wraps travel in
   // DeviceAssignment instead.
+  // Passing on (WDY-4375): a USER wrap is also accepted from a caller
+  // without the scope's write gate when, for each such wrap, the caller holds
+  // a live wrap at the same scope and key_id on one of its own keys, the
+  // recipient key is a live approved session (RecipientKey.approval), and the
+  // recipient may read the item (artifact:read in the app for a release or a
+  // secret; GetDeployment's gate for a deployment). This is how a session
+  // passes its wraps to a newly approved session of its user, and how a
+  // member unlocks an item, or every item of an app it holds, for another
+  // member. Refused with PERMISSION_DENIED otherwise. A client wraps only to
+  // recipients its operator saw: the approved session, or the member named
+  // in the unlock.
   // Signed; payload_type "wendycloud.v2.AddWrapsRequest".
   rpc AddWraps(SignedRequest) returns (AddWrapsResponse) {
     option (wendy.signed_request) = true;
   }
-  // Deletes wrap rows; needs no key. Operator removal.
+  // Deletes wrap rows; needs no key. Operator removal. A whole session's
+  // wraps go with KeyDirectoryService.RevokeUserEncryptionKey.
   // Signed; payload_type "wendycloud.v2.RemoveWrapsRequest".
   rpc RemoveWraps(SignedRequest) returns (RemoveWrapsResponse) {
     option (wendy.signed_request) = true;
@@ -152,6 +347,9 @@ service ArtifactRegistryService {
   // authenticated principal, never from the request), so an operator client
   // can unwrap a key to wrap it onward. A user has one key per device; each
   // device opens the wraps at its own recipient_key_id.
+  // With scope unset it lists every wrap the caller holds, paged, optionally
+  // narrowed to one app: what a session passes on when it approves another
+  // session, or when its member unlocks a whole app for someone (WDY-4375).
   rpc GetMyWraps(GetMyWrapsRequest) returns (GetMyWrapsResponse);
   // What the registry stores for one organization (apps and deployments spec
   // 6.8, G7): each release's artifact with its size, who published it and
@@ -164,6 +362,85 @@ service ArtifactRegistryService {
   // registry directly; the dashboard calls cloud, which forwards this same
   // call with the operator's identity.
   rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse);
+
+  // ==================== App secrets (WDY-4374) ====================
+  // Configuration splits in two (sem 2026-11-24 17:14): VARIABLES stay
+  // configuration (config_json, readable as today) and SECRETS are values
+  // Wendy must not be able to read. A secret belongs to one app (organization
+  // + app) and has a name. It is handled like a release's content key: the
+  // client encrypts the value under a fresh secret key (SealedSecret) and
+  // wraps that key with the existing wrap format (KeyWrap) to the operator
+  // keys that reach the app, at the secret scope (WrapScope.secret_version).
+  // Never to the custodian. The rule binds the CLIENT: a client never makes a
+  // CUSTODIAN wrap at the secret scope (WrapScope; conformance/registry/README.md,
+  // key wrap), so neither Cloud nor its KMS can open a secret. AddWraps also
+  // refuses one (INVALID_ARGUMENT), only as a tripwire: the guarantee is that
+  // no client makes one. A client that finds a CUSTODIAN wrap at a secret
+  // version's scope treats that version as compromised: it never uses it (no
+  // wrap onward, never in a DeviceAssignment), tells its operator, and reports
+  // it, naming the app, the secret name and the version; the secret is then set
+  // again as a new version.
+  // Devices get each secret in their signed DeviceAssignment (secrets).
+  //
+  // Names: one written rule for secret names and for configuration names (the
+  // keys of config_json), the agent's environment-name check: ASCII
+  // [A-Za-z_][A-Za-z0-9_]*; not starting, in any case, with LD_, DYLD_,
+  // WENDY_, ROS_ or OTEL_; not RMW_IMPLEMENTATION or CYCLONEDDS_URI (variables
+  // the agent sets itself). SetSecret refuses another name (INVALID_ARGUMENT);
+  // the device refuses an assignment that carries one.
+  // A name is never both a variable and a secret in one deployment revision.
+  // That is checked per revision only: Cloud refuses a revision whose
+  // config_json has a key that is also one of its secret names
+  // (DeploymentRevision.secrets), and the device refuses such an assignment
+  // (DeviceAssignment.secrets). SetSecret does not look at releases or
+  // deployments, so a variable moves to a secret while old releases and live
+  // deployments still carry it as a variable: set the secret, then a new
+  // revision drops the variable and carries the secret.
+  //
+  // Readback is names and metadata only (SecretInfo, SecretRef): no message
+  // returns a value in clear. The sealed value goes back only with the
+  // caller's own wraps (GetMyWraps), inside the setter's signed SetSecret
+  // request (SignedSecretVersion), so a key holder can wrap onward and Cloud
+  // cannot plant a value of its own.
+  //
+  // The console calls these same RPCs with its browser operator key (an
+  // ordinary RECIPIENT_KIND_USER key); nothing about secrets is CLI-only.
+
+  // Sets a NEW version of one secret: creating a name (version 1) and
+  // replacing its value (current version + 1) are the same call. Refused with
+  // ABORTED unless value.version is the current version + 1 (1 for a new
+  // name). A version never changes. Replacing a value does not touch any
+  // deployment: a new deployment revision picks the new version (SecretRef).
+  // Same gate as PublishArtifact for the app. Refused with FAILED_PRECONDITION
+  // while the app is being deleted. Order (WDY-4375 round 2): the client
+  // first calls GetRecipientKeys(app_id), keeps the approved sessions and
+  // shows their members in the review; only after its operator confirms does
+  // it sign and send SetSecret, then wrap the secret key with AddWraps to
+  // exactly the reviewed sessions and its own key. A version whose wraps
+  // never arrive has no Cloud rule: the client retries AddWraps, or the
+  // operator sets the secret again.
+  // Signed with `x5c` only (`kid` is refused): Cloud stores the request
+  // verbatim and serves it back as SignedSecretVersion.set_request, which is
+  // what lets a later client check who set the value.
+  // Signed; payload_type "wendycloud.v2.SetSecretRequest".
+  rpc SetSecret(SignedRequest) returns (SetSecretResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // Removes one secret name: every version, its sealed value and every wrap.
+  // Refused with FAILED_PRECONDITION, naming the deployments, while the
+  // current revision of a live deployment carries it: update those first.
+  // Devices keep what they last applied until a new revision reaches them. A
+  // rollback to a revision that carried a removed secret is refused
+  // (RollbackDeployment). Deleting the app removes its secrets. Same gate as
+  // SetSecret.
+  // Signed; payload_type "wendycloud.v2.RemoveSecretRequest".
+  rpc RemoveSecret(SignedRequest) returns (RemoveSecretResponse) {
+    option (wendy.signed_request) = true;
+  }
+  // The app's secrets at their current version, by name. Metadata only. Same
+  // gate as ListArtifacts (`artifact:read`). A read: not signed. There is no
+  // per-name history read.
+  rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
 
   // One signed statement per target device (Q7, sem 2026-10-19 01:15: one
   // signature per device, not per deployment), postbox-relayed verbatim to that
@@ -206,8 +483,9 @@ service ArtifactRegistryService {
 //   every assignment for that deployment_id is refused: none can be above it,
 //   and the equal-revision rule below applies only to an assignment's mark.
 // - At a revision equal to an assignment's mark, it accepts only identical
-//   app_release_id, manifest_digest, config_json, desired_state and replaces_*
-//   (deployment_key_id, device_wrap and expires_at may differ: key rotation),
+//   app_release_id, manifest_digest, config_json, desired_state, replaces_*
+//   and each secret's value (deployment_key_id, device_wrap, expires_at and each
+//   secret's device_wrap may differ: key rotation),
 //   and does not apply replaces_* again: the move was applied with the first
 //   copy. The replaces_* checks below apply only above the mark.
 // - One instance per app: it refuses an assignment for app_id while it holds
@@ -268,6 +546,66 @@ message DeviceAssignment {
   // replaced deployment's removal for this device.
   string replaces_deployment_id = 13;
   int32 replaces_revision = 14;
+  // The app's secrets for this device (WDY-4374): for each secret the
+  // revision carries (DeploymentRevision.secrets), the sealed value and the
+  // secret key wrapped to THIS device's registered encryption key. Nothing
+  // about secrets is sealed under the deployment key, whose custodian wrap
+  // stays as it is. Under the operator's signature like every other field.
+  // The signing client copies each value byte for byte from a
+  // SignedSecretVersion it has verified (GetMyWraps), never from anything
+  // unsigned: a value without a valid signed SetSecret request is never placed
+  // here.
+  // Cloud refuses the statement unless its (name, version) set equals the
+  // revision's, each value is byte-equal to the stored SealedSecret, and each
+  // device_wrap is to this device's live key at that secret's scope.
+  // The device opens each wrap (scope kind 3, conformance/registry/README.md)
+  // and each value, and refuses the whole assignment (REJECTED_UNWRAP) if one
+  // does not open, a name repeats, a name breaks the name rule
+  // (ArtifactRegistryService, app secrets), a name is also a key of
+  // config_json, or it is above the limits: at most 64 secrets and 64 KiB of
+  // values in total. REJECTED_UNWRAP covers every one of these; there is no
+  // new ApplyOutcome value.
+  // Container delivery: the agent writes each decrypted value to a private
+  // tmpfs for this app instance and mounts it read-only at /run/secrets.
+  // Each name is one regular file, /run/secrets/<name>, containing the exact
+  // plaintext bytes: preserve CR, LF and whitespace; never append a newline.
+  // Files are mode 0400, owned by the container's configured runtime UID;
+  // the directory is mode 0500 with the same owner. The agent accounts for
+  // user-namespace mappings. No other app receives this mount. A conflicting
+  // mount at /run/secrets or below it is refused, never allowed to hide or
+  // replace these files. The tmpfs mount uses nodev,nosuid,noexec and must
+  // not spill plaintext to unencrypted swap.
+  // Prepare every file and its permissions before starting the container;
+  // if preparation or mounting fails, report APPLY_FAILED and do not start
+  // the new instance. Never fall back to environment injection or disk.
+  // A revision changing the selected secrets recreates the mount and
+  // restarts the app; files are not updated in place. Stop the old instance
+  // before releasing its mount. Unmount and discard the tmpfs on stop,
+  // removal and failed startup; recreate it from the sealed assignment on
+  // restart. A detach that keeps the instance running keeps its mount until
+  // that instance stops. Empty = no secret files or secret mount.
+  // The postbox copy keeps the sealed form. Plaintext is never stored in the
+  // image, writable container layer, runtime config, logs or persisted
+  // environment. The agent does not create NAME or NAME_FILE variables.
+  // Apps read the files directly, or the operator supplies a non-secret path
+  // setting such as DATABASE_PASSWORD_FILE=/run/secrets/DATABASE_PASSWORD.
+  // NAME_FILE is an application convention. An app requiring NAME=VALUE may
+  // explicitly opt in through its own entrypoint adapter, reading the file
+  // into its process environment without persisting or logging the value.
+  // An agent that predates this field would ignore it and run the app without
+  // its secrets, so cloud holds back an assignment that carries secrets until
+  // the device's pull lists "wendycloud.v2.DeviceAssignment.secrets" in
+  // PullChangesRequest.accepted_fields (postbox.proto). Advertising this
+  // field means the agent implements these file-mount delivery rules.
+  repeated DeviceSecret secrets = 15;
+}
+
+// One secret in one DeviceAssignment.
+message DeviceSecret {
+  SealedSecret value = 1;
+  // recipient_kind DEVICE, recipient = the assignment's device, scope =
+  // value's secret_version, key_id = value.secret_key_id.
+  KeyWrap device_wrap = 2;
 }
 
 message AssignDeviceResponse {
@@ -374,6 +712,14 @@ message PublishArtifactResponse {
   // Users whose current permissions already reach every release of this app.
   // The publishing client wraps the content key to each of them at release
   // scope at publish, not on request (Q1 amendment, sem 2026-10-18 16:37).
+  // Kept for clients that predate WDY-4375, which behave as today: every
+  // live key is listed with its approval. A WDY-4375 client does not wait for
+  // this list: it calls GetRecipientKeys(app_id) (the same set) before it
+  // signs PublishArtifact, verifies each key, keeps the approved sessions
+  // (RecipientKey), shows their members in the publish review its operator
+  // confirms, and wraps to nobody else. Deploy follows the same order: the
+  // recipients of a new deployment key come from GetRecipientKeys(app_id),
+  // reviewed before the deployment is signed.
   repeated RecipientKey auto_grant_keys = 4;
 }
 
@@ -447,12 +793,170 @@ message ListArtifactsResponse {
 
 message GetMyWrapsRequest {
   string organization_id = 1;
+  // One item's scope. Unset = list every wrap the caller holds (paged).
   WrapScope scope = 2;
+  // The calling session's key (WDY-4375): only wraps to it are returned,
+  // and `missing` speaks about it. INVALID_ARGUMENT when it is not a live key
+  // of the caller. Empty = every one of the caller's keys, with no `missing`
+  // (a client that predates WDY-4375).
+  string recipient_key_id = 3;
+  // Listing only (scope unset): only scopes of this app (its releases,
+  // deployments and secrets). Empty = every app.
+  string app_id = 4;
+  // Listing only. 0 or less = 100. The server caps it at 500 wraps.
+  int32 page_size = 5;
+  // next_page_token of the previous page; empty = the first page.
+  string page_token = 6;
+}
+
+// Why the calling session holds no wrap for one item (WDY-4375), so the
+// client shows the right text. Cloud-asserted and for display only. The
+// client picks:
+// - session_approved false: "You cannot access <item> because this session
+//   has not been approved from your trusted device."
+// - else item_created_at before member_since: "<Item> has been
+//   uploaded/created before you joined <org> and is encrypted. Ask someone
+//   else with access to <item> to unlock it for you."
+// - else: "<Item> is encrypted and has not been unlocked for you. Ask
+//   someone with access to <item> to unlock it for you."
+// Before it shows the first text, the client makes one more GetMyWraps call
+// for the same scope with recipient_key_id empty: wraps held by the user's
+// other sessions. If none come back, nothing of the user's holds the item, and
+// it shows the second or third text instead.
+message MissingAccess {
+  // The calling session (GetMyWrapsRequest.recipient_key_id) has a recorded
+  // approval.
+  bool session_approved = 1;
+  // When the item's key at this scope's key_id was made: the release's
+  // publish, the deployment key's creation or rotation, the secret version's
+  // SetSecret.
+  google.protobuf.Timestamp item_created_at = 2;
+  // When the caller joined the organization (OrganizationMember.created_at).
+  google.protobuf.Timestamp member_since = 3;
 }
 
 message GetMyWrapsResponse {
   repeated KeyWrap wraps = 1;
   repeated SealedContentKey sealed_content_keys = 2;
+  // Secret scope only: the setter's signed SetSecret request for that
+  // version, returned with the caller's wraps so it can wrap the secret key
+  // onward (another operator key, a device) and copy the sealed value into
+  // DeviceAssignment.secrets unchanged. The value exists only inside the
+  // signed request, never as a bare SealedSecret. Empty when the caller holds
+  // no wrap at that scope.
+  repeated SignedSecretVersion secret_versions = 3;
+  // Set only when scope and recipient_key_id are set, that key holds no wrap
+  // at the scope, and the caller may read the item (the gate of AddWraps'
+  // passing on). For an item the caller may not read, or that does not
+  // exist, the response is empty and unset alike: nothing is said about it.
+  MissingAccess missing = 4;
+  // Listing only. Empty = the last page.
+  string next_page_token = 5;
+}
+
+// One secret version as its setter signed it, the way RecipientKey returns a
+// signed key registration: Cloud is an untrusted courier and can withhold a
+// version, never plant one. HPKE base mode does not authenticate who made a
+// wrap, so the client trusts a secret version only through this signature.
+// Before it wraps the key onward or copies the value into a
+// DeviceAssignment, the client checks, refusing the version at the first
+// failure:
+// - The JWS over set_request verifies with its `x5c` leaf (`kid` is refused),
+//   payload_type is "wendycloud.v2.SetSecretRequest", the JWS operation is
+//   "wendycloud.v2.ArtifactRegistryService/SetSecret", and body_sha256 matches
+//   the payload. Its nonce, iat window and expiry bound the call to Cloud and
+//   are not checked again here.
+// - The leaf is an operator certificate in the caller's own tenant chain: it
+//   chains through chain_der to the tenant CA, valid at the JWS iat, and that
+//   CA is anchored to the client-pinned platform root, never to the served
+//   chain alone (as for RecipientKey). The CA's tenant, the JWS
+//   target.tenant and SetSecretRequest.organization_id all equal the caller's
+//   organization.
+// - The signed SealedSecret names this app, secret name, version and
+//   secret_key_id: app_id, name and version equal the requested scope
+//   (WrapScope.secret_version), and secret_key_id equals the scope's key_id
+//   and SHA-256 of the key the caller's own wrap opens to.
+// - The ciphertext matches: the signed nonce and ciphertext open under that
+//   key with the secret seal AAD, and the SealedSecret the client places in a
+//   DeviceAssignment is byte-equal to the signed one.
+// A version that fails any check is never wrapped onward and never placed in
+// a DeviceAssignment; the client reports it to its operator.
+// The setter need not still be a member (WDY-4375 round 2): a secret outlives
+// its setter's membership and is never retyped for it. The chain check at the
+// signed iat is the whole check on the signer.
+// Vectors: conformance/postbox-entry, secret_readback_vectors.
+message SignedSecretVersion {
+  SignedRequest set_request = 1;  // verbatim as Cloud received it
+  // Intermediates from the signing leaf up to and including the tenant CA,
+  // DER. The leaf itself is the `x5c` in set_request.
+  repeated bytes chain_der = 2;
+}
+
+// ==================== App secrets ====================
+
+message SetSecretRequest {
+  string organization_id = 1;
+  // Its app_id, name and version say which secret version this sets.
+  SealedSecret value = 2;
+}
+
+message SetSecretResponse {
+  SecretInfo secret = 1;
+}
+
+message RemoveSecretRequest {
+  string organization_id = 1;
+  string app_id = 2;
+  string name = 3;
+}
+
+message RemoveSecretResponse {}
+
+message ListSecretsRequest {
+  string organization_id = 1;
+  string app_id = 2;
+  // 0 or less = 100. The server caps it at 500.
+  int32 page_size = 3;
+  // next_page_token of the previous page; empty = the first page.
+  string page_token = 4;
+}
+
+message ListSecretsResponse {
+  // Ordered by name.
+  repeated SecretInfo secrets = 1;
+  // Empty = the last page.
+  string next_page_token = 2;
+}
+
+// What anyone may read about a secret version: never its value.
+message SecretInfo {
+  string app_id = 1;
+  string name = 2;
+  int32 version = 3;
+  string secret_key_id = 4;
+  // The verified signer's SPIFFE URI on the SetSecret that made this version.
+  string set_by = 5;
+  // Empty once that user is deleted.
+  string set_by_user_id = 6;
+  google.protobuf.Timestamp set_at = 7;
+}
+
+// One secret version's value, encrypted on the client under that version's
+// own 32-byte secret key (fresh from a CSPRNG for every version, never
+// reused): AES-256-GCM, 12-byte random nonce, AAD length-prefixed over
+// tenant, app_id, name, version and secret_key_id
+// (conformance/registry/README.md, secret seal). Plaintext = the value,
+// UTF-8 without NUL, at most 16 KiB. CR and LF are allowed, including in PEM
+// values; DeviceAssignment.secrets delivers the exact bytes as a file.
+// Cloud stores it as sent and cannot open it.
+message SealedSecret {
+  string app_id = 1;
+  string name = 2;
+  // From 1.
+  int32 version = 3;
+  string secret_key_id = 4;  // SHA-256 (hex) of the secret key
+  bytes nonce = 5;
+  bytes ciphertext = 6;
 }
 
 // ==================== Artifact format ====================
@@ -523,16 +1027,26 @@ enum RecipientKind {
   // service account, so no service and no CI can open a custodian wrap; every
   // call is audit-logged and alerts (sem 2026-10-23, WDY-4007). The accepted
   // custodian key ids are config, not wire. The registry refuses a release or
-  // deployment with no CUSTODIAN wrap.
+  // deployment with no CUSTODIAN wrap. At secret scope no client ever makes a
+  // CUSTODIAN wrap (WrapScope); the registry's refusal there is a tripwire.
   RECIPIENT_KIND_CUSTODIAN = 3;
 }
 
 // What a wrap opens. Deployment scope: the deployment key. Release scope: the
 // content key itself, for release holders before any deployment exists (Q1).
+// Secret scope: one secret version's key (WDY-4374). A client NEVER makes a
+// CUSTODIAN wrap at the secret scope, whatever list of recipients it is given
+// (a wrap helper that adds the custodian for releases and deployments must
+// not add it here). AddWraps refusing one is a tripwire, not the guarantee. A
+// client that finds a CUSTODIAN wrap at a secret scope treats that secret
+// version as compromised: it refuses to use it (no wrap onward, never in a
+// DeviceAssignment) and reports it to its operator.
 message WrapScope {
   oneof scope {
     string deployment_id = 1;
     string app_release_id = 2;
+    // "<app_id>/<name>/<version>", version in decimal from 1.
+    string secret_version = 4;
   }
   // SHA-256 (hex) of the wrapped key; tells a stale wrap after rotation.
   string key_id = 3;

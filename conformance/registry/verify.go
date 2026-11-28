@@ -1,7 +1,7 @@
 //go:build ignore
 
 // Reference check for the vectors generate.go writes (WDY-3958): verifies every
-// device-signer, RecipientKey, head-ack read and registry vector against the rules in
+// device-signer, RecipientKey, head-ack read, registry and session vector against the rules in
 // conformance/reqsig/README.md and conformance/registry/README.md and exits
 // non-zero on any disagreement with its `expect`.
 // Run: go run conformance/registry/verify.go conformance
@@ -632,9 +632,85 @@ func main() {
 		report("sealed-content-key "+v["name"].(string), v["expect"].(string), err)
 	}
 
+	sessions := load(filepath.Join(dir, "registry", "session-vectors-v1.json"))
+	for name, raw := range sessions["sessions"].(map[string]any) {
+		s := raw.(map[string]any)
+		kem, err := hpke.MLKEM768X25519().DeriveKeyPair(hx(s, "kem_ikm_hex"))
+		if err == nil && (!bytes.Equal(kem.PublicKey().Bytes(), hx(s, "kem_public_key_hex")) ||
+			fmt.Sprintf("%x", sha256.Sum256(kem.PublicKey().Bytes())) != s["key_id"]) {
+			err = errors.New("session key id")
+		}
+		report("session-material-"+name+"-kem", "valid", err)
+		key, err := mldsa.NewPrivateKey(mldsa.MLDSA65(), hx(s, "approval_seed_hex"))
+		if err == nil && !bytes.Equal(key.PublicKey().Bytes(), hx(s, "approval_public_key_hex")) {
+			err = errors.New("approval public key")
+		}
+		report("session-material-"+name+"-approval", "valid", err)
+	}
+	for _, kind := range []string{"approval", "revocation"} {
+		for _, raw := range sessions[kind+"_vectors"].([]any) {
+			v := raw.(map[string]any)
+			err := verifySession(sessions, v, kind)
+			expect := v["expect"].(string)
+			if want, _ := v["refusal"].(string); want != "" && err != nil && err.Error() != want {
+				expect = "refusal " + want
+			}
+			report(v["name"].(string), expect, err)
+		}
+	}
+
 	if failed > 0 {
 		fmt.Printf("%d vector(s) disagree with expect\n", failed)
 		os.Exit(1)
 	}
 	fmt.Println("all vectors agree with expect")
+}
+
+// verifySession checks the inner signature and statement binding at RPC accept.
+// The fixture's signer is a registration already verified by the caller; its
+// live/approved flags and root history are preconditions, not signed claims.
+func verifySession(top, v map[string]any, kind string) error {
+	raw, err := base64.StdEncoding.DecodeString(v["signed_session_b64"].(string))
+	if err != nil {
+		return err
+	}
+	envelope, err := fields(raw)
+	if err != nil || len(envelope[1]) != 1 || len(envelope[2]) != 1 {
+		return errors.New("envelope")
+	}
+	session := top["sessions"].(map[string]any)[v["signer"].(string)].(map[string]any)
+	pk, err := mldsa.NewPublicKey(mldsa.MLDSA65(), hx(session, "approval_public_key_hex"))
+	if err != nil {
+		return err
+	}
+	message := append([]byte("wendy-session-"+kind+"-v1"), one(envelope, 1)...)
+	if mldsa.Verify(pk, message, one(envelope, 2), nil) != nil {
+		return refusal("signature")
+	}
+	// Verify the received bytes before decoding. Re-encoding these fields in
+	// numeric order would reject the valid reverse-order fixture.
+	statement, err := fields(one(envelope, 1))
+	if err != nil {
+		return err
+	}
+	want := v["expected_statement"].(map[string]any)
+	for i, field := range []string{"organization_id", "user", "key_id", "signer_key_id"} {
+		if len(statement[i+1]) != 1 || string(one(statement, i+1)) != want[field] {
+			return refusal("binding")
+		}
+	}
+	if string(one(statement, 4)) != session["key_id"] {
+		return refusal("binding")
+	}
+	if v["signer_live"] != true {
+		return refusal("signer_not_live")
+	}
+	if kind == "approval" && bytes.Equal(one(statement, 3), one(statement, 4)) {
+		if v["has_prior_root"] == true {
+			return refusal("root_already_exists")
+		}
+	} else if v["signer_approved"] != true {
+		return refusal("signer_not_approved")
+	}
+	return nil
 }
